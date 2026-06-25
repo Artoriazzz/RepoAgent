@@ -125,7 +125,10 @@ def build_repo_tools(workspace: RepoWorkspace) -> list[Tool]:
         target = workspace.resolve(path)
         content = target.read_text(encoding="utf-8", errors="replace")
         workspace.remember_read(target)
-        return ToolResponse.success(_number_lines(content), {"path": path})
+        text, range_data = _slice_numbered_lines(content, inp)
+        data = {"path": path}
+        data.update(range_data)
+        return ToolResponse.success(text, data)
 
     def write_file(inp: dict) -> ToolResponse:
         path = inp["path"]
@@ -211,10 +214,16 @@ def build_repo_tools(workspace: RepoWorkspace) -> list[Tool]:
         ),
         build_tool(
             name="read_file",
-            description="Read a file from the repository with line numbers.",
-            parameters=[ToolParameter("path", "string", "Path relative to the repository root")],
+            description="Read a file from the repository with line numbers. Supports optional line ranges.",
+            parameters=[
+                ToolParameter("path", "string", "Path relative to the repository root"),
+                ToolParameter("start_line", "integer", "1-based first line to read", required=False),
+                ToolParameter("end_line", "integer", "1-based final line to read, inclusive", required=False),
+                ToolParameter("offset", "integer", "Alias for start_line", required=False),
+                ToolParameter("limit", "integer", "Maximum number of lines to read", required=False),
+            ],
             handler=read_file,
-            prompt="修改已有文件前必须先调用 read_file；返回内容带行号，编辑时不要把行号写回文件。",
+            prompt="修改已有文件前必须先调用 read_file；可用 start_line/end_line 或 offset/limit 精确读取；返回内容带行号，编辑时不要把行号写回文件。",
             is_concurrency_safe=True,
             is_read_only=True,
             source=ToolSource.BUILTIN,
@@ -288,6 +297,48 @@ def _number_lines(content: str) -> str:
     if content.endswith("\n"):
         lines.append("")
     return "\n".join(f"{index + 1:4d} | {line}" for index, line in enumerate(lines))
+
+
+def _slice_numbered_lines(content: str, inp: dict) -> tuple[str, dict]:
+    lines = content.splitlines()
+    if content.endswith("\n"):
+        lines.append("")
+    total_lines = len(lines)
+    start_line = _optional_positive_int(inp.get("start_line"))
+    end_line = _optional_positive_int(inp.get("end_line"))
+    offset = _optional_positive_int(inp.get("offset"))
+    limit = _optional_positive_int(inp.get("limit"))
+
+    if start_line is None and offset is not None:
+        start_line = offset
+    if start_line is None:
+        start_line = 1
+    if end_line is None and limit is not None:
+        end_line = start_line + limit - 1
+    if end_line is None:
+        end_line = total_lines
+    if end_line < start_line:
+        raise ValueError("end_line must be greater than or equal to start_line.")
+
+    bounded_start = min(start_line, total_lines + 1)
+    bounded_end = min(end_line, total_lines)
+    selected = lines[bounded_start - 1 : bounded_end]
+    text = "\n".join(f"{index:4d} | {line}" for index, line in enumerate(selected, start=bounded_start))
+    return text, {
+        "start_line": bounded_start,
+        "end_line": bounded_end,
+        "total_lines": total_lines,
+        "truncated": bounded_start != 1 or bounded_end != total_lines,
+    }
+
+
+def _optional_positive_int(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    parsed = int(value)
+    if parsed < 1:
+        raise ValueError("Line range values must be positive integers.")
+    return parsed
 
 
 def _paths_from_patch(patch: str) -> list[str]:

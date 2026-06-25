@@ -57,3 +57,53 @@ def test_write_file_detects_external_change_after_read(tmp_path):
     assert response.status == "error"
     assert response.error["code"] == "STALE_READ"
     assert target.read_text(encoding="utf-8") == "external\n"
+
+
+def test_read_file_supports_line_ranges(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "README.md").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
+
+    registry = ToolRegistry()
+    register_repo_tools(registry, RepoWorkspace(repo, tmp_path / "out"))
+
+    response = registry.execute("read_file", {"path": "README.md", "start_line": 2, "end_line": 3})
+
+    assert response.status == "success"
+    assert "   2 | two" in response.text
+    assert "   3 | three" in response.text
+    assert "   1 | one" not in response.text
+    assert response.data["total_lines"] == 5
+    assert response.data["truncated"] is True
+
+
+def test_read_file_offset_limit_counts_as_read_for_patch(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE)
+    subprocess.run(["git", "config", "user.name", "RepoAgent Test"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "repoagent@example.test"], cwd=repo, check=True)
+    (repo / "README.md").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, stdout=subprocess.PIPE)
+
+    registry = ToolRegistry()
+    register_repo_tools(registry, RepoWorkspace(repo, tmp_path / "out"))
+
+    read_response = registry.execute("read_file", {"path": "README.md", "offset": 2, "limit": 1})
+    assert read_response.status == "success"
+    assert "   2 | two" in read_response.text
+
+    patch = """diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,3 @@
+ one
+-two
++TWO
+ three
+"""
+    patch_response = registry.execute("apply_patch", {"patch": patch})
+
+    assert patch_response.status == "success"
+    assert (repo / "README.md").read_text(encoding="utf-8") == "one\nTWO\nthree\n"
