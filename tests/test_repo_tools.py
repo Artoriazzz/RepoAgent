@@ -9,6 +9,8 @@ def test_repo_tools_write_diff_and_finish(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE)
+    subprocess.run(["git", "config", "user.name", "RepoAgent Test"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "repoagent@example.test"], cwd=repo, check=True)
     (repo / "README.md").write_text("old\n", encoding="utf-8")
     subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, stdout=subprocess.PIPE)
