@@ -25,6 +25,7 @@ class MemoryType(str, Enum):
     FEEDBACK = "feedback"
     PROJECT = "project"
     REFERENCE = "reference"
+    REPAIR_RECIPE = "repair_recipe"
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,18 @@ class MemoryStore:
         base = Path(root or os.environ.get("REPOAGENT_HOME", Path.home() / ".repoagent"))
         return cls(base / "projects" / project_hash / "memory")
 
+    @classmethod
+    def for_scope(cls, scope: str, root: str | Path | None = None) -> "MemoryStore":
+        """按稳定逻辑 scope 共享记忆，例如 `repo:astropy/astropy`。
+
+        SWE-bench 这类实验会为每个 instance 创建不同 checkout 路径，不能用路径 hash
+        作为长期记忆边界；scope 让同一仓库或同一实验组可以复用抽象 repair recipe。
+        """
+        scope_key = _slugify(scope)
+        scope_hash = hashlib.sha256(scope.encode("utf-8")).hexdigest()[:8]
+        base = Path(root or os.environ.get("REPOAGENT_HOME", Path.home() / ".repoagent"))
+        return cls(base / "scopes" / f"{scope_key}-{scope_hash}" / "memory")
+
     def save_memory(self, name: str, description: str, type: str, content: str) -> str:
         memory_type = MemoryType(type)
         self.memory_dir.mkdir(parents=True, exist_ok=True)
@@ -87,6 +100,43 @@ class MemoryStore:
         self.update_index()
         return filename
 
+    def update_memory(
+        self,
+        filename: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        content: str | None = None,
+    ) -> str:
+        path = self._resolve_memory_path(filename)
+        parsed = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
+        meta = dict(parsed.meta)
+        if name is not None:
+            meta["name"] = name
+        if description is not None:
+            meta["description"] = description
+        if content is None:
+            content = parsed.body
+        meta["updated_at"] = _now_iso()
+        path.write_text(format_frontmatter(meta, content), encoding="utf-8")
+        self.update_index()
+        return path.name
+
+    def similar_repair_recipes(self, name: str, description: str, limit: int = 3) -> list[MemoryHeader]:
+        query_terms = _similarity_terms(f"{name} {description}")
+        if not query_terms:
+            return []
+        scored: list[tuple[int, float, MemoryHeader]] = []
+        for header in self.list_memories():
+            if header.type != MemoryType.REPAIR_RECIPE:
+                continue
+            haystack = f"{header.filename} {header.name} {header.description}".lower()
+            score = sum(1 for term in query_terms if term in haystack)
+            threshold = 2 if len(query_terms) <= 4 else 3
+            if score >= threshold:
+                scored.append((score, header.mtime, header))
+        return [header for _, _, header in sorted(scored, key=lambda item: (-item[0], -item[1]))[:limit]]
+
     def list_memories(self) -> list[MemoryHeader]:
         if not self.memory_dir.is_dir():
             return []
@@ -100,13 +150,7 @@ class MemoryStore:
         return memories
 
     def read_memory(self, filename: str) -> str:
-        path = (self.memory_dir / filename).resolve()
-        try:
-            path.relative_to(self.memory_dir.resolve())
-        except ValueError as exc:
-            raise ValueError(f"Memory path escapes memory directory: {filename}") from exc
-        if not path.is_file():
-            raise FileNotFoundError(filename)
+        path = self._resolve_memory_path(filename)
         return _limit_bytes(path.read_text(encoding="utf-8", errors="replace"), MAX_MEMORY_BYTES_PER_FILE)
 
     def load_index(self) -> str:
@@ -119,6 +163,15 @@ class MemoryStore:
             content = "\n".join(lines[:MAX_INDEX_LINES]) + "\n\n[... truncated, too many memory entries ...]"
         return _limit_bytes(content, MAX_INDEX_BYTES)
 
+    def format_index(self, excluded_types: set[MemoryType] | None = None) -> str:
+        lines = ["# Memory Index", ""]
+        excluded = excluded_types or set()
+        for memory in self.list_memories():
+            if memory.type in excluded:
+                continue
+            lines.append(f"- **[{memory.name}]({memory.filename})** ({memory.type.value}) — {memory.description}")
+        return "\n".join(lines).rstrip() + "\n"
+
     def update_index(self) -> None:
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         lines = ["# Memory Index", ""]
@@ -126,8 +179,8 @@ class MemoryStore:
             lines.append(f"- **[{memory.name}]({memory.filename})** ({memory.type.value}) — {memory.description}")
         (self.memory_dir / "MEMORY.md").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
-    def build_prompt_section(self) -> str:
-        index = self.load_index()
+    def build_prompt_section(self, excluded_types: set[MemoryType] | None = None) -> str:
+        index = self.format_index(excluded_types) if excluded_types else self.load_index()
         body = f"""# Memory System
 
 你拥有一个跨会话的文件式长期记忆目录：`{self.memory_dir}`。
@@ -137,11 +190,13 @@ class MemoryStore:
 - `feedback`：用户对 Agent 行为的纠正或肯定，正文必须包含 Why 和 How to apply。
 - `project`：无法从当前仓库推导的项目动态、决策、截止日期；相对日期必须写成绝对日期。
 - `reference`：外部系统或资料的位置，例如 CI 面板、部署平台、设计文档 URL。
+- `repair_recipe`：成功修复案例抽象出的可复用策略，只记录问题识别、修复思路、验证契约和反模式。
 
 ## What To Save
 - 只保存无法通过读取当前仓库、Git 历史或项目指令重新推导的信息。
 - 用户明确说“记住”“以后都这样”“我的偏好是”时，优先考虑保存。
-- 使用 `save_memory` 保存长期记忆，使用 `list_memories` / `read_memory` / `search_memories` 查看长期记忆。
+- 成功修复后的 `repair_recipe` 必须是抽象策略，不得保存完整 diff、具体 instance、gold patch、hidden test 或一次性文件路径。
+- 使用 `save_memory` 保存新长期记忆，使用 `update_memory` 改进已有长期记忆，使用 `list_memories` / `read_memory` / `search_memories` 查看长期记忆。
 
 ## What NOT To Save
 - 不保存代码结构、技术栈、文件路径、测试命令、Git 历史和一次性任务细节。
@@ -157,9 +212,15 @@ class MemoryStore:
         already_surfaced: set[str] | None = None,
         side_query: SideQueryFn | None = None,
         limit: int = MAX_RECALLED_MEMORIES,
+        memory_type: MemoryType | None = None,
+        excluded_types: set[MemoryType] | None = None,
     ) -> list[RecalledMemory]:
         already = already_surfaced or set()
         headers = [header for header in self.list_memories() if str(header.path) not in already]
+        if memory_type is not None:
+            headers = [header for header in headers if header.type == memory_type]
+        if excluded_types:
+            headers = [header for header in headers if header.type not in excluded_types]
         if not headers or not query.strip():
             return []
 
@@ -173,8 +234,14 @@ class MemoryStore:
             recalled.append(RecalledMemory(header=header, content=content, warning=memory_freshness_warning(header.mtime)))
         return recalled
 
-    def search(self, query: str, limit: int = MAX_RECALLED_MEMORIES) -> list[MemoryHeader]:
-        return _select_by_keywords(query, self.list_memories())[:limit]
+    def recall_repair_recipes(self, query: str, limit: int = 3, side_query: SideQueryFn | None = None) -> list[RecalledMemory]:
+        return self.recall(query, side_query=side_query, limit=limit, memory_type=MemoryType.REPAIR_RECIPE)
+
+    def search(self, query: str, limit: int = MAX_RECALLED_MEMORIES, memory_type: MemoryType | None = None) -> list[MemoryHeader]:
+        headers = self.list_memories()
+        if memory_type is not None:
+            headers = [header for header in headers if header.type == memory_type]
+        return _select_by_keywords(query, headers)[:limit]
 
     def _read_header(self, path: Path) -> MemoryHeader | None:
         content = path.read_text(encoding="utf-8", errors="replace")
@@ -192,6 +259,16 @@ class MemoryStore:
             type=memory_type,
             mtime=path.stat().st_mtime,
         )
+
+    def _resolve_memory_path(self, filename: str) -> Path:
+        path = (self.memory_dir / filename).resolve()
+        try:
+            path.relative_to(self.memory_dir.resolve())
+        except ValueError as exc:
+            raise ValueError(f"Memory path escapes memory directory: {filename}") from exc
+        if not path.is_file():
+            raise FileNotFoundError(filename)
+        return path
 
 
 def format_memories_for_injection(memories: list[RecalledMemory]) -> str:
@@ -259,6 +336,41 @@ def _query_terms(query: str) -> set[str]:
     cjk = "".join(re.findall(r"[\u4e00-\u9fff]+", query))
     terms.update(cjk[index : index + 2] for index in range(max(0, len(cjk) - 1)))
     return {term for term in terms if len(term) > 1}
+
+
+_SIMILARITY_STOPWORDS = {
+    "and",
+    "the",
+    "for",
+    "with",
+    "must",
+    "should",
+    "usually",
+    "require",
+    "requires",
+    "required",
+    "fix",
+    "fixes",
+    "cover",
+    "covers",
+    "support",
+    "supports",
+    "behavior",
+    "behaviour",
+    "checks",
+    "check",
+    "consistent",
+    "consistently",
+    "repair_recipe",
+}
+
+
+def _similarity_terms(query: str) -> set[str]:
+    return {
+        term
+        for term in _query_terms(query)
+        if len(term) >= 4 and term not in _SIMILARITY_STOPWORDS
+    }
 
 
 def _slugify(value: str) -> str:

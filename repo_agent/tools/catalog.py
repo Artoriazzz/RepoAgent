@@ -22,6 +22,7 @@ class ToolImportContext:
     enable_github: bool = True
     enable_memory: bool = True
     memory_root: Path | None = None
+    memory_store: MemoryStore | None = None
     simple_mode: bool = False
     denied_tools: set[str] = field(default_factory=set)
 
@@ -51,7 +52,7 @@ def get_all_base_tool_bundles(context: ToolImportContext) -> list[ToolBundle]:
                 name="memory",
                 source=ToolSource.BUILTIN,
                 build=lambda ctx: build_memory_tools(
-                    MemoryStore.for_project(ctx.workspace.repo_path, root=ctx.memory_root)
+                    ctx.memory_store or MemoryStore.for_project(ctx.workspace.repo_path, root=ctx.memory_root)
                 ),
             )
         )

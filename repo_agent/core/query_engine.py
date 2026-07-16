@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from repo_agent.core.context import ConversationContextManager
 from repo_agent.core.llm import ChatLLM
-from repo_agent.core.memory import MAX_SESSION_MEMORY_BYTES, MemoryStore, format_memories_for_injection
+from repo_agent.core.memory import MAX_SESSION_MEMORY_BYTES, MemoryStore, MemoryType, format_memories_for_injection
 from repo_agent.core.prompts import build_system_prompt
 from repo_agent.core.query_loop import AbortSignal, LoopEvent, LoopEventType, query_loop
 from repo_agent.core.session_memory import ShortTermMemory
@@ -32,6 +33,14 @@ class QueryEngine:
         cwd: Path | str | None = None,
         memory_store: MemoryStore | None = None,
         semantic_memory_recall: bool = False,
+        excluded_memory_types: set[MemoryType] | None = None,
+        memory_prompt_enabled: bool = True,
+        memory_recall_enabled: bool = True,
+        tool_prompt_enabled: bool = True,
+        include_dynamic_context: bool = True,
+        completion_guard: Callable[[str], str | None] | None = None,
+        completion_guard_extra_turns: int = 0,
+        force_completion_after_max_steps: bool = False,
     ):
         self.llm = llm
         self.tools = tools
@@ -39,24 +48,41 @@ class QueryEngine:
         self.output_dir = Path(output_dir)
         self.memory_store = memory_store or MemoryStore.for_project(self.cwd)
         self.semantic_memory_recall = semantic_memory_recall
+        self.excluded_memory_types = excluded_memory_types or set()
+        self.memory_prompt_enabled = memory_prompt_enabled
+        self.memory_recall_enabled = memory_recall_enabled
         self.already_surfaced_memories: set[str] = set()
         self.session_memory_bytes = 0
         self.short_memory = ShortTermMemory(repo_path=str(self.cwd))
         self._hydrate_repo_context()
         self.context_manager = ConversationContextManager(self.output_dir)
-        tool_prompt = tools.prompt().strip()
-        memory_prompt = self.memory_store.build_prompt_section()
+        tool_prompt = tools.prompt().strip() if tool_prompt_enabled else ""
+        memory_prompt = (
+            self.memory_store.build_prompt_section(excluded_types=self.excluded_memory_types)
+            if memory_prompt_enabled
+            else ""
+        )
         self.system_prompt = (
-            build_system_prompt(cwd=self.cwd, tool_rules=tool_prompt, memory_section=memory_prompt)
+            build_system_prompt(
+                cwd=self.cwd,
+                tool_rules=tool_prompt,
+                memory_section=memory_prompt,
+                include_dynamic_context=include_dynamic_context,
+            )
             if system_prompt is None
             else self._append_dynamic_prompt_sections(system_prompt, tool_prompt, memory_prompt)
         )
         self.max_steps = max_steps
+        self.completion_guard = completion_guard
+        self.completion_guard_extra_turns = max(0, completion_guard_extra_turns)
+        self.force_completion_after_max_steps = force_completion_after_max_steps
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": self.system_prompt}]
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0
         self.total_tokens = 0
         self.last_input_token_count = 0
+        self.completed = False
+        self.stop_reason = "not_started"
         self.abort_signal = AbortSignal()
 
     def chat(self, user_message: str) -> str:
@@ -71,6 +97,8 @@ class QueryEngine:
         self._inject_recalled_memories(user_message)
         self.context_manager.maybe_auto_compact(self.messages, self.short_memory)
         final_answer = ""
+        self.completed = False
+        self.stop_reason = "running"
 
         try:
             async for event in query_loop(
@@ -80,10 +108,25 @@ class QueryEngine:
                 max_steps=self.max_steps,
                 abort_signal=self.abort_signal,
                 context_manager=self.context_manager,
+                completion_guard=self.completion_guard,
+                completion_guard_extra_turns=self.completion_guard_extra_turns,
+                force_completion_after_max_steps=self.force_completion_after_max_steps,
             ):
                 self._handle_event(event)
                 if event.type == LoopEventType.FINISH:
                     final_answer = event.payload.get("answer", "")
+                    if event.payload.get("aborted"):
+                        self.completed = False
+                        self.stop_reason = "aborted"
+                    elif event.payload.get("max_steps_reached"):
+                        self.completed = False
+                        self.stop_reason = "max_steps"
+                    elif event.payload.get("terminal_incomplete"):
+                        self.completed = False
+                        self.stop_reason = str(event.payload.get("terminal_reason") or "incomplete")
+                    else:
+                        self.completed = True
+                        self.stop_reason = "finished"
                     break
         finally:
             self._auto_save(final_answer)
@@ -104,6 +147,9 @@ class QueryEngine:
             self.total_tokens += total_tokens
             self.last_input_token_count = prompt_tokens
             self.context_manager.after_model_call(prompt_tokens)
+            # query_loop 会继续产生后续模型调用；在这里检查，而不是只在本轮开始前检查，
+            # 才能让长工具会话真正触发自动压缩。
+            self.context_manager.maybe_auto_compact(self.messages, self.short_memory)
         self.short_memory.handle_event(event)
         self._write_trace({"type": event.type.value, "step": event.step, **event.payload})
 
@@ -126,6 +172,10 @@ class QueryEngine:
                     "total_tokens": self.total_tokens,
                     "last_input_token_count": self.last_input_token_count,
                     "max_steps": self.max_steps,
+                    "completion_guard_extra_turns": self.completion_guard_extra_turns,
+                    "force_completion_after_max_steps": self.force_completion_after_max_steps,
+                    "completed": self.completed,
+                    "stop_reason": self.stop_reason,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -135,12 +185,19 @@ class QueryEngine:
         self.short_memory.save(self.output_dir)
 
     def _inject_recalled_memories(self, user_message: str) -> None:
+        if not self.memory_recall_enabled:
+            return
         if self.session_memory_bytes >= MAX_SESSION_MEMORY_BYTES:
             return
         if len(user_message.strip()) < 4:
             return
         side_query = self._side_query if self.semantic_memory_recall and hasattr(self.llm, "invoke_text") else None
-        memories = self.memory_store.recall(user_message, already_surfaced=self.already_surfaced_memories, side_query=side_query)
+        memories = self.memory_store.recall(
+            user_message,
+            already_surfaced=self.already_surfaced_memories,
+            side_query=side_query,
+            excluded_types=self.excluded_memory_types,
+        )
         if not memories:
             return
         injection = format_memories_for_injection(memories)

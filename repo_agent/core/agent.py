@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from repo_agent.core.llm import ChatLLM
+from repo_agent.core.memory import MemoryStore, MemoryType
 from repo_agent.core.query_engine import QueryEngine
 from repo_agent.core.tool import ToolRegistry
 
@@ -21,7 +22,10 @@ class RepoAgent:
         max_steps: int = 20,
         output_dir: Path | str = ".repo_agent_runs/latest",
         cwd: Path | str | None = None,
+        memory_store: MemoryStore | None = None,
         semantic_memory_recall: bool = False,
+        repair_memory_recall: bool = True,
+        swebench_profile: bool = False,
     ):
         self.engine = QueryEngine(
             llm=llm,
@@ -30,7 +34,12 @@ class RepoAgent:
             max_steps=max_steps,
             output_dir=Path(output_dir),
             cwd=cwd,
+            memory_store=memory_store,
             semantic_memory_recall=semantic_memory_recall,
+            excluded_memory_types=set() if repair_memory_recall else {MemoryType.REPAIR_RECIPE},
+            memory_prompt_enabled=not swebench_profile,
+            memory_recall_enabled=not swebench_profile,
+            include_dynamic_context=not swebench_profile,
         )
 
     def run(self, task: str) -> str:

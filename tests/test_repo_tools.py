@@ -1,6 +1,8 @@
 import os
 import subprocess
 
+import pytest
+
 from repo_agent.core.tool import ToolRegistry
 from repo_agent.tools.repo_tools import RepoWorkspace, register_repo_tools
 
@@ -107,3 +109,27 @@ def test_read_file_offset_limit_counts_as_read_for_patch(tmp_path):
 
     assert patch_response.status == "success"
     assert (repo / "README.md").read_text(encoding="utf-8") == "one\nTWO\nthree\n"
+
+
+def test_run_command_does_not_duplicate_full_output_in_data(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    registry = ToolRegistry()
+    register_repo_tools(registry, RepoWorkspace(repo, tmp_path / "out"))
+
+    response = registry.execute("run_command", {"command": "printf 'hello'"})
+
+    assert response.status == "success"
+    assert "hello" in response.text
+    assert "output" not in response.data
+    assert response.data["output_chars"] == 5
+
+
+def test_shell_guard_allows_docker_rm_flag_but_blocks_recursive_rm(tmp_path):
+    workspace = RepoWorkspace(tmp_path, tmp_path / "out")
+
+    workspace.ensure_safe_command("docker run --rm --network none image true")
+
+    with pytest.raises(ValueError, match="Recursive deletion is blocked"):
+        workspace.ensure_safe_command("rm -rf build")

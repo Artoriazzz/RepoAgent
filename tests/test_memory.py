@@ -1,7 +1,7 @@
 import json
 
 from repo_agent.core.llm import LLMToolResponse, ToolCall
-from repo_agent.core.memory import MemoryStore
+from repo_agent.core.memory import MemoryStore, MemoryType
 from repo_agent.core.query_engine import QueryEngine
 from repo_agent.core.tool import ToolRegistry
 from repo_agent.tools.memory_tools import build_memory_tools
@@ -38,6 +38,39 @@ def test_memory_store_saves_index_and_recalls(tmp_path):
     assert "默认中文回答" in recalled[0].content
 
 
+def test_repair_recipe_memory_uses_shared_scope_and_type_filter(tmp_path):
+    store = MemoryStore.for_scope("repo:owner/project", root=tmp_path)
+    filename = store.save_memory(
+        name="header rows roundtrip",
+        description="header_rows table format must update writer reader roundtrip",
+        type="repair_recipe",
+        content="verification_contract: write, read, and round-trip header_rows.",
+    )
+
+    assert filename.startswith("repair_recipe_")
+    assert "repair_recipe" in store.load_index()
+    recalled = store.recall_repair_recipes("unexpected keyword header_rows reader")
+    assert recalled
+    assert recalled[0].header.type == MemoryType.REPAIR_RECIPE
+    assert "round-trip" in recalled[0].content
+    assert not store.search("header_rows", memory_type=MemoryType.FEEDBACK)
+
+    updated = store.update_memory(
+        filename,
+        description="header_rows table format requires writer reader roundtrip verification",
+        content="verification_contract: write, read, round-trip, and anti-pattern checks.",
+    )
+
+    assert updated == filename
+    assert "anti-pattern checks" in store.read_memory(filename)
+    assert "writer reader roundtrip" in store.load_index()
+    assert store.similar_repair_recipes("header rows reader", "header_rows writer reader roundtrip")
+    assert not store.similar_repair_recipes(
+        "case insensitive parser tokens",
+        "case-insensitive parser fixes must normalize regex classification and sentinel comparisons consistently",
+    )
+
+
 def test_memory_tools_save_and_read(tmp_path):
     store = MemoryStore(tmp_path / "memory")
     registry = ToolRegistry()
@@ -57,6 +90,51 @@ def test_memory_tools_save_and_read(tmp_path):
     filename = save.data["filename"]
     read = registry.execute("read_memory", {"filename": filename})
     assert "How to apply" in read.text
+
+
+def test_memory_tools_save_repair_recipe_and_filter_search(tmp_path):
+    store = MemoryStore(tmp_path / "memory")
+    registry = ToolRegistry()
+    registry.register_many(build_memory_tools(store))
+
+    save = registry.execute(
+        "save_memory",
+        {
+            "name": "mutable buffer writeback",
+            "description": "mutable buffer transformations must write back to original storage",
+            "type": "repair_recipe",
+            "content": "repair_strategy: assign transformed values back with target[:] = transformed.",
+        },
+    )
+    assert save.status == "success"
+
+    search = registry.execute("search_memories", {"query": "mutable buffer", "type": "repair_recipe"})
+    assert search.status == "success"
+    assert "mutable buffer writeback" in search.text
+
+    duplicate = registry.execute(
+        "save_memory",
+        {
+            "name": "mutable buffer storage update",
+            "description": "mutable buffer transformations must write back to original array storage",
+            "type": "repair_recipe",
+            "content": "repair_strategy: use slice assignment to preserve original storage.",
+        },
+    )
+    assert duplicate.status == "error"
+    assert duplicate.error["code"] == "SIMILAR_REPAIR_RECIPE_EXISTS"
+    assert "mutable buffer writeback" in duplicate.text
+
+    filename = save.data["filename"]
+    updated = registry.execute(
+        "update_memory",
+        {
+            "filename": filename,
+            "content": "repair_strategy: assign transformed values back with target[:] = transformed.\nanti_patterns: rebinding locals.",
+        },
+    )
+    assert updated.status == "success"
+    assert "rebinding locals" in registry.execute("read_memory", {"filename": filename}).text
 
 
 def test_query_engine_injects_recalled_memory_and_saves_short_memory(tmp_path):

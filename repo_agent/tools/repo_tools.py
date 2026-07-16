@@ -11,6 +11,11 @@ from repo_agent.core.tool import Tool, ToolParameter, ToolRegistry, ToolResponse
 
 
 SENSITIVE_NAMES = {".env", ".env.local", ".npmrc", ".pypirc", "id_rsa", "id_ed25519"}
+LIST_FILES_LIMIT = 120
+READ_FILE_RESULT_LIMIT = 12_000
+SEARCH_RESULT_LIMIT = 10_000
+COMMAND_RESULT_LIMIT = 10_000
+DIFF_RESULT_LIMIT = 16_000
 
 
 @dataclass
@@ -80,7 +85,8 @@ class RepoWorkspace:
             re.search(r"\b(main|master)\b", lowered) or "--force" in lowered or "-f" in lowered.split()
         ):
             raise ValueError("Refusing direct push to protected/default branch.")
-        if re.search(r"\brm\s+-[^\n]*r", lowered):
+        # `\brm` 会误匹配 Docker 的 `--rm`；这里只接受独立 shell token。
+        if re.search(r"(?:^|[\s;&|])rm\s+-[^\n]*r", lowered):
             raise ValueError("Recursive deletion is blocked.")
 
     def changed_files(self) -> list[str]:
@@ -111,7 +117,7 @@ def build_repo_tools(workspace: RepoWorkspace) -> list[Tool]:
         return ToolResponse.success(answer, validation)
 
     def list_files(inp: dict) -> ToolResponse:
-        max_files = int(inp.get("max_files") or 200)
+        max_files = int(inp.get("max_files") or LIST_FILES_LIMIT)
         files: list[str] = []
         for path in workspace.repo_path.rglob("*"):
             if path.is_file() and ".git" not in path.parts:
@@ -150,7 +156,11 @@ def build_repo_tools(workspace: RepoWorkspace) -> list[Tool]:
         timeout = int(inp.get("timeout") or 60)
         result = workspace.run(command, timeout=timeout)
         text = f"exit_code={result.returncode}\n{result.stdout}"
-        status_data = {"command": command, "exit_code": result.returncode, "output": result.stdout}
+        status_data = {
+            "command": command,
+            "exit_code": result.returncode,
+            "output_chars": len(result.stdout),
+        }
         if result.returncode == 0:
             return ToolResponse.success(text, status_data)
         return ToolResponse.partial(text, status_data)
@@ -224,6 +234,7 @@ def build_repo_tools(workspace: RepoWorkspace) -> list[Tool]:
             ],
             handler=read_file,
             prompt="修改已有文件前必须先调用 read_file；可用 start_line/end_line 或 offset/limit 精确读取；返回内容带行号，编辑时不要把行号写回文件。",
+            max_result_size_chars=READ_FILE_RESULT_LIMIT,
             is_concurrency_safe=True,
             is_read_only=True,
             source=ToolSource.BUILTIN,
@@ -247,6 +258,7 @@ def build_repo_tools(workspace: RepoWorkspace) -> list[Tool]:
                 ToolParameter("timeout", "integer", "Timeout in seconds", required=False),
             ],
             handler=run_command,
+            max_result_size_chars=COMMAND_RESULT_LIMIT,
             is_read_only=_is_read_only_command,
             is_concurrency_safe=_is_read_only_command,
             source=ToolSource.BUILTIN,
@@ -259,6 +271,7 @@ def build_repo_tools(workspace: RepoWorkspace) -> list[Tool]:
                 ToolParameter("file_glob", "string", "Optional file glob filter", required=False),
             ],
             handler=search_repo,
+            max_result_size_chars=SEARCH_RESULT_LIMIT,
             is_concurrency_safe=True,
             is_read_only=True,
             source=ToolSource.BUILTIN,
@@ -276,6 +289,7 @@ def build_repo_tools(workspace: RepoWorkspace) -> list[Tool]:
             description="Return current repository diff.",
             parameters=[],
             handler=git_diff,
+            max_result_size_chars=DIFF_RESULT_LIMIT,
             is_concurrency_safe=True,
             is_read_only=True,
             source=ToolSource.BUILTIN,

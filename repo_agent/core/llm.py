@@ -40,13 +40,32 @@ class ChatLLM:
             raise ValueError("OPENAI_API_KEY is required.")
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
+    def _completion_options(self) -> dict[str, Any]:
+        """为支持显式思考强度的模型补充请求参数。"""
+
+        if self.model.lower().startswith("deepseek-v4"):
+            return {
+                "reasoning_effort": "max",
+                "extra_body": {"thinking": {"type": "enabled"}},
+            }
+        return {}
+
     def invoke_with_tools(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> LLMToolResponse:
+        request: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+        }
+        # 无工具回合不要继续声明 tool calling。部分兼容端点即使收到空 tools + auto，
+        # 仍会让模型生成伪工具调用，导致 completion guard 的纯 JSON 修正失败。
+        if tools:
+            request["tools"] = tools
+            request["tool_choice"] = "auto"
+        completion_options = self._completion_options()
+        request.update(completion_options)
+        if not completion_options:
+            request["temperature"] = self.temperature
         response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto",
-            temperature=self.temperature,
+            **request,
         )
         message = response.choices[0].message
         tool_calls: list[ToolCall] = []
@@ -73,12 +92,16 @@ class ChatLLM:
         )
 
     def invoke_text(self, system: str, user: str) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
+        request: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            temperature=0,
-        )
+        }
+        completion_options = self._completion_options()
+        request.update(completion_options)
+        if not completion_options:
+            request["temperature"] = 0
+        response = self.client.chat.completions.create(**request)
         return response.choices[0].message.content or ""
