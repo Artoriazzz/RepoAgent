@@ -33,6 +33,7 @@ from repo_agent.core.subagent import (
     WorkerResult,
     get_worker_spec,
 )
+from repo_agent.core.task_constraints import MATCHED_ALIAS_CONTRACT, NULLABLE_PANDAS_CONTRACT
 from repo_agent.core.tool import ToolParameter, ToolRegistry, ToolResponse, build_tool
 from repo_agent.tools.agent_tools import (
     _augment_corrective_prompt,
@@ -323,6 +324,9 @@ def test_worker_specs_have_tight_budgets_and_stop_rules():
     assert "最终 Sphinx 构建或公开集成测试" in SWEBENCH_REPRODUCER_PROMPT
     assert "框架会确定性绑定全部 required case ID" in SWEBENCH_REPRODUCER_PROMPT
     assert "最终公开输出写明确 `assert`" in SWEBENCH_REPRODUCER_PROMPT
+    assert "canonical lookup identity 和 rendered identity" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "别名 fallback 是身份解析，不只是值查找" not in SWEBENCH_IMPLEMENT_PROMPT
+    assert "augment_descriptions_with_types" not in SWEBENCH_IMPLEMENT_PROMPT
 
 
 def test_consumer_semantic_evidence_removes_producer_only_implement_range():
@@ -446,23 +450,23 @@ def test_nullable_pandas_implement_prompt_requires_series_and_dataframe_matrix()
             "semantic_evidence_issues": [],
             "semantic_evidence_warnings": [],
         },
+        constraint_prompts=(NULLABLE_PANDAS_CONTRACT,),
     )
 
+    assert "Active task constraint: nullable_pandas" in prompt
     assert "1D pandas Series (`.dtype`)" in prompt
     assert "2D pandas DataFrame (`.dtypes`)" in prompt
     assert "hasattr(y, 'dtype')" in prompt
-    assert "REQUIRED EDIT PATH FOR THIS TASK" in prompt
-    assert "`_pandas_dtype_needs_early_conversion` helper" in prompt
+    assert "existing `_pandas_dtype_needs_early_conversion` helper" in prompt
     assert "`hasattr(y, 'dtypes') and hasattr(y.dtypes, '__array__')`" in prompt
     assert "for dtype in y.dtypes" in prompt
     assert "`hasattr(y, 'iloc') and hasattr(y, 'dtype')`" in prompt
     assert "`_pandas_dtype_needs_early_conversion(y.dtype)`" in prompt
     assert "`check_array(y, dtype=None, ensure_2d=False)`" in prompt
     assert "before the existing `is_multilabel(y)` predicate" in prompt
-    assert "Never guard this conversion with `hasattr(y, '__array__')`" in prompt
-    assert "`hasattr(y, 'dtypes')` alone misclassifies Series" in prompt
-    assert "`hasattr(y, 'dtype')` alone captures numpy/sparse inputs" in prompt
-    assert "Do not add a parallel `to_numpy`, `astype`" in prompt
+    assert "Never use `hasattr(y, '__array__')`" in prompt
+    assert "a lone `.dtypes`/`.dtype` guard" in prompt
+    assert "`to_numpy`, `astype`" in prompt
 
 
 def test_swebench_reproducer_has_focused_tools_and_budget(tmp_path):
@@ -982,6 +986,23 @@ def test_swebench_implement_receives_reproducer_contract_and_semantic_proof():
     assert "not an authority" in prompt
     assert "first predicate" in prompt
     assert "current producer canonical identity" in prompt
+
+
+def test_swebench_implement_receives_matched_alias_dataflow_constraint():
+    prompt = _augment_swebench_semantic_prompt(
+        "Apply the scoped consumer edit.",
+        {
+            "problem_statement": "Sphinx duplicates *args and **kwargs fields in autodoc output.",
+            "semantic_evidence": {},
+            "semantic_evidence_issues": [],
+        },
+        constraint_prompts=(MATCHED_ALIAS_CONTRACT,),
+    )
+
+    assert "Active task constraint: matched_alias" in prompt
+    assert "matched_display_name" in prompt
+    assert "`'type ' + name`, `'param ' + name`" in prompt
+    assert "final emitted field name" in prompt
 
 
 def test_swebench_implement_gate_no_longer_depends_on_container_keywords():
@@ -1701,7 +1722,7 @@ def test_swebench_semantic_gate_allows_one_narrow_corrective_implement(tmp_path)
     assert "return '*' + name" in current
     assert "VAR_POSITIONAL" not in current
     assert third.status == "error"
-    assert third.error["code"] == "FINAL_PATCH_ALREADY_EXISTS"
+    assert third.error["code"] == "WORKFLOW_ALREADY_TERMINAL"
 
 
 def test_corrective_prompt_explains_nullable_missing_value_gate():
@@ -1951,8 +1972,10 @@ def test_simplified_swebench_pipeline_requires_reproducer_and_skips_low_risk_rev
     assert reproduced.status == "success"
     assert implemented.status == "success"
     assert state["review_required"] is False
-    assert review.error["code"] == "PATCH_REVIEW_NOT_REQUIRED"
-    assert verified.status == "success"
+    assert review.error["code"] == "WORKFLOW_ALREADY_TERMINAL"
+    assert verified.error["code"] == "WORKFLOW_ALREADY_TERMINAL"
+    assert state["verify_attempted"] is False
+    assert state["verification_skipped_reason"] == "no_trusted_verification_plan"
 
 
 def test_conditional_patch_review_detects_public_signature_change(tmp_path):
@@ -2401,6 +2424,110 @@ def test_invalid_semantic_evidence_verify_request_terminates_workflow(tmp_path):
     assert state["workflow_terminal_reason"] == "focused_verification_unavailable"
     assert state["verification_assessment"]["preserve_patch"] is True
     assert state["worker_attempts"].get("verify", 0) == 0
+
+
+def test_static_safe_patch_without_trusted_verification_terminates_after_implement(tmp_path):
+    repo = _init_git_repo_with_app(tmp_path)
+    base_tools = ToolRegistry()
+    register_repo_tools(base_tools, RepoWorkspace(repo, tmp_path / "out"))
+    llm = FakeLLM(
+        [
+            _replace_response("replace_1", "old", "new"),
+            LLMToolResponse(content="implemented", tool_calls=[], raw_message={"content": "implemented"}, usage={}),
+        ]
+    )
+    runner = SubAgentRunner(
+        llm=llm,
+        base_tools=base_tools,
+        cwd=repo,
+        output_dir=tmp_path / "agents",
+        swebench_profile=True,
+    )
+    state = {}
+    registry = ToolRegistry()
+    registry.register_many(
+        build_agent_tools(
+            runner,
+            require_patch_review=False,
+            conditional_patch_review=True,
+            allowed_agent_types={"implement", "verify"},
+            state=state,
+        )
+    )
+
+    result = registry.execute(
+        "agent",
+        {
+            "type": "implement",
+            "description": "Apply scoped SWE-bench fix",
+            "prompt": _swebench_edit_brief_prompt(),
+            "allowed_files": ["app.py"],
+            "allowed_ranges": {"app.py": [[1, 1]]},
+        },
+    )
+
+    assert result.status == "success"
+    assert result.data["terminate_loop"] is True
+    assert result.data["terminal_reason"] == "static_safe_unverified"
+    assert result.data["terminal_completed"] is True
+    assert "without claiming test success" in result.data["final_answer"]
+    assert "parseable passing verification" not in result.data["final_answer"]
+    assert state["verification_skipped_reason"] == "no_trusted_verification_plan"
+    assert state["verification_assessment"]["preserve_patch"] is True
+    assert state["submission_ready"] is False
+    assert state["worker_attempts"].get("verify", 0) == 0
+
+
+def test_static_safe_patch_with_trusted_verification_plan_keeps_verify_transition(tmp_path):
+    repo = _init_git_repo_with_app(tmp_path)
+    base_tools = ToolRegistry()
+    register_repo_tools(base_tools, RepoWorkspace(repo, tmp_path / "out"))
+    llm = FakeLLM(
+        [
+            _replace_response("replace_1", "old", "new"),
+            LLMToolResponse(content="implemented", tool_calls=[], raw_message={"content": "implemented"}, usage={}),
+        ]
+    )
+    runner = SubAgentRunner(
+        llm=llm,
+        base_tools=base_tools,
+        cwd=repo,
+        output_dir=tmp_path / "agents",
+        swebench_profile=True,
+    )
+    state = {}
+    registry = ToolRegistry()
+    registry.register_many(
+        build_agent_tools(
+            runner,
+            require_patch_review=False,
+            conditional_patch_review=True,
+            allowed_agent_types={"implement", "verify"},
+            state=state,
+        )
+    )
+    state["semantic_evidence"] = {
+        "differential_cases": [{"id": "public_behavior", "required": True}],
+        "verify_commands": [
+            {"command": "python3 -c \"assert True\"", "covers": ["public_behavior"]}
+        ],
+    }
+
+    result = registry.execute(
+        "agent",
+        {
+            "type": "implement",
+            "description": "Apply scoped SWE-bench fix",
+            "prompt": _swebench_edit_brief_prompt(),
+            "allowed_files": ["app.py"],
+            "allowed_ranges": {"app.py": [[1, 1]]},
+        },
+    )
+
+    assert result.status == "success"
+    assert result.data.get("terminate_loop") is not True
+    assert state["workflow_terminal_reason"] == ""
+    assert state["verification_skipped_reason"] == ""
 
 
 def test_conditional_verify_marks_pycompile_as_inconclusive(tmp_path):
@@ -3078,6 +3205,63 @@ def test_scoped_replace_in_file_applies_line_replacements_and_preserves_guard(tm
         "    if \".\" in view_func.__name__:\n"
         "        raise ValueError(\"Blueprint view function name should not contain dots\")\n"
         "self.record(rule)\n"
+    )
+
+
+def test_scoped_line_replacements_keep_original_coordinates_after_earlier_expansion(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE)
+    (repo / "app.py").write_text(
+        "header\n"
+        "first-a\n"
+        "first-b\n"
+        "untouched-middle\n"
+        "second-a\n"
+        "second-b\n"
+        "tail\n",
+        encoding="utf-8",
+    )
+
+    base_tools = ToolRegistry()
+    register_repo_tools(base_tools, RepoWorkspace(repo, tmp_path / "out"))
+    runner = SubAgentRunner(llm=FakeLLM([]), base_tools=base_tools, cwd=repo, output_dir=tmp_path / "out")
+    constraints = WorkerConstraints.from_tool_input(
+        {"allowed_files": ["app.py"], "allowed_ranges": {"app.py": [[2, 3], [5, 6]]}}
+    )
+    registry = runner._tools_for(get_worker_spec("implement"), constraints)
+
+    first = registry.execute(
+        "replace_in_file",
+        {
+            "path": "app.py",
+            "line_replacements": [
+                {"start_line": 2, "end_line": 3, "new": "first-1\nfirst-2\nfirst-3\nfirst-4"}
+            ],
+        },
+    )
+    second = registry.execute(
+        "replace_in_file",
+        {
+            "path": "app.py",
+            "line_replacements": [
+                {"start_line": 5, "end_line": 6, "new": "second-1\nsecond-2"}
+            ],
+        },
+    )
+
+    assert first.status == "success"
+    assert second.status == "success"
+    assert (repo / "app.py").read_text(encoding="utf-8") == (
+        "header\n"
+        "first-1\n"
+        "first-2\n"
+        "first-3\n"
+        "first-4\n"
+        "untouched-middle\n"
+        "second-1\n"
+        "second-2\n"
+        "tail\n"
     )
 
 

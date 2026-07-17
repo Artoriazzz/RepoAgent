@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -493,16 +494,15 @@ SWEBENCH_IMPLEMENT_PROMPT = """你是 SWE-bench Implement Worker，负责在给�
 - 修改前读取指定范围，确认目标行为、精确错误文本/异常/输出和旧行为不变量。
 - 采用 ExpeRepair 的精准补丁思想，但保持轻量：修改前只输出 3 行 Repair Brief：target_code_context、old_behavior_invariants、minimal_fix_strategy。
 - Coordinator 给出的精确改法只是待验证假设。第一次写入前必须输出紧凑的 `semantic_challenge` 语义账本，逐条用 allowed_ranges 代码或公开 reproducer 证据标注 proven/contradicted/unproven；关键假设无法证明时阻塞，不要替错误 EditBrief 补写一份自洽故事。
-- 对工具附加的 SemanticEvidence.target_partitions，逐行核对 container、rank、dtype protocol、missing-value behavior、first_dependent_predicate 和 normalization。Series 的 `.dtype` 证据不能证明 DataFrame 的 `.dtypes` 已覆盖；一维成功不能证明二维、多输出、稀疏或 nullable 表示已覆盖。规范化必须位于第一个依赖该语义的 predicate 之前。
-- 对 SemanticEvidence.contract_edges，先核对 producer 的 current canonical identity/value 与每个直接 consumer 的 lookup/render/write 约定。未看到 consumer 范围时不得改共享映射键、返回类型或持久化身份；应阻塞并报告缺少的 consumer scope。展示用 `*`、转义或别名不能覆盖 canonical storage key；实现中必须分别保存 `canonical_lookup_key` 与 `matched_display_name`，前者只能用于查找，后者必须传播到关联字段、渲染或写入点。不得在输出阶段用 canonical key 重新构造展示身份。
+- 对工具附加的 SemanticEvidence.target_partitions，逐行核对题意涉及的 container、rank、dtype protocol、missing-value behavior、first_dependent_predicate 和 normalization；一种表示成功不能证明相邻表示已覆盖。规范化必须位于第一个依赖该语义的 predicate 之前。
+- 对 SemanticEvidence.contract_edges，先核对 producer 的 current canonical identity/value 与每个直接 consumer 的 lookup/render/write 约定。未看到 consumer 范围时不得改共享映射键、返回类型或持久化身份；应阻塞并报告缺少的 consumer scope。
 - 只改 allowed_ranges 内的精确原文片段；优先 line_replacements 或 exact old/new。
 - 优先 replace_in_file 的 line_replacements 或精确 old/new；保留无关逻辑和缩进结构。
 - 不要为了让一个示例通过而修改共享默认行为。格式化、解析、序列化、类型/shape 判断等共享路径必须使用窄 guard，并保留相邻旧行为。
 - 修复契约所有者，而不是只包住下游症状：当 producer 的公开返回类型/异常/副作用与 consumer 约束冲突时，先确认 producer 的 sibling API 和方法语义，再决定修 producer 还是做下游兼容。
 - 分类、dispatch 或 validation 由多个 predicate 顺序决定时，规范化必须发生在第一个依赖该语义的 predicate 之前；在最终分支里补转换通常已经太晚。
-- `*args`、`**kwargs`、转义标识符、显示标签等同时具有“查找键”和“渲染文本”时，保持两者分离；fallback 匹配成功后必须把实际匹配键传播到后续写入/渲染，不能只取到值后继续使用旧键。允许在先保存完整 `matched_display_name` 后，用受控的 `lstrip('*')` 派生 canonical lookup key；禁止只保留 stripped name、全局 replace 或提前 escaping。
-- 在 Sphinx `augment_descriptions_with_types` 中增加参数 alias 时，只能局部扩展参数名的 lookup/display 映射；必须原样保留现有 `type`、`return/returns`、`rtype` 分支及其 `has_description`/`has_type` 更新。不得用新的参数循环替换字段扫描循环，也不得把 `has_type.add('return')` 移入参数循环。
-- 接受 Series/DataFrame、1D/2D、dense/sparse、nullable/native dtype 等多种表示的 API，必须逐项覆盖题意涉及的表示，并优先复用仓库现有 validation/normalization helper；单一 `hasattr(dtype)` 转换不能证明二维容器已覆盖。
+- 当数据同时具有 canonical lookup identity 和 rendered identity 时保持两者分离；fallback 命中后传播实际匹配身份，不能只传播值。
+- 对题意涉及的多种容器、shape 或 dtype 表示逐项覆盖，优先复用仓库已有的 validation/normalization helper。
 - 不可逆转换、unsupported operation 或异常分支不能用固定精度、固定默认值或宽泛 except 吞掉；除非公开契约明确规定常量，否则从邻接边界/原算法推导结果，并保持精确输出。
 - 删除序列元素、闭合点、缓存写入或状态更新前，必须证明消费者的 shape、cardinality、closure、ordering 和 lifecycle 不变量仍成立；“不再报错”不等于语义正确。
 - 多个模板变量或集合分别表示 all/filtered/imported/local members 时，复用现有过滤 helper 和既有语义；不要假设它们应共享同一过滤结果。
@@ -881,6 +881,14 @@ class SubAgentRunner:
         registry = ToolRegistry()
         read_tool = self.base_tools.get("read_file")
         write_tool = self.base_tools.get("write_file")
+        baseline_contents: dict[str, str] = {}
+
+        def baseline_content(path: str) -> str:
+            if path not in baseline_contents:
+                target = (self.cwd / path).resolve()
+                target.relative_to(self.cwd)
+                baseline_contents[path] = target.read_text(encoding="utf-8", errors="replace")
+            return baseline_contents[path]
 
         def scoped_read_file(inp: dict) -> ToolResponse:
             denial = _check_scoped_read(inp, constraints)
@@ -888,6 +896,10 @@ class SubAgentRunner:
                 return denial
             if read_tool is None:
                 return ToolResponse.failure("TOOL_NOT_FOUND", "Base read_file tool is not available.")
+            try:
+                baseline_content(_normalize_repo_path(inp["path"]))
+            except (OSError, ValueError) as exc:
+                return ToolResponse.failure("IMPLEMENT_SCOPE_DENIED", str(exc))
             return read_tool.run_with_timing(inp)
 
         def scoped_write_file(inp: dict) -> ToolResponse:
@@ -929,6 +941,10 @@ class SubAgentRunner:
             except ValueError:
                 return ToolResponse.failure("IMPLEMENT_SCOPE_DENIED", f"Path escapes repository scope: {path}")
             content = target.read_text(encoding="utf-8", errors="replace")
+            try:
+                baseline = baseline_content(path)
+            except (OSError, ValueError) as exc:
+                return ToolResponse.failure("IMPLEMENT_SCOPE_DENIED", str(exc))
             selected: list[tuple[int, int, str, dict[str, Any]]] = []
             for index, replacement in enumerate(_coerce_line_replacements(inp), 1):
                 line_start = int(replacement["start_line"])
@@ -940,9 +956,28 @@ class SubAgentRunner:
                         f"outside allowed_ranges {_format_ranges({path: allowed_ranges})[path]}.",
                     )
                 try:
-                    start, end, segment = _slice_for_line_span(content, line_start, line_end)
+                    baseline_start, baseline_end, segment = _slice_for_line_span(
+                        baseline,
+                        line_start,
+                        line_end,
+                    )
                 except ValueError as exc:
                     return ToolResponse.failure("BAD_LINE_RANGE", str(exc))
+                current_span = _map_baseline_line_span_to_current(
+                    baseline,
+                    content,
+                    line_start,
+                    line_end,
+                )
+                if current_span is None:
+                    return ToolResponse.failure(
+                        "STALE_LINE_RANGE",
+                        (
+                            f"Original line range {path}:{line_start}-{line_end} was already modified or cannot be "
+                            "mapped safely. Use an exact old/new replacement for the currently visible snippet."
+                        ),
+                    )
+                start, end = current_span
                 new = _preserve_segment_newline(segment, replacement["new"])
                 if any(_spans_overlap(start, end, prior_start, prior_end) for prior_start, prior_end, _, _ in selected):
                     return ToolResponse.failure("REPLACE_OVERLAP", f"Line replacement {index} overlaps another replacement.")
@@ -956,6 +991,8 @@ class SubAgentRunner:
                             "mode": "line",
                             "line_start": line_start,
                             "line_end": line_end,
+                            "baseline_start": baseline_start,
+                            "baseline_end": baseline_end,
                             "old_length": len(segment),
                             "new_length": len(new),
                         },
@@ -993,7 +1030,17 @@ class SubAgentRunner:
                 if any(_spans_overlap(start, end, prior_start, prior_end) for prior_start, prior_end, _, _ in selected):
                     return ToolResponse.failure("REPLACE_OVERLAP", f"Replacement {index} overlaps another replacement.")
                 line_start, line_end = _line_span_for_slice(content, start, end)
-                if not any(line_range.contains(line_start, line_end) for line_range in allowed_ranges):
+                current_range_allowed = any(
+                    line_range.contains(line_start, line_end) for line_range in allowed_ranges
+                )
+                baseline_range_allowed = any(
+                    any(
+                        line_range.contains(*_line_span_for_slice(baseline, position, position + len(old)))
+                        for line_range in allowed_ranges
+                    )
+                    for position in _find_occurrences(baseline, old)
+                )
+                if not current_range_allowed and not baseline_range_allowed:
                     return ToolResponse.failure(
                         "IMPLEMENT_SCOPE_DENIED",
                         f"Replacement {index} touches {path}:{line_start}-{line_end}, "
@@ -1025,6 +1072,16 @@ class SubAgentRunner:
                 updated = updated[:start] + new + updated[end:]
             if updated == content:
                 return ToolResponse.failure("NO_CHANGES", f"replace_in_file made no changes to {path}.")
+            scope_issues = _baseline_diff_scope_issues(baseline, updated, allowed_ranges)
+            if scope_issues:
+                return ToolResponse.failure(
+                    "IMPLEMENT_DIFF_SCOPE_DENIED",
+                    (
+                        f"The resulting diff for {path} escapes the original allowed_ranges "
+                        f"{_format_ranges({path: allowed_ranges})[path]}: {'; '.join(scope_issues)}. "
+                        "Retry with one atomic replacement based on the original approved ranges."
+                    ),
+                )
 
             write_response = write_tool.run_with_timing({"path": path, "content": updated})
             if write_response.error:
@@ -1083,7 +1140,8 @@ class SubAgentRunner:
                     ],
                     handler=scoped_replace_in_file,
                     prompt=(
-                        "优先用 line_replacements 按行替换；没有稳定行号时再用 old/new replacements。"
+                        "line_replacements 始终使用 Worker 第一次读取时的原始行号，工具会安全映射后续行号漂移；"
+                        "同文件多处修改优先在一次调用中提交。没有稳定行号时再用 old/new replacements。"
                         "所有替换必须完全位于 allowed_ranges 内；工具参数必须是合法 JSON。"
                     ),
                     source=ToolSource.BUILTIN,
@@ -1354,6 +1412,58 @@ def _slice_for_line_span(content: str, start_line: int, end_line: int) -> tuple[
     start = starts[start_line - 1]
     end = starts[end_line - 1] + len(lines[end_line - 1])
     return start, end, content[start:end]
+
+
+def _map_baseline_line_span_to_current(
+    baseline: str,
+    current: str,
+    start_line: int,
+    end_line: int,
+) -> tuple[int, int] | None:
+    """把初始源码行范围映射到当前文件中仍未被修改的同一片段。"""
+
+    baseline_lines = baseline.splitlines(keepends=True)
+    current_lines = current.splitlines(keepends=True)
+    target_start = start_line - 1
+    target_end = end_line
+    matcher = difflib.SequenceMatcher(None, baseline_lines, current_lines, autojunk=False)
+    for tag, baseline_start, baseline_end, current_start, _ in matcher.get_opcodes():
+        if tag != "equal" or not (baseline_start <= target_start and target_end <= baseline_end):
+            continue
+        mapped_start = current_start + (target_start - baseline_start) + 1
+        mapped_end = mapped_start + (target_end - target_start) - 1
+        try:
+            start, end, _ = _slice_for_line_span(current, mapped_start, mapped_end)
+        except ValueError:
+            return None
+        return start, end
+    return None
+
+
+def _baseline_diff_scope_issues(
+    baseline: str,
+    updated: str,
+    allowed_ranges: tuple[LineRange, ...],
+) -> list[str]:
+    """按初始源码坐标检查最终内容，防止前置插入把后续写入漂移到授权范围外。"""
+
+    baseline_lines = baseline.splitlines(keepends=True)
+    updated_lines = updated.splitlines(keepends=True)
+    matcher = difflib.SequenceMatcher(None, baseline_lines, updated_lines, autojunk=False)
+    issues: list[str] = []
+    for tag, baseline_start, baseline_end, _, _ in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        if baseline_start == baseline_end:
+            anchor = baseline_start + 1
+            if not any(line_range.start <= anchor <= line_range.end + 1 for line_range in allowed_ranges):
+                issues.append(f"insert@{anchor}")
+            continue
+        line_start = baseline_start + 1
+        line_end = baseline_end
+        if not any(line_range.contains(line_start, line_end) for line_range in allowed_ranges):
+            issues.append(f"{tag}@{line_start}-{line_end}")
+    return issues
 
 
 def _preserve_segment_newline(segment: str, new: str) -> str:

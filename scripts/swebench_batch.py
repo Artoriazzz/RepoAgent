@@ -869,7 +869,9 @@ def validate_model_patch(
         verification_assessment = dict(verification.get("assessment") or {})
         if not verification_assessment:
             verification_assessment = assess_verification_result(verification.get("result") or {})
-        if not verification.get("attempts"):
+        if verification.get("skipped_reason") == "no_trusted_verification_plan":
+            warnings.append("verification_not_available")
+        elif not verification.get("attempts"):
             warnings.append("verification_not_attempted")
         elif not verification.get("result_parseable"):
             warnings.append("verification_result_unparseable")
@@ -1281,37 +1283,12 @@ def build_task(row: dict[str, Any], repo_dir: Path, diagnostic_mode: str = "none
         "- Separate contract_owner from symptom_site. When producer output breaks a consumer, verify the producer's public return contract and sibling methods before adding downstream reshape/cast/ravel wrappers.\n"
         "- For classification/dispatch/validation pipelines, place normalization before the first predicate that depends on it; changing only a later return branch is too late.\n"
         "- Trace the first dependent predicate from the public entry point, including helper calls that can return early. A late dtype fallback is not the first predicate merely because it exposes the observed error.\n"
-        "- For APIs accepting Series/DataFrame, 1D/2D, dense/sparse, nullable/native dtype, or missing-value variants, split every representation named or implied by the public issue into a concrete expected classification and prefer the repository's existing normalization helper over first-element inspection or a one-container hasattr conversion.\n"
-        "- Keep lookup identity separate from rendered text for *args/**kwargs, escaped identifiers, labels, and directive names; avoid destructive lstrip/global replacement or premature escaping.\n"
-        "- Preserve a producer's plain canonical key when decorated names are display aliases. Resolve aliases in each direct consumer; if fallback lookup matches an alias, carry the matched key through later writes/rendering. Do not replace unsupported semantics with a fixed precision/default, and do not remove sequence/state updates without proving shape/cardinality/closure/lifecycle invariants.\n"
-        "- When decorated names are display aliases over bare canonical keys, producer code is read-only context even without Reproducer evidence; include every direct consumer in Implement writable ranges.\n"
-        "- A parameter display-alias fix must preserve independent type/return/rtype parsing and bookkeeping branches exactly; extend only the parameter lookup/display path.\n"
+        "- Split every representation named or directly implied by the public issue into a concrete expected behavior, and prefer an existing repository normalization helper over ad-hoc conversion.\n"
+        "- Keep canonical lookup identity separate from rendered identity; when fallback resolves an alias, propagate the resolved identity through its direct consumer.\n"
+        "- Do not replace unsupported semantics with a fixed precision/default, and do not remove sequence/state updates without proving shape/cardinality/closure/lifecycle invariants.\n"
         "- If CLI output, exception messages, lint descriptions, or rule text are involved, preserve exact expected strings.\n"
         "- Do not modify tests unless the problem explicitly asks for test-only changes.\n"
     )
-    problem_statement = str(row.get("problem_statement") or "").lower()
-    if "pandas" in problem_statement and (
-        "nullable" in problem_statement or "extension dtype" in problem_statement
-    ):
-        task += (
-            "\n## Nullable pandas dtype constraint\n"
-            "- The EditBrief required_changes must import and use the existing "
-            "`_pandas_dtype_needs_early_conversion` helper as the only dtype conversion predicate. Copy the existing "
-            "`check_array` pandas identity guards exactly and in this order: DataFrame is "
-            "`hasattr(y, 'dtypes') and hasattr(y.dtypes, '__array__')`, followed by "
-            "`any(_pandas_dtype_needs_early_conversion(dtype) for dtype in y.dtypes)`; Series is "
-            "`hasattr(y, 'iloc') and hasattr(y, 'dtype')`, followed by "
-            "`_pandas_dtype_needs_early_conversion(y.dtype)`. Only when both matching guards are true, run "
-            "`check_array(y, dtype=None, ensure_2d=False)` before the existing `is_multilabel(y)` predicate.\n"
-            "- Preserve the current non-pandas, native numpy, and sparse paths. Do not invent a parallel `to_numpy`, "
-            "`astype`, exact `str(dtype)` whitelist, unconditional float conversion, or later object-dtype fallback. "
-            "Specifically forbid `hasattr(y, '__array__')` as the conversion guard because it captures existing numpy, "
-            "empty, ragged, and unknown-label inputs. Also forbid `hasattr(y, 'dtypes')` alone because Series exposes a "
-            "scalar `.dtypes`, and forbid `hasattr(y, 'dtype')` alone because numpy/sparse objects expose `.dtype`.\n"
-            "- The Implement semantic_challenge must cite the current `is_multilabel(y)` location and confirm that the "
-            "two exact identity guards plus helper-guarded normalization execute before it; a patch below that predicate "
-            "or with a broader/simplified guard is incomplete.\n"
-        )
     if diagnostic_mode == "gold_files":
         files = gold_patch_files(str(row.get("patch") or ""))
         task += (

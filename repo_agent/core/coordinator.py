@@ -347,7 +347,10 @@ class CoordinatorEngine:
         review_required = bool(self._agent_state.get("review_required"))
         review_done = bool(self._agent_state.get("patch_review_done"))
 
-        if not attempts.get("reproducer"):
+        terminal_reason = str(self._agent_state.get("workflow_terminal_reason") or "")
+        if terminal_reason == "static_safe_unverified":
+            pre_harness = "static_safe_unverified"
+        elif not attempts.get("reproducer"):
             pre_harness = "reproduction_not_attempted"
         elif not self._agent_state.get("reproducer_done") and not attempts.get("implement"):
             pre_harness = "reproduction_incomplete"
@@ -417,6 +420,7 @@ class CoordinatorEngine:
                     "semantic_patch_warnings": list(
                         self._agent_state.get("semantic_patch_warnings") or []
                     ),
+                    "constraint_routing": self._agent_state.get("constraint_routing") or {},
                 },
                 "deterministic_validation": {
                     "passed": bool(patch.strip()) and not static_issues,
@@ -439,6 +443,7 @@ class CoordinatorEngine:
                     "passed": bool(self._agent_state.get("verification_passed")),
                     "result": self._agent_state.get("verification_result") or {},
                     "assessment": self._agent_state.get("verification_assessment") or {},
+                    "skipped_reason": self._agent_state.get("verification_skipped_reason") or "",
                 },
             },
             "submission_ready": bool(self._agent_state.get("submission_ready")),

@@ -13,6 +13,7 @@ from typing import Any
 
 from repo_agent.core.subagent import LineRange, SubAgentRunner, WorkerConstraints, get_worker_spec
 from repo_agent.core.static_analysis import newly_undefined_names
+from repo_agent.core.task_constraints import ConstraintRouting, route_task_constraints
 from repo_agent.core.semantic_evidence import (
     blocking_patch_semantic_issues,
     build_verification_plan,
@@ -91,9 +92,18 @@ def reset_agent_tool_state(state: dict[str, Any], cwd: Path) -> None:
             "verification_assessment": {},
             "verification_result_parseable": False,
             "verification_passed": False,
+            "verification_skipped_reason": "",
             "submission_ready": False,
             "workflow_terminal_reason": "",
             "workflow_terminal_completed": False,
+            "workflow_terminal_final_answer": "",
+            "constraint_routing": {
+                "candidate_profiles": [],
+                "active_profiles": [],
+                "rejected_profiles": [],
+                "source_excerpt_chars": 0,
+                "injected_prompt_chars": 0,
+            },
             "worker_requests": {},
             "worker_attempts": {},
             "worker_events": [],
@@ -194,6 +204,7 @@ def build_agent_tools(
                     "use only the enforced allowed_ranges supplied to your scoped tools."
                 )
         swebench_context = _is_swebench_context(prompt, runner.cwd)
+        constraint_routing = ConstraintRouting((), (), (), 0)
         if spec.name == "implement" and swebench_context:
             constraints, removed_ranges = _constrain_implement_to_consumer_layer(
                 constraints,
@@ -205,32 +216,45 @@ def build_agent_tools(
                     f"{prompt}\n\nTool-enforced semantic scope: preferred_change_layer=consumer, so these "
                     f"producer-only writable ranges were removed: {removed_ranges}. Do not modify canonical storage."
                 )
-            constraints, inferred_ranges = _constrain_star_alias_scope_from_source(
-                constraints,
-                prompt,
-                runner.cwd,
+            routing_problem = str(state.get("problem_statement") or prompt)
+            constraint_routing = route_task_constraints(
+                problem_statement=routing_problem,
+                cwd=runner.cwd,
+                allowed_ranges=constraints.allowed_ranges or {},
             )
-            if inferred_ranges:
-                prior = list(state.get("semantic_scope_adjustments") or [])
-                state["semantic_scope_adjustments"] = [*prior, *inferred_ranges]
-                prompt = (
-                    f"{prompt}\n\nTool-enforced source contract: the producer's bare parameter keys are read-only. "
-                    "The writable scope was narrowed to the parameter annotation/output loops in the direct consumers. "
-                    "Preserve the full matched display name; do not edit record_typehints or any return/rtype branch."
+            candidate_profiles = set(constraint_routing.candidate_profiles)
+            if "matched_alias" in candidate_profiles:
+                constraints, inferred_ranges = _constrain_star_alias_scope_from_source(
+                    constraints,
+                    f"{prompt}\n{routing_problem}",
+                    runner.cwd,
                 )
-            constraints, inferred_ranges = _constrain_nullable_pandas_scope_from_source(
-                constraints,
-                f"{prompt}\n{state.get('problem_statement') or ''}",
-                runner.cwd,
+                if inferred_ranges:
+                    prior = list(state.get("semantic_scope_adjustments") or [])
+                    state["semantic_scope_adjustments"] = [*prior, *inferred_ranges]
+                    prompt = (
+                        f"{prompt}\n\nTool-enforced source contract: the producer's bare parameter keys are read-only. "
+                        "The writable scope was narrowed to the parameter annotation/output loops in the direct consumers."
+                    )
+            if "nullable_pandas" in candidate_profiles:
+                constraints, inferred_ranges = _constrain_nullable_pandas_scope_from_source(
+                    constraints,
+                    f"{prompt}\n{routing_problem}",
+                    runner.cwd,
+                )
+                if inferred_ranges:
+                    prior = list(state.get("semantic_scope_adjustments") or [])
+                    state["semantic_scope_adjustments"] = [*prior, *inferred_ranges]
+                    prompt = (
+                        f"{prompt}\n\nTool-enforced source contract: this representation fix may edit only the existing "
+                        "validation import and type_of_target(). unique_labels() and downstream callers are read-only."
+                    )
+            constraint_routing = route_task_constraints(
+                problem_statement=routing_problem,
+                cwd=runner.cwd,
+                allowed_ranges=constraints.allowed_ranges or {},
             )
-            if inferred_ranges:
-                prior = list(state.get("semantic_scope_adjustments") or [])
-                state["semantic_scope_adjustments"] = [*prior, *inferred_ranges]
-                prompt = (
-                    f"{prompt}\n\nTool-enforced source contract: this nullable pandas fix may edit only the existing "
-                    "validation import and type_of_target(). unique_labels() and every downstream caller are read-only; "
-                    "normalization belongs before type_of_target's first is_multilabel predicate."
-                )
+            state["constraint_routing"] = constraint_routing.to_dict()
         scope_key = _scope_key(constraints)
         if spec.name == "implement" and state.get("last_chance_failed_scope") == scope_key:
             return ToolResponse.failure(
@@ -440,7 +464,11 @@ def build_agent_tools(
             state["last_chance_used"] = True
             state["last_chance_scope"] = scope_key
         if spec.name == "implement" and swebench_context:
-            prompt = _augment_swebench_semantic_prompt(prompt, state)
+            prompt = _augment_swebench_semantic_prompt(
+                prompt,
+                state,
+                constraint_prompts=constraint_routing.prompts,
+            )
         verification_plan: dict[str, Any] | None = None
         if spec.name == "verify" and swebench_context:
             semantic_issues = list(state.get("semantic_evidence_issues") or [])
@@ -586,6 +614,7 @@ def build_agent_tools(
             state["verification_assessment"] = {}
             state["verification_result_parseable"] = False
             state["verification_passed"] = False
+            state["verification_skipped_reason"] = ""
             current_patch = _git_diff_text(runner.cwd)
             all_semantic_patch_issues = [
                 *patch_evidence_alignment_issues(
@@ -647,6 +676,9 @@ def build_agent_tools(
                     state["patch_review_high_risk"] = True
                     state["last_patch_gate_text"] = _format_static_gate_text(static_issues)
                     result_text = f"{result.text}\n\n{state['last_patch_gate_text']}"
+            terminal_message = _finish_static_safe_unverified(state, runner, review_policy)
+            if terminal_message:
+                result_text = f"{result_text}\n\n{terminal_message}"
         if result.type == "implement" and not result.changed_files:
             if semantic_corrective_now:
                 state["semantic_corrective_required"] = False
@@ -694,6 +726,10 @@ def build_agent_tools(
                     f"{result_text}\n\nConditional review recorded a concrete risk. "
                     "The patch is not submission-ready; terminate without corrective implement."
                 )
+            if not state.get("workflow_terminal_reason"):
+                terminal_message = _finish_static_safe_unverified(state, runner, review_policy)
+                if terminal_message:
+                    result_text = f"{result_text}\n\n{terminal_message}"
         if result.type == "patch_ranker" and result.completed:
             selection = _extract_patch_ranker_selection(result.text, state)
             state["patch_ranker_done"] = selection["valid"]
@@ -743,7 +779,8 @@ def build_agent_tools(
                     "terminate_loop": True,
                     "terminal_reason": terminal_reason,
                     "terminal_completed": terminal_completed,
-                    "final_answer": (
+                    "final_answer": state.get("workflow_terminal_final_answer")
+                    or (
                         f"Simplified pass@1 terminated after {terminal_reason}. "
                         + (
                             "The patch has parseable passing verification evidence and is submission-ready."
@@ -1755,7 +1792,12 @@ def _augment_corrective_prompt(prompt: str, state: dict) -> str:
     )
 
 
-def _augment_swebench_semantic_prompt(prompt: str, state: dict) -> str:
+def _augment_swebench_semantic_prompt(
+    prompt: str,
+    state: dict,
+    *,
+    constraint_prompts: tuple[str, ...] = (),
+) -> str:
     """把经过结构校验的公开证据交给 implement，而不是重复 Coordinator 的解法。"""
 
     evidence_issues = list(state.get("semantic_evidence_issues") or [])
@@ -1766,28 +1808,7 @@ def _augment_swebench_semantic_prompt(prompt: str, state: dict) -> str:
         state.get("semantic_evidence"),
         evidence_issues,
     )
-    problem_statement = str(state.get("problem_statement") or "").lower()
-    representation_contract = ""
-    if "pandas" in problem_statement and ("nullable" in problem_statement or "extension dtype" in problem_statement):
-        representation_contract = (
-            "\nAUTHORITATIVE REPRESENTATION MATRIX: cover both 1D pandas Series (`.dtype`) and 2D pandas "
-            "DataFrame (`.dtypes`) before writing. A patch whose only entry guard is `hasattr(y, 'dtype')` cannot "
-            "cover DataFrame and is incomplete. REQUIRED EDIT PATH FOR THIS TASK: preserve non-pandas, native numpy, and "
-            "sparse behavior. Import and use the repository's existing `_pandas_dtype_needs_early_conversion` helper as "
-            "the only dtype conversion predicate. Copy the existing `check_array` pandas identity guards exactly and in "
-            "this order; do not simplify them: DataFrame is `hasattr(y, 'dtypes') and "
-            "hasattr(y.dtypes, '__array__')`, then its dtype guard is "
-            "`any(_pandas_dtype_needs_early_conversion(dtype) for dtype in y.dtypes)`; Series is "
-            "`hasattr(y, 'iloc') and hasattr(y, 'dtype')`, then its dtype guard is "
-            "`_pandas_dtype_needs_early_conversion(y.dtype)`. Only when the matching identity and dtype guards are true, "
-            "invoke `check_array(y, dtype=None, ensure_2d=False)` before the existing `is_multilabel(y)` "
-            "predicate. Never guard this conversion with `hasattr(y, '__array__')`: it also matches native numpy, empty, "
-            "ragged, and other existing inputs. `hasattr(y, 'dtypes')` alone misclassifies Series, and "
-            "`hasattr(y, 'dtype')` alone captures numpy/sparse inputs; both are forbidden. Do not add a parallel "
-            "`to_numpy`, `astype`, exact `str(dtype)` branch, unconditional conversion, or later object-dtype fallback. "
-            "The EditBrief and semantic_challenge must name both exact identity guards, the helper guard, and the ordering "
-            "explicitly before writing.\n"
-        )
+    active_contracts = "\n\n".join(constraint_prompts)
     return (
         f"{prompt}\n\n"
         "## Tool-enforced SemanticEvidence\n"
@@ -1810,7 +1831,7 @@ def _augment_swebench_semantic_prompt(prompt: str, state: dict) -> str:
         "visible consumer lookup/render/write expectation. Never mutate a shared storage key or return contract when the "
         "consumer scope is absent; block and request that scope. A consumer coverage warning does not authorize a producer "
         "edit: inspect every supplied consumer range and keep matched alias/display identity separate from canonical storage.\n"
-        f"{representation_contract}"
+        f"{active_contracts}\n"
         "Critical claims about accepted container/rank/dtype variants, automatic closure/cardinality, matched lookup identity, "
         "constant fallback precision, mutation target, or shared state require evidence from the allowed code or reproducer. "
         "Do not rationalize an unproven claim. Revise the proposed local change when evidence contradicts it; if the needed "
@@ -2126,6 +2147,40 @@ def _submission_ready(state: dict[str, Any], review_policy: str) -> bool:
         and state.get("verification_result_parseable")
         and state.get("verification_passed")
     )
+
+
+def _finish_static_safe_unverified(state: dict[str, Any], runner: SubAgentRunner, review_policy: str) -> str:
+    """没有可信公开验证计划时，在静态安全 patch 上直接结束 SWE-bench 流程。"""
+
+    if review_policy != "conditional" or not state.get("implementation_done"):
+        return ""
+    if state.get("static_issues") or not _git_diff_text(runner.cwd).strip():
+        return ""
+    if state.get("review_required") and not (
+        state.get("patch_review_completed") and not state.get("patch_review_high_risk")
+    ):
+        return ""
+    if build_verification_plan(state.get("semantic_evidence")) is not None:
+        return ""
+
+    reason = "No trusted public verification command is available after deterministic static validation."
+    state["verification_skipped_reason"] = "no_trusted_verification_plan"
+    state["verification_assessment"] = {
+        "classification": "not_available",
+        "command_kind": "missing",
+        "conclusive": False,
+        "submission_ready": False,
+        "reject_patch": False,
+        "preserve_patch": True,
+        "reason": reason,
+    }
+    state["workflow_terminal_reason"] = "static_safe_unverified"
+    state["workflow_terminal_completed"] = True
+    state["workflow_terminal_final_answer"] = (
+        "Deterministic static validation passed. No trusted public verification command was available; "
+        "the statically safe patch is preserved for SWE-bench harness evaluation without claiming test success."
+    )
+    return "Static validation passed and no trusted verification plan exists; terminate now and preserve the patch."
 
 
 def _looks_like_subagent_output_read(prompt: str) -> bool:

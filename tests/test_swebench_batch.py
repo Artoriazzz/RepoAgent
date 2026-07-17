@@ -223,6 +223,33 @@ def test_summarize_stage_attributions_aggregates_primary_outcomes_and_tokens():
     assert result["average_tokens"] == 75.0
 
 
+def test_static_safe_unverified_patch_is_kept_with_precise_warning():
+    batch = load_batch_module()
+    patch = "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n"
+    attribution = {
+        "workflow_terminal_reason": "static_safe_unverified",
+        "stages": {
+            "deterministic_validation": {"passed": True, "issues": []},
+            "focused_verification": {
+                "attempts": 0,
+                "skipped_reason": "no_trusted_verification_plan",
+                "assessment": {
+                    "classification": "not_available",
+                    "submission_ready": False,
+                    "reject_patch": False,
+                    "preserve_patch": True,
+                },
+            },
+        },
+    }
+
+    result = batch.validate_model_patch(patch, require_patch_review=False, stage_attribution=attribution)
+
+    assert result["invalid"] is False
+    assert result["discard_patch"] is False
+    assert result["warnings"] == ["verification_not_available"]
+
+
 def test_build_task_contains_pass1_execution_deadlines(tmp_path):
     batch = load_batch_module()
     task = batch.build_task(
@@ -256,6 +283,22 @@ def test_build_task_contains_pass1_execution_deadlines(tmp_path):
     assert "verdict=accept" not in task
     assert "public regression risks inferred only from changed files" not in task
     assert "corrective implement is not a fresh solution attempt" not in task
+
+
+def test_build_task_leaves_matched_alias_details_to_constraint_router(tmp_path):
+    batch = load_batch_module()
+    task = batch.build_task(
+        {
+            "instance_id": "sphinx-doc__sphinx-1",
+            "problem_statement": "Autodoc duplicates *args and **kwargs parameter fields.",
+            "hints_text": "",
+        },
+        tmp_path / "repo",
+    )
+
+    assert "Matched alias propagation constraint" not in task
+    assert "matched_display_name" not in task
+    assert "canonical lookup identity separate from rendered identity" in task
     assert "dict.pop(orig, 'backend', None)" not in task
     assert "mplot3d/art3d.py" not in task
     assert "second solution attempt" in task
@@ -264,7 +307,7 @@ def test_build_task_contains_pass1_execution_deadlines(tmp_path):
     assert "covered_cases" in task
 
 
-def test_build_task_adds_narrow_nullable_pandas_constraint(tmp_path):
+def test_build_task_leaves_nullable_pandas_details_to_constraint_router(tmp_path):
     batch = load_batch_module()
     task = batch.build_task(
         {
@@ -274,20 +317,10 @@ def test_build_task_adds_narrow_nullable_pandas_constraint(tmp_path):
         tmp_path / "repo",
     )
 
-    assert "Nullable pandas dtype constraint" in task
-    assert "`_pandas_dtype_needs_early_conversion` helper" in task
-    assert "`hasattr(y, 'dtypes') and hasattr(y.dtypes, '__array__')`" in task
-    assert "for dtype in y.dtypes" in task
-    assert "`hasattr(y, 'iloc') and hasattr(y, 'dtype')`" in task
-    assert "`_pandas_dtype_needs_early_conversion(y.dtype)`" in task
-    assert "`check_array(y, dtype=None, ensure_2d=False)`" in task
-    assert "before the existing `is_multilabel(y)` predicate" in task
-    assert "parallel `to_numpy`" in task
-    assert "forbid `hasattr(y, '__array__')`" in task
-    assert "forbid `hasattr(y, 'dtypes')` alone" in task
-    assert "forbid `hasattr(y, 'dtype')` alone" in task
-    assert "two exact identity guards plus helper-guarded normalization execute before it" in task
-    assert "producer code is read-only context even without Reproducer evidence" in task
+    assert "Nullable pandas dtype constraint" not in task
+    assert "_pandas_dtype_needs_early_conversion" not in task
+    assert "check_array(y, dtype=None, ensure_2d=False)" not in task
+    assert "Split every representation named or directly implied" in task
 
 
 def test_diagnostic_gold_oracles_expose_scope_without_patch_content(tmp_path):

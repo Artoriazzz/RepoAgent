@@ -7,6 +7,8 @@ from typing import Any
 _EXPORTS = {
     "ChatLLM": ("repo_agent.core.llm", "ChatLLM"),
     "ContextConfig": ("repo_agent.core.context", "ContextConfig"),
+    "ConstraintProfile": ("repo_agent.core.task_constraints", "ConstraintProfile"),
+    "ConstraintRouting": ("repo_agent.core.task_constraints", "ConstraintRouting"),
     "ContinueReason": ("repo_agent.core.query_loop", "ContinueReason"),
     "CoordinatorEngine": ("repo_agent.core.coordinator", "CoordinatorEngine"),
     "ConversationContextManager": ("repo_agent.core.context", "ConversationContextManager"),
@@ -46,6 +48,7 @@ _EXPORTS = {
     "get_worker_spec": ("repo_agent.core.subagent", "get_worker_spec"),
     "parse_frontmatter": ("repo_agent.core.frontmatter", "parse_frontmatter"),
     "query_loop": ("repo_agent.core.query_loop", "query_loop"),
+    "route_task_constraints": ("repo_agent.core.task_constraints", "route_task_constraints"),
     "repair_recipe_query_from_task": ("repo_agent.core.repair_memory", "repair_recipe_query_from_task"),
 }
 
