@@ -3,12 +3,92 @@ from __future__ import annotations
 import json
 import re
 from copy import deepcopy
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from repo_agent.core.verification import classify_verification_command, verification_command_safety_reason
 
 
 SUPPORTED_EVIDENCE_TYPES = {"issue", "code", "public_test", "execution"}
+
+
+@dataclass(frozen=True)
+class RepairBrief:
+    """面向 Coordinator、Implement 和 Review 的紧凑共享修复契约。
+
+    它是角色之间唯一推荐复用的中间表示，不是 patch 方案。problem_contract 说明要
+    改变什么，semantic_cases/contract_edges 说明证据覆盖，unknowns 则保留不确定性。
+    """
+
+    problem_contract: dict[str, Any]
+    semantic_cases: tuple[dict[str, Any], ...]
+    contract_edges: tuple[dict[str, Any], ...]
+    verification_plan: dict[str, Any]
+    unknowns: tuple[str, ...]
+    confidence: str
+    candidate_policy: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def build_repair_brief(
+    evidence: dict[str, Any] | None,
+    problem_statement: str,
+) -> RepairBrief:
+    """把 Reproducer 的公开证据压缩成唯一中间表示，不在此推导具体 patch。
+
+    这里刻意不让控制器把“证据”自动改写成“答案”，否则错误的定位假设会被包装成
+    硬约束并传给所有 Worker。
+    """
+
+    value = evidence if isinstance(evidence, dict) else {}
+    contract = value.get("reproduction_contract")
+    problem_contract = dict(contract) if isinstance(contract, dict) else {
+        "trigger": [],
+        "expected_behavior": [],
+    }
+    cases = tuple(
+        dict(item)
+        for item in value.get("target_partitions") or value.get("differential_cases") or []
+        if isinstance(item, dict)
+    )
+    edges = tuple(
+        dict(item)
+        for item in value.get("contract_edges") or []
+        if isinstance(item, dict)
+    )
+    unknowns = tuple(
+        str(item).strip()
+        for item in value.get("unknowns") or []
+        if str(item).strip()
+    )
+    issues = validate_semantic_evidence(value, problem_statement)
+    plan = build_verification_plan(value) or {}
+
+    if not value or len(issues) > 3:
+        confidence = "low"
+    elif unknowns or issues:
+        confidence = "medium"
+    else:
+        confidence = "high"
+
+    # 候选池必须有可信的公开行为命令才能排序。高置信任务默认单 patch；
+    # 中低置信任务才允许显式 auto 模式支付额外候选成本。
+    candidate_policy = (
+        "single"
+        if confidence == "high"
+        else ("eligible" if plan else "disabled_without_reproducer")
+    )
+    return RepairBrief(
+        problem_contract=problem_contract,
+        semantic_cases=cases,
+        contract_edges=edges,
+        verification_plan=plan,
+        unknowns=unknowns,
+        confidence=confidence,
+        candidate_policy=candidate_policy,
+    )
 
 
 def normalize_semantic_evidence(
@@ -397,6 +477,7 @@ def blocking_patch_semantic_issues(issues: list[str]) -> list[str]:
     """只保留能由 diff 与证据直接证明的契约破坏。"""
 
     blocking_prefixes = (
+        "profile_contract:",
         "semantic_contract_violation:producer_canonical_identity_changed_for_display",
         "semantic_wrong_layer:consumer_compatibility_required_but_producer_changed",
         "semantic_contract_violation:parameter_alias_patch_changed_return_rtype_branches",

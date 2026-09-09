@@ -9,7 +9,10 @@ from repo_agent.core.coordinator import (
     _candidate_mode_required_for_task,
     _coordinator_completion_guard,
     _coordinator_read_only_tools,
+    _public_verification_registration_tool,
+    coordinator_system_prompt,
 )
+from repo_agent.core.experience import RepairRunMode
 from repo_agent.core.llm import LLMToolResponse, ToolCall
 from repo_agent.core.memory import MemoryStore
 from repo_agent.core.repair_memory import (
@@ -31,6 +34,8 @@ from repo_agent.core.subagent import (
     SubAgentRunner,
     WorkerConstraints,
     WorkerResult,
+    _failure_review_completion_guard,
+    _reproducer_completion_guard,
     get_worker_spec,
 )
 from repo_agent.core.task_constraints import MATCHED_ALIAS_CONTRACT, NULLABLE_PANDAS_CONTRACT
@@ -65,16 +70,357 @@ class FakeLLM:
         return self.responses.pop(0)
 
 
+def test_swebench_coordinator_prompt_is_routed_by_repair_mode():
+    benchmark = coordinator_system_prompt(
+        swebench_profile=True,
+        repair_mode=RepairRunMode.BENCHMARK,
+    )
+    experience = coordinator_system_prompt(
+        swebench_profile=True,
+        repair_mode=RepairRunMode.EXPERIENCE_BUILD,
+    )
+
+    assert "严格 pass@1" in benchmark
+    assert "冻结只读快照" in benchmark
+    assert "历史 semantic/episodic memory" in benchmark
+    assert "Prompt 词面不是安全边界" in benchmark
+    assert "外层状态机仅" not in benchmark
+    assert "结构、语法和范围检查" in experience
+    assert "初始阶段不派 Reproducer、Verify Worker" in experience
+    assert "真实 unresolved" in experience
+    assert "最多运行一次 Corrective Implement 和一次最终 harness" in experience
+    assert "benchmark 模式不会执行上述反馈闭环" in experience
+
+
+def test_experience_coordinator_does_not_construct_public_verification_oracle(
+    tmp_path,
+):
+    engine = CoordinatorEngine(
+        llm=FakeLLM([]),
+        worker_tools=_base_tools(),
+        cwd=tmp_path,
+        output_dir=tmp_path / "out",
+        swebench_profile=True,
+        repair_mode=RepairRunMode.EXPERIENCE_BUILD.value,
+    )
+    engine.engine.chat = lambda _: "blocked_insufficient_edit_scope"
+
+    engine.run(
+        """## Verification Runtime
+VERIFICATION_RUNTIME_READY=true.
+
+## Problem Statement
+```
+>>> Mod(S(1.5)**2, S(1.5))
+0.75
+```
+"""
+    )
+
+    assert engine._coordinator_budget_state["public_verification_required"] is False
+    assert engine._coordinator_budget_state["reproducer_required"] is False
+    assert engine._coordinator_budget_state["required_transition"] == ""
+    assert engine.repair_memory_recall is False
+    assert "register_public_verification" not in engine.engine.tools.names()
+    assert "不构造公开验证命令" in engine.engine.system_prompt
+    assert "真实 unresolved" in engine.engine.system_prompt
+    disabled_reproducer = engine.engine.tools.execute(
+        "agent",
+        {
+            "type": "reproducer",
+            "description": "Do not run",
+            "prompt": "Try to reproduce the issue.",
+        },
+    )
+    disabled_verify = engine.engine.tools.execute(
+        "agent",
+        {
+            "type": "verify",
+            "description": "Do not run",
+            "prompt": "Try to verify the patch.",
+        },
+    )
+    assert disabled_reproducer.error["code"] == "WORKER_TYPE_DISABLED"
+    assert disabled_verify.error["code"] == "WORKER_TYPE_DISABLED"
+
+
+def test_experience_coordinator_skips_public_verification_for_unassertable_formula(tmp_path):
+    engine = CoordinatorEngine(
+        llm=FakeLLM([]),
+        worker_tools=_base_tools(),
+        cwd=tmp_path,
+        output_dir=tmp_path / "out",
+        swebench_profile=True,
+        repair_mode=RepairRunMode.EXPERIENCE_BUILD.value,
+    )
+    engine.engine.chat = lambda _: "blocked_insufficient_edit_scope"
+
+    engine.run(
+        """## Verification Runtime
+VERIFICATION_RUNTIME_READY=true.
+
+## Problem Statement
+The implementation should use the mathematically correct asymptotic formula.
+"""
+    )
+
+    assert engine._coordinator_budget_state["public_verification_required"] is False
+    assert engine._coordinator_budget_state["required_transition"] == ""
+
+
+def test_benchmark_does_not_enable_reproducer_feedback_gate(tmp_path):
+    engine = CoordinatorEngine(
+        llm=FakeLLM([]),
+        worker_tools=_base_tools(),
+        cwd=tmp_path,
+        output_dir=tmp_path / "out",
+        swebench_profile=True,
+        repair_mode=RepairRunMode.BENCHMARK.value,
+    )
+    engine.engine.chat = lambda _: "blocked_insufficient_edit_scope"
+
+    engine.run(
+        """## Verification Runtime
+VERIFICATION_RUNTIME_READY=true.
+
+## Problem Statement
+```
+>>> broken()
+ValueError
+```
+"""
+    )
+
+    assert engine._coordinator_budget_state["reproducer_required"] is False
+    assert engine._coordinator_budget_state["public_verification_required"] is False
+    assert "register_public_verification" not in engine.engine.tools.names()
+
+
+def test_public_verification_registration_freezes_executed_baseline_command(tmp_path):
+    runner = SubAgentRunner(
+        llm=FakeLLM([]),
+        base_tools=_base_tools(),
+        cwd=tmp_path,
+        output_dir=tmp_path / "agents",
+        swebench_profile=True,
+    )
+    command = 'python -c "assert 1 == 2"'
+    runner._run_swebench_verification_command = lambda tool, inp: ToolResponse.partial(
+        "AssertionError",
+        {
+            "exit_code": 1,
+            "execution_command": inp["command"],
+        },
+    )
+    state = {"problem_statement": "Expected the result to equal 2."}
+    budget_state = {}
+    tool = _public_verification_registration_tool(
+        runner,
+        state=state,
+        budget_state=budget_state,
+    )
+
+    response = tool.run_with_timing(
+        {
+            "command": command,
+            "trigger": "result equals 1",
+            "expected_behavior": "result equals 2",
+            "old_behavior_invariant": "other values remain unchanged",
+        }
+    )
+
+    assert response.status.value == "success"
+    assert state["public_verification_registered"] is True
+    assert state["public_verification_command"] == command
+    assert state["reproduction_execution"]["requested_command"] == command
+    assert budget_state["public_verification_registered"] is True
+    assert budget_state["required_transition"] == "implement"
+
+
+def test_failed_public_verification_registration_releases_implement_gate(tmp_path):
+    runner = SubAgentRunner(
+        llm=FakeLLM([]),
+        base_tools=_base_tools(),
+        cwd=tmp_path,
+        output_dir=tmp_path / "agents",
+        swebench_profile=True,
+    )
+    runner._run_swebench_verification_command = lambda tool, inp: ToolResponse.success(
+        "The command passed on the baseline.",
+        {"exit_code": 0, "execution_command": inp["command"]},
+    )
+    state = {"problem_statement": "Expected public behavior."}
+    budget_state = {"public_verification_required": True}
+    tool = _public_verification_registration_tool(
+        runner,
+        state=state,
+        budget_state=budget_state,
+    )
+
+    response = tool.run_with_timing(
+        {
+            "command": 'python -c "assert True"',
+            "trigger": "public input",
+            "expected_behavior": "public output",
+            "old_behavior_invariant": "",
+        }
+    )
+
+    assert response.error["code"] == "PUBLIC_VERIFICATION_NOT_REPRODUCED"
+    assert state["public_verification_registered"] is not True
+    assert budget_state["public_verification_required"] is False
+
+
+def test_benchmark_coordinator_keeps_frozen_memory_recall(tmp_path):
+    engine = CoordinatorEngine(
+        llm=FakeLLM([]),
+        worker_tools=_base_tools(),
+        cwd=tmp_path,
+        output_dir=tmp_path / "out",
+        repair_memory_recall=True,
+        swebench_profile=True,
+        repair_mode=RepairRunMode.BENCHMARK.value,
+    )
+
+    assert engine.repair_memory_recall is True
+    assert engine.repair_policy.semantic_recall is True
+    assert engine.repair_policy.episodic_recall is True
+    assert engine.repair_policy.memory_write is False
+
+
+def test_experience_read_deadline_transitions_directly_to_implement(tmp_path):
+    budget_state = {
+        "read_calls_before_worker": 0,
+        "worker_calls": 0,
+        "research_calls": 0,
+        "research_failed": 0,
+        "reproducer_calls": 0,
+        "post_research_read_calls": 0,
+        "implement_calls": 0,
+        "patch_review_calls": 0,
+        "post_failed_research_read_calls": 0,
+        "required_transition": "",
+        "agent_error_counts": {},
+        "reproducer_required": False,
+    }
+    base_tools = _base_tools()
+    read_tools = _coordinator_read_only_tools(
+        base_tools,
+        budget_state=budget_state,
+        read_budget_before_worker=1,
+        swebench_profile=True,
+    )
+    read_file = next(tool for tool in read_tools if tool.name == "read_file")
+    read_response = read_file.run_with_timing({"path": "pkg.py"})
+
+    raw_agent = build_tool(
+        name="agent",
+        description="Agent",
+        parameters=[
+            ToolParameter("type", "string", "Type", required=False),
+            ToolParameter("description", "string", "Description"),
+            ToolParameter("prompt", "string", "Prompt"),
+        ],
+        handler=lambda inp: ToolResponse.success(
+            "ok",
+            {"type": inp["type"], "completed": True, "stop_reason": "finished"},
+        ),
+    )
+    [agent_tool] = _budgeted_agent_tools(
+        [raw_agent],
+        budget_state=budget_state,
+        swebench_profile=True,
+    )
+
+    implemented = agent_tool.run_with_timing(
+        {"type": "implement", "description": "edit", "prompt": "replace local guard"}
+    )
+
+    assert read_response.status == "success"
+    assert implemented.status == "success"
+    assert budget_state["reproducer_calls"] == 0
+    assert budget_state["implement_calls"] == 1
+    assert budget_state["required_transition"] == ""
+
+
+def test_failure_review_guard_rejects_inference_without_direct_failure_evidence():
+    answer = json.dumps(
+        {
+            "failure_stage": "implementation_semantics",
+            "issue_contract": ["Only the named power identity is part of the issue."],
+            "observed_failure": ["The remaining test reports only AssertionError."],
+            "failure_observation_quality": "expected_actual",
+            "root_cause": "An adjacent equality branch might also need a guard.",
+            "invalidated_assumption": "The power branch was the only affected branch.",
+            "required_correction": "Guard the adjacent equality branch.",
+            "evidence_ledger": [
+                {
+                    "id": "E1",
+                    "source": "public_task",
+                    "fact": "The issue names the power branch.",
+                    "support": "direct",
+                },
+                {
+                    "id": "E2",
+                    "source": "failure_log",
+                    "fact": "The equality branch causes the failure.",
+                    "support": "inference",
+                },
+            ],
+            "correction_evidence_ids": ["E1", "E2"],
+            "scope_expansion": [],
+            "regression_guards": [],
+            "correction_readiness": "actionable",
+            "next_evidence_source": "none",
+            "confidence": 0.6,
+        }
+    )
+
+    reason = _failure_review_completion_guard(answer)
+
+    assert reason is not None
+    assert "direct post-patch failure evidence" in reason
+
+
+def test_failure_review_guard_allows_supporting_inference_with_direct_core():
+    payload = json.loads(
+        json.dumps(
+            {
+                "failure_stage": "implementation_semantics",
+                "issue_contract": ["Return the canonical identity."],
+                "observed_failure": ["Expected canonical, got alias."],
+                "failure_observation_quality": "expected_actual",
+                "root_cause": "The patch propagated the lookup alias.",
+                "invalidated_assumption": "Lookup and output identity are interchangeable.",
+                "required_correction": "Propagate the matched identity.",
+                "evidence_ledger": [
+                    {"id": "E1", "source": "public_task", "fact": "Canonical identity is required.", "support": "direct"},
+                    {"id": "E2", "source": "failure_log", "fact": "Expected canonical, got alias.", "support": "direct"},
+                    {"id": "E3", "source": "failed_patch", "fact": "The alias assignment is the causal mismatch.", "support": "inference"},
+                ],
+                "correction_evidence_ids": ["E1", "E2", "E3"],
+                "scope_expansion": [],
+                "regression_guards": [],
+                "correction_readiness": "actionable",
+                "next_evidence_source": "none",
+                "confidence": 0.8,
+            }
+        )
+    )
+
+    assert _failure_review_completion_guard(json.dumps(payload)) is None
+
+
 def test_subagent_runner_uses_implement_model_override(tmp_path):
     flash = FakeLLM([])
     flash.model = "deepseek-v4-flash"
-    pro = FakeLLM(
+    thinking_flash = FakeLLM(
         [LLMToolResponse(content="implemented", tool_calls=[], raw_message={"content": "implemented"}, usage={})]
     )
-    pro.model = "deepseek-v4-pro"
+    thinking_flash.model = "deepseek-v4-flash"
     runner = SubAgentRunner(
         llm=flash,
-        llm_overrides={"implement": pro},
+        llm_overrides={"implement": thinking_flash},
         base_tools=_base_tools(),
         cwd=tmp_path,
         output_dir=tmp_path / "out",
@@ -88,8 +434,8 @@ def test_subagent_runner_uses_implement_model_override(tmp_path):
         ),
     )
 
-    assert result.model == "deepseek-v4-pro"
-    assert len(pro.messages_by_call) == 1
+    assert result.model == "deepseek-v4-flash"
+    assert len(thinking_flash.messages_by_call) == 1
     assert flash.messages_by_call == []
 
 
@@ -276,9 +622,12 @@ def test_worker_specs_have_tight_budgets_and_stop_rules():
     assert "精确类型、精确字符串、顺序和格式" in IMPLEMENT_PROMPT
     assert "Sphinx/autodoc/autosummary/napoleon/domain" in IMPLEMENT_PROMPT
     assert "sklearn/sympy" in IMPLEMENT_PROMPT
-    assert "Repair Brief" in SWEBENCH_IMPLEMENT_PROMPT
-    assert "minimal_fix_strategy" in SWEBENCH_IMPLEMENT_PROMPT
-    assert "窄 guard" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "target_behavior" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "changed_decision" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "preserve_cases" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "known_risks" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "当前第一个错误 decision" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "不能用近似字符串、宽 guard、固定 fallback" in SWEBENCH_IMPLEMENT_PROMPT
     assert "regression-aware patch gate" in PATCH_REVIEW_PROMPT
     assert "patch_risk" in PATCH_REVIEW_PROMPT
     assert "最多额外调用 3 次 read_file" in PATCH_REVIEW_PROMPT
@@ -324,7 +673,7 @@ def test_worker_specs_have_tight_budgets_and_stop_rules():
     assert "最终 Sphinx 构建或公开集成测试" in SWEBENCH_REPRODUCER_PROMPT
     assert "框架会确定性绑定全部 required case ID" in SWEBENCH_REPRODUCER_PROMPT
     assert "最终公开输出写明确 `assert`" in SWEBENCH_REPRODUCER_PROMPT
-    assert "canonical lookup identity 和 rendered identity" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "producer 与 consumer identity" in SWEBENCH_IMPLEMENT_PROMPT
     assert "别名 fallback 是身份解析，不只是值查找" not in SWEBENCH_IMPLEMENT_PROMPT
     assert "augment_descriptions_with_types" not in SWEBENCH_IMPLEMENT_PROMPT
 
@@ -480,7 +829,7 @@ def test_swebench_reproducer_has_focused_tools_and_budget(tmp_path):
     spec = runner._worker_spec("reproducer")
     tools = runner._tools_for(spec)
 
-    assert spec.max_steps == 6
+    assert spec.max_steps == 8
     assert set(tools.names()) == {"read_file", "search_repo", "run_command"}
     assert "list_files" not in tools.names()
     assert runner._tools_for(runner._worker_spec("patch_ranker")).names() == []
@@ -719,6 +1068,48 @@ def test_swebench_failed_research_allows_reproducer_and_blocks_more_research(tmp
     assert budget_state["required_transition"] == "implement"
 
 
+def test_budgeted_agent_tools_stop_repeated_deterministic_implement_rejection():
+    budget_state = {
+        "read_calls_before_worker": 0,
+        "worker_calls": 0,
+        "research_calls": 0,
+        "research_failed": 0,
+        "reproducer_calls": 0,
+        "post_research_read_calls": 0,
+        "implement_calls": 0,
+        "patch_review_calls": 0,
+        "agent_error_counts": {},
+        "required_transition": "",
+    }
+    raw_agent = build_tool(
+        name="agent",
+        description="Agent",
+        parameters=[
+            ToolParameter("type", "string", "Type", required=False),
+            ToolParameter("description", "string", "Description"),
+            ToolParameter("prompt", "string", "Prompt"),
+        ],
+        handler=lambda inp: ToolResponse.failure(
+            "IMPLEMENT_RESEARCH_TASK_DENIED",
+            "Remove research instructions.",
+        ),
+    )
+    [agent_tool] = _budgeted_agent_tools(
+        [raw_agent],
+        budget_state=budget_state,
+        swebench_profile=True,
+    )
+    request = {"type": "implement", "description": "edit", "prompt": "replace local guard"}
+
+    first = agent_tool.run_with_timing(request)
+    second = agent_tool.run_with_timing(request)
+
+    assert first.status == "error"
+    assert second.status == "partial"
+    assert second.data["terminate_loop"] is True
+    assert second.data["terminal_reason"] == "blocked_tool_validation"
+
+
 def test_budgeted_agent_tools_allow_patch_review_after_failed_research_and_implement(tmp_path):
     budget_state = {
         "read_calls_before_worker": 8,
@@ -873,10 +1264,21 @@ def test_implement_worker_requires_structured_scope(tmp_path):
     assert response.error["code"] == "IMPLEMENT_SCOPE_REQUIRED"
 
 
-def test_swebench_implement_scope_denies_test_files(tmp_path):
-    runner = SubAgentRunner(llm=FakeLLM([]), base_tools=_base_tools(), cwd=tmp_path, output_dir=tmp_path / "out")
+def test_swebench_implement_scope_strips_test_files(tmp_path):
+    llm = FakeLLM(
+        [
+            LLMToolResponse(
+                content="No source edit needed.",
+                tool_calls=[],
+                raw_message={"content": "No source edit needed."},
+                usage={},
+            )
+        ]
+    )
+    state = {}
+    runner = SubAgentRunner(llm=llm, base_tools=_base_tools(), cwd=tmp_path, output_dir=tmp_path / "out")
     registry = ToolRegistry()
-    registry.register_many(build_agent_tools(runner))
+    registry.register_many(build_agent_tools(runner, state=state))
 
     response = registry.execute(
         "agent",
@@ -892,9 +1294,47 @@ def test_swebench_implement_scope_denies_test_files(tmp_path):
         },
     )
 
-    assert response.status == "error"
-    assert response.error["code"] == "SWEBENCH_TEST_EDIT_DENIED"
-    assert "tests/check_framework/test_model_checks.py" in response.text
+    assert response.status == "success"
+    assert state["test_scope_adjustments"] == ["tests/check_framework/test_model_checks.py"]
+    assert state["worker_events"][0]["allowed_files"] == ["django/core/checks/model_checks.py"]
+
+
+def test_recalled_episode_command_does_not_poison_implement_gate(tmp_path):
+    llm = FakeLLM(
+        [
+            LLMToolResponse(
+                content="No source edit needed.",
+                tool_calls=[],
+                raw_message={"content": "No source edit needed."},
+                usage={},
+            )
+        ]
+    )
+    runner = SubAgentRunner(llm=llm, base_tools=_base_tools(), cwd=tmp_path, output_dir=tmp_path / "out")
+    registry = ToolRegistry()
+    registry.register_many(
+        build_agent_tools(
+            runner,
+            repair_episode_prompt=lambda prompt: (
+                f"{prompt}\nHistorical validation: run pytest tests/test_old_case.py",
+                (),
+            ),
+        )
+    )
+
+    response = registry.execute(
+        "agent",
+        {
+            "type": "implement",
+            "description": "Fix SWE-bench bug",
+            "prompt": _swebench_edit_brief_prompt("Replace the local production guard."),
+            "allowed_files": ["django/core/checks/model_checks.py"],
+            "allowed_ranges": {"django/core/checks/model_checks.py": [[35, 60]]},
+        },
+    )
+
+    assert response.status == "success"
+    assert response.error is None
 
 
 def test_swebench_implement_does_not_require_prompt_keyword_score(tmp_path):
@@ -931,24 +1371,16 @@ def test_swebench_implement_does_not_require_prompt_keyword_score(tmp_path):
     assert response.error is None
 
 
-def test_swebench_implement_denies_research_task_prompt(tmp_path):
-    runner = SubAgentRunner(llm=FakeLLM([]), base_tools=_base_tools(), cwd=tmp_path, output_dir=tmp_path / "out")
-    registry = ToolRegistry()
-    registry.register_many(build_agent_tools(runner))
-
-    response = registry.execute(
-        "agent",
+def test_swebench_implement_prompt_prohibitions_are_not_a_gate(tmp_path):
+    constraints = WorkerConstraints.from_tool_input(
         {
-            "type": "implement",
-            "description": "Investigate SWE-bench bug",
-            "prompt": _swebench_edit_brief_prompt("Run `git log --oneline -30` and search for permission."),
             "allowed_files": ["django/contrib/auth/management/__init__.py"],
             "allowed_ranges": {"django/contrib/auth/management/__init__.py": [[35, 120]]},
-        },
+        }
     )
+    prompt = _swebench_edit_brief_prompt("Do not run commands; apply the scoped replacement.")
 
-    assert response.status == "error"
-    assert response.error["code"] == "IMPLEMENT_RESEARCH_TASK_DENIED"
+    assert _check_swebench_implement_edit_brief(prompt, constraints) is None
 
 
 def test_swebench_implement_allows_local_pattern_lookup_inside_allowed_ranges():
@@ -979,13 +1411,11 @@ def test_swebench_implement_receives_reproducer_contract_and_semantic_proof():
     )
 
     assert "nullable one-dimensional and two-dimensional containers" in prompt
-    assert "semantic_challenge" in prompt
-    assert "assumptions_checked" in prompt
-    assert "first_semantic_decision" in prompt
-    assert "non_target_case" in prompt
-    assert "not an authority" in prompt
-    assert "first predicate" in prompt
-    assert "current producer canonical identity" in prompt
+    assert "Compact public repair contract" in prompt
+    assert "semantic_cases" in prompt
+    assert "evidence, not a suggested patch" in prompt
+    assert "producer/consumer identity" in prompt
+    assert "state lifecycle" in prompt
 
 
 def test_swebench_implement_receives_matched_alias_dataflow_constraint():
@@ -1049,24 +1479,21 @@ def test_swebench_scope_gate_does_not_depend_on_repository_name():
     assert denial is None
 
 
-def test_swebench_implement_denies_overbroad_ranges(tmp_path):
-    runner = SubAgentRunner(llm=FakeLLM([]), base_tools=_base_tools(), cwd=tmp_path, output_dir=tmp_path / "out")
-    registry = ToolRegistry()
-    registry.register_many(build_agent_tools(runner))
-
-    response = registry.execute(
-        "agent",
+def test_swebench_scope_gate_is_structural(tmp_path):
+    constraints = WorkerConstraints.from_tool_input(
         {
-            "type": "implement",
-            "description": "Fix ORM SWE-bench bug",
-            "prompt": _swebench_edit_brief_prompt("Apply required_changes in the narrowed edit point."),
             "allowed_files": ["django/db/models/sql/query.py"],
             "allowed_ranges": {"django/db/models/sql/query.py": [[1, 2500]]},
-        },
+        }
     )
 
-    assert response.status == "error"
-    assert response.error["code"] == "IMPLEMENT_SCOPE_TOO_BROAD"
+    denial = _check_swebench_implement_edit_brief(
+        _swebench_edit_brief_prompt("Apply the narrowed edit."),
+        constraints,
+    )
+
+    assert denial is not None
+    assert denial.error["code"] == "IMPLEMENT_SCOPE_TOO_BROAD"
 
 
 def test_recipe_constraint_blocks_writer_only_implement_scope(tmp_path):
@@ -1513,6 +1940,19 @@ def _swebench_edit_brief_prompt(extra: str = "") -> str:
     )
 
 
+def _swebench_implement_report() -> str:
+    return json.dumps(
+        {
+            "target_behavior": "The public old value becomes the public new value.",
+            "changed_decision": "Replace the old literal in the existing assignment.",
+            "preserve_cases": ["Keep the assignment API and module syntax."],
+            "verification": "not_available",
+            "changed_files": ["app.py"],
+            "known_risks": [],
+        }
+    )
+
+
 def test_patch_review_is_required_before_verify_after_implement(tmp_path):
     repo = _init_git_repo_with_app(tmp_path)
     base_tools = ToolRegistry()
@@ -1704,23 +2144,9 @@ def test_swebench_semantic_gate_allows_one_narrow_corrective_implement(tmp_path)
     )
 
     assert first.status == "success"
-    assert "Automatic SemanticEvidence patch gate" in first.text
-    assert second.status == "success"
-    assert "CORRECTIVE_IMPLEMENT" in "\n".join(
-        str(message.get("content") or "") for message in llm.messages_by_call[-1]
-    )
-    corrective_prompt = "\n".join(str(message.get("content") or "") for message in llm.messages_by_call[-1])
-    assert "AUTHORITATIVE TOOL-ENFORCED OBLIGATIONS" in corrective_prompt
-    assert "Restore the producer's canonical storage assignment" in corrective_prompt
-    assert corrective_prompt.index("Coordinator corrective prompt") < corrective_prompt.index(
-        "AUTHORITATIVE TOOL-ENFORCED OBLIGATIONS"
-    )
-    assert state["corrective_implement_count"] == 1
-    current = (repo / "app.py").read_text(encoding="utf-8")
-    assert "annotation[param.name] = 'int'" in current
-    assert "annotation[key] = 'int'" not in current
-    assert "return '*' + name" in current
-    assert "VAR_POSITIONAL" not in current
+    assert "Conditional patch review not required" in first.text
+    assert second.status == "error"
+    assert second.error["code"] == "WORKFLOW_ALREADY_TERMINAL"
     assert third.status == "error"
     assert third.error["code"] == "WORKFLOW_ALREADY_TERMINAL"
 
@@ -1740,6 +2166,9 @@ def test_corrective_prompt_explains_nullable_missing_value_gate():
     assert "Remove first-element dtype inference" in prompt
     assert "silently `pass`es" in prompt
     assert "whole Series/DataFrame" in prompt
+    assert "directly observed failure or validation issue" in prompt
+    assert "Preserve every existing hunk" in prompt
+    assert "fixed default" in prompt
 
 
 def test_corrective_prompt_rejects_first_element_container_inference():
@@ -1856,7 +2285,9 @@ def test_swebench_malformed_reproducer_is_soft_evidence(tmp_path):
 
     assert result.status == "success"
     assert state["semantic_evidence_issues"] == []
-    assert state["semantic_evidence_warnings"] == ["semantic_evidence JSON is missing"]
+    assert state["semantic_evidence"] == {}
+    assert state["reproducer_trusted"] is False
+    assert state["reproducer_trust_reason"].startswith("semantic_evidence_invalid:")
 
 
 def test_completion_guard_allows_static_patch_when_no_trustworthy_verify_plan():
@@ -2433,7 +2864,7 @@ def test_static_safe_patch_without_trusted_verification_terminates_after_impleme
     llm = FakeLLM(
         [
             _replace_response("replace_1", "old", "new"),
-            LLMToolResponse(content="implemented", tool_calls=[], raw_message={"content": "implemented"}, usage={}),
+            LLMToolResponse(content=_swebench_implement_report(), tool_calls=[], raw_message={}, usage={}),
         ]
     )
     runner = SubAgentRunner(
@@ -2485,7 +2916,7 @@ def test_static_safe_patch_with_trusted_verification_plan_keeps_verify_transitio
     llm = FakeLLM(
         [
             _replace_response("replace_1", "old", "new"),
-            LLMToolResponse(content="implemented", tool_calls=[], raw_message={"content": "implemented"}, usage={}),
+            LLMToolResponse(content=_swebench_implement_report(), tool_calls=[], raw_message={}, usage={}),
         ]
     )
     runner = SubAgentRunner(
@@ -3058,9 +3489,14 @@ def test_agent_tool_blocks_reading_subagent_output_dirs(tmp_path):
 
 def test_scoped_implement_tools_limit_context_and_tool_surface(tmp_path):
     (tmp_path / "app.py").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    (tmp_path / "contract.py").write_text("rule\nconsumer\n", encoding="utf-8")
     runner = SubAgentRunner(llm=FakeLLM([]), base_tools=_base_tools(), cwd=tmp_path, output_dir=tmp_path / "out")
     constraints = WorkerConstraints.from_tool_input(
-        {"allowed_files": ["app.py"], "allowed_ranges": {"app.py": [[1, 2]]}}
+        {
+            "allowed_files": ["app.py"],
+            "allowed_ranges": {"app.py": [[1, 2]]},
+            "context_ranges": {"contract.py": [[1, 2]]},
+        }
     )
     registry = runner._tools_for(get_worker_spec("implement"), constraints)
 
@@ -3071,6 +3507,11 @@ def test_scoped_implement_tools_limit_context_and_tool_surface(tmp_path):
     assert registry.execute("read_file", {"path": "other.py", "start_line": 1, "end_line": 1}).error["code"] == "IMPLEMENT_SCOPE_DENIED"
     assert registry.execute("read_file", {"path": "app.py", "start_line": 3, "end_line": 3}).error["code"] == "IMPLEMENT_SCOPE_DENIED"
     assert registry.execute("read_file", {"path": "app.py", "start_line": 1, "end_line": 2}).status == "success"
+    assert registry.execute("read_file", {"path": "contract.py", "start_line": 1, "end_line": 2}).status == "success"
+    assert registry.execute(
+        "replace_in_file",
+        {"path": "contract.py", "old": "rule", "new": "changed"},
+    ).error["code"] == "IMPLEMENT_SCOPE_DENIED"
 
 
 def test_patch_review_worker_is_read_only_and_cannot_run_commands(tmp_path):
@@ -3132,6 +3573,117 @@ def test_swebench_verify_worker_enforces_semantic_evidence_command(tmp_path):
     assert execution["attempted"] is True
     assert execution["requested_command"] == plan["command"]
     assert execution["tool_status"] == "success"
+
+
+def test_swebench_reproducer_records_clean_baseline_execution(tmp_path):
+    runner = SubAgentRunner(
+        llm=FakeLLM([]),
+        base_tools=_base_tools(),
+        cwd=tmp_path,
+        output_dir=tmp_path / "out",
+        swebench_profile=True,
+    )
+    execution = {}
+    registry = runner._tools_for(
+        get_worker_spec("reproducer"),
+        verification_execution=execution,
+    )
+
+    response = registry.execute(
+        "run_command",
+        {"command": "python -m pytest tests/test_public.py -q"},
+    )
+
+    assert response.status == "success"
+    assert execution["attempted"] is True
+    assert execution["requested_command"] == "python -m pytest tests/test_public.py -q"
+    assert execution["tool_status"] == "success"
+
+
+def test_swebench_reproducer_rejects_probe_without_consuming_execution(tmp_path):
+    runner = SubAgentRunner(
+        llm=FakeLLM([]),
+        base_tools=_base_tools(),
+        cwd=tmp_path,
+        output_dir=tmp_path / "out",
+        swebench_profile=True,
+    )
+    execution = {}
+    registry = runner._tools_for(
+        get_worker_spec("reproducer"),
+        verification_execution=execution,
+    )
+
+    print_probe = registry.execute(
+        "run_command",
+        {"command": "python -c \"print('value')\""},
+    )
+    changed_directory = registry.execute(
+        "run_command",
+        {"command": "cd /tmp && python -c 'assert False'"},
+    )
+    assertion = registry.execute(
+        "run_command",
+        {"command": "python -c 'assert False'"},
+    )
+
+    assert print_probe.error["code"] == "REPRODUCER_BEHAVIOR_COMMAND_REQUIRED"
+    assert changed_directory.error["code"] == "UNSAFE_REPRODUCER_COMMAND"
+    assert assertion.status == "success"
+    assert execution["requested_command"] == "python -c 'assert False'"
+
+
+def test_reproducer_completion_guard_requires_executed_command_identity():
+    command = "python -c 'assert False'"
+    evidence = json.dumps(
+        {
+            "reproduction_contract": {
+                "trigger": ["public input"],
+                "expected_behavior": ["public output"],
+            },
+            "target_partitions": [
+                {
+                    "id": "public_case",
+                    "expected": "public output",
+                    "evidence": [
+                        {
+                            "type": "issue",
+                            "location": "problem_statement",
+                            "claim": "public contract",
+                        }
+                    ],
+                }
+            ],
+            "verify_commands": [
+                {"command": command, "covers": ["public_case"]}
+            ],
+        }
+    )
+
+    mismatch = _reproducer_completion_guard(
+        evidence,
+        "## Problem Statement\npublic input returns public output",
+        {
+            "attempted": True,
+            "requested_command": "python -c 'assert 1 == 2'",
+            "exit_code": 1,
+            "output": "AssertionError",
+        },
+    )
+    trusted = _reproducer_completion_guard(
+        evidence,
+        "## Problem Statement\npublic input returns public output",
+        {
+            "attempted": True,
+            "requested_command": command,
+            "exit_code": 1,
+            "output": "AssertionError",
+        },
+    )
+
+    assert mismatch is not None
+    assert "exactly equal" in mismatch
+    assert trusted is None
 
 
 def test_scoped_replace_in_file_applies_batch_inside_allowed_ranges(tmp_path):

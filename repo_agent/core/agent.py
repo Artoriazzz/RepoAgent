@@ -27,6 +27,8 @@ class RepoAgent:
         repair_memory_recall: bool = True,
         swebench_profile: bool = False,
     ):
+        # Facade 只把面向用户的参数翻译为 QueryEngine 配置。它没有自己的 loop，
+        # 因而 CLI、测试或未来 HTTP API 都可以复用同一个会话运行时。
         self.engine = QueryEngine(
             llm=llm,
             tools=tools,
@@ -43,6 +45,8 @@ class RepoAgent:
         )
 
     def run(self, task: str) -> str:
+        """同步执行一个仓库任务。"""
+
         return self.engine.chat(task)
 
     def abort(self) -> None:

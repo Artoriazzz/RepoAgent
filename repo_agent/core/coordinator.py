@@ -1,9 +1,19 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
+from repo_agent.core.experience import (
+    FailureFeedback,
+    RepairRunMode,
+    augment_implement_with_episodes,
+    augment_task_with_semantic_insights,
+    build_experience_curator_prompt,
+    independent_validation_succeeded,
+    repair_mode_policy,
+)
 from repo_agent.core.llm import ChatLLM
 from repo_agent.core.memory import MemoryStore, MemoryType
 from repo_agent.core.query_engine import QueryEngine
@@ -14,9 +24,20 @@ from repo_agent.core.repair_memory import (
     build_case_curator_prompt,
     hard_constraints_from_repair_recipes,
 )
-from repo_agent.core.semantic_evidence import build_verification_plan, extract_public_problem_statement
+from repo_agent.core.semantic_evidence import (
+    build_repair_brief,
+    build_verification_plan,
+    extract_public_problem_statement,
+)
 from repo_agent.core.subagent import SubAgentRunner, WorkerConstraints
-from repo_agent.core.tool import Tool, ToolRegistry, ToolResponse, build_tool
+from repo_agent.core.tool import Tool, ToolParameter, ToolRegistry, ToolResponse, build_tool
+from repo_agent.core.verification import (
+    assess_verification_result,
+    behavior_failure_evidence_reason,
+    classify_verification_command,
+    public_assertion_contract_reason,
+    verification_command_safety_reason,
+)
 from repo_agent.tools.agent_tools import build_agent_tools, reset_agent_tool_state
 
 
@@ -81,6 +102,7 @@ SWE-bench 下工具层会拒绝低质量 brief、缺 allowed_ranges、范围过�
 - corrective implement prompt 必须包含 review/static gate 原文、当前 diff 的问题、需要保持的 Problem Contract 和旧行为不变量。它只修当前 diff，不重新研究、不 search、不运行命令、不新增改动面。
 - implement Worker prompt 必须能让它一次落地修改：目标行为、具体改动方向、必须保持的旧行为、允许范围和禁止事项要清楚；要求它修改后输出 `semantic_coverage`，逐项说明主要语义 case 是否被改动覆盖。
 - reproducer Worker prompt 必须自包含 Problem Contract、候选文件/函数、公开测试线索和禁止使用 SWE-bench 元数据的约束；要求输出 reproduction_contract、differential_cases、verify_commands。
+- Reproducer 的公开证据会被工具层压缩为一个共享 RepairBrief；Implement、Review、Verify 都复用它，不要分别重述三套计划。
 - patch_ranker Worker prompt 必须包含 Problem Contract、reproduction_contract、候选 patch 列表、候选运行结果/静态问题和排序标准；要求只输出 JSON selected_index/confidence/ranking。它不能修改文件，也不能把“官方测试可能失败”当作依据。
 - 如果使用了 repair recipe，必须在 Worker prompt 中明确说明它只是抽象策略，仍需以当前代码事实为准；如果 recipe 与当前问题签名不匹配，应主动忽略，不能为了套用 recipe 扩大修改范围。
 
@@ -99,40 +121,280 @@ SWE-bench 下工具层会拒绝低质量 brief、缺 allowed_ranges、范围过�
 """
 
 
-SWEBENCH_COORDINATOR_SYSTEM_PROMPT = """你是 RepoAgent SWE-bench Coordinator，目标是用一次 pass@1 生成一个最小、非空、可评测 patch。
+SWEBENCH_COORDINATOR_BASE_PROMPT = """你是 RepoAgent SWE-bench Coordinator。只把公开题意和当前源码转成一个最小、非空的生产代码 patch。
 
-# 禁止
-- 不使用 hints、PASS_TO_PASS、FAIL_TO_PASS、gold patch、hidden tests 或 harness feedback。
-- 不安装依赖、不修 Docker/环境、不修改 tests/fixtures/评测期望文件。
-- 默认不使用候选池、patch_ranker、review 驱动的 corrective implement 或重复验证。只有语法/测试文件修改或工具明确证明的 producer/return-rtype 契约破坏才能阻断；覆盖、顺序和表示启发式只记 warning。
+# 边界
+- 只能使用公开 problem statement 和仓库源码；禁止 hints、PASS_TO_PASS、FAIL_TO_PASS、gold patch、hidden tests 和 harness feedback。
+- 禁止安装依赖、修环境、修改 tests、fixtures 或评测期望文件。
+- 历史 semantic/episodic memory 只是软参考；必须由当前源码重新确认，不能复制历史文件名、命令或 patch。
 
-# 简化流程
-1. 从公开题意写 Problem Contract：触发输入、精确期望行为、旧行为不变量、禁止行为。
-2. 用 read_file/search_repo 做轻量定位，最多 5 次只读调用。确定候选文件、函数和行范围后立即停止扩散调查。
-3. `reproducer` 是可选的软证据 Worker：只有定位后仍需澄清公开行为时才派发。其 JSON、覆盖或验证命令失败不得阻止 Implement。
-4. 形成一个 EditBrief，派一次 `implement`。它只在 allowed_files/allowed_ranges 内落地最小源码修改；不要把猜测写成不可质疑的逐行修改指令。
-5. implement 返回非空 diff 后，只处理工具明确标记的确定性契约破坏；`Semantic patch warnings` 不触发 corrective、review 或丢弃 patch。
-6. 最多派一次 `verify` 运行 reproducer 给出的公开命令。缺依赖、命令不可用或验证失败时保留 patch 并结束。
-7. implement 没有 diff 时，仅当修改方向明确且是替换/范围落地失败，允许一次更窄 last-chance implement；不要重新研究完整问题。
+# 流程
+1. 写紧凑 Problem Contract：触发输入、精确期望行为、必须保持的旧行为。
+2. 最多 3 轮轻量 search/read；确定生产文件、函数和局部范围后立即派一次 scoped Implement。
+3. EditBrief 只描述已观察事实、所需语义关系、旧行为不变量、allowed_files 和 allowed_ranges；不要把 issue 中的示例修改当成已证明答案。
+4. Implement 只在给定范围内编辑生产源码，不搜索全仓、不运行命令、不修改测试；工具负责语法、范围和基础安全检查。
+5. 初始 Coordinator 不构造验证 oracle；非空静态安全 patch 交给外层评测流程。
 
-# EditBrief
-- 包含 problem_contract、required_changes、old_behavior_invariants、allowed_files、allowed_ranges。
-- allowed_ranges 只覆盖目标修改点及理解该点必需的直接调用/同类实现；不要给整文件或千行范围。
-- Implement 的首要契约来自公开题意和已读取源码；Reproducer 的 SemanticEvidence 仅在可解析时补充 target_partitions、contract_edges 与 unknowns，不能成为解锁 Implement 的条件。
-- 明确 contract_owner 与 symptom_site、规范化与 predicate 的先后顺序、lookup identity 与 rendered text 的区别。allowed_ranges 必须覆盖目标修改层和直接消费端。若 SemanticEvidence 指定 `preferred_change_layer=consumer`，producer 事实由 Coordinator 保留为只读依据，不得放入 Implement 可写范围；工具层会剔除 producer-only range。
-- pandas nullable/extension dtype 问题必须把一维 Series 的 `.dtype` 与二维 DataFrame 的 `.dtypes` 写入同一个表示矩阵；只授权或只描述 `hasattr(y, 'dtype')` 的方案是不完整 EditBrief。
-- `*args`/`**kwargs` 的 bare lookup key 与 starred display name 不一致时，禁止把星号写入 producer canonical storage；必须定位并授权所有直接 consumer 的 lookup/display 路径。
-- 记录 shape/cardinality/closure、dtype、精确文本、排序、mutation target 和共享状态不变量；fallback 找到别名值后必须传播实际匹配身份。
-- 精确保持异常类型/message、warning、CLI 输出、排序、roundtrip、mutable storage 写回等题意语义。
-
-# 终止原则
-- 已有非空 patch 后不得开启第二套方案或重复 implement。
-- review 只报告具体阻断风险，不触发自动重写；它用于归因，不是第二次解题。
-- 不要为了验证耗尽步骤。有可信公开命令时最多验证一次；没有命令时直接保留静态安全 patch 给最终 harness。只有公开行为测试或带 assert/失败退出条件的脚本返回 status=passed 且 exit_code=0，才算行为验证通过。
+# 语义边界
+- 保留精确异常类型/message、输出、排序、roundtrip、mutation target、shape/cardinality 和共享状态。
+- 若生产者 API 的源码或 docstring 明确声明某操作不支持或必定抛错，而合法消费者无条件调用它，默认修复消费者的错误假设；除非 Public Task 明确要求扩展生产者 API，否则不得把“不支持”改造成近似实现。
+- 修改 setter、widget、geometry、cache、descriptor、格式化或关系 guard 时，EditBrief 必须列出一个直接消费方的不变量，但不要写未经源码证明的公式或唯一替换。
+- Prompt 词面不是安全边界；只依赖结构化文件范围、生产文件限制、语法和基础静态检查。
+- 空 patch 无效；验证或环境不可用不是丢弃非空 patch 的理由。
 """
 
 
+SWEBENCH_BENCHMARK_COORDINATOR_PROMPT = """
+# Benchmark 模式
+- 严格 pass@1：只生成一次初始修复，不接受失败反馈，不执行 FailureReview 或 Corrective Implement。
+- 双记忆是冻结只读快照；禁止写回、在线学习或根据 harness 结果修改。
+- Implement 没有 diff 时，仅当工具应用失败且修改方向已经明确，允许一次同范围的落地重试；否则结束并归因。
+"""
+
+
+SWEBENCH_EXPERIENCE_BUILD_COORDINATOR_PROMPT = """
+# Experience-build 模式
+- 本 Coordinator 只生成一次初始 patch，不读取 harness 结果，也不构造公开验证命令。
+- 初始阶段不派 Reproducer、Verify Worker、Test Expander、PatchReview 或候选池；定位后立即派一次 scoped Implement。
+- Implement 后只执行便宜的结构、语法和范围检查，然后结束初始回合。
+- 外层 experience-build 控制器会对初始 patch 运行一次 SWE-bench harness。只有真实 unresolved 且不是环境错误时，失败日志才会交给 FailureReview，并最多运行一次 Corrective Implement 和一次最终 harness。
+- benchmark 模式不会执行上述反馈闭环；harness 反馈不得写入 benchmark 上下文。
+- 只有纠正后的独立最终 harness resolved，外层记忆流程才可写入 episodic demonstration 和 semantic insight。
+- 不要在初始 EditBrief 中预演失败反馈、Corrective Implement 或记忆整理。
+"""
+
+
+# 保留旧常量名，供外部导入；运行时通过 repair mode 选择组合后的提示词。
+SWEBENCH_COORDINATOR_SYSTEM_PROMPT = SWEBENCH_COORDINATOR_BASE_PROMPT + SWEBENCH_BENCHMARK_COORDINATOR_PROMPT
+
+
+def coordinator_system_prompt(*, swebench_profile: bool, repair_mode: RepairRunMode) -> str:
+    if not swebench_profile:
+        return COORDINATOR_SYSTEM_PROMPT
+    mode_prompt = (
+        SWEBENCH_EXPERIENCE_BUILD_COORDINATOR_PROMPT
+        if repair_mode == RepairRunMode.EXPERIENCE_BUILD
+        else SWEBENCH_BENCHMARK_COORDINATOR_PROMPT
+    )
+    return SWEBENCH_COORDINATOR_BASE_PROMPT + mode_prompt
+
+
+def _public_verification_registration_tool(
+    runner: SubAgentRunner,
+    *,
+    state: dict,
+    budget_state: dict,
+) -> Tool:
+    """注册并冻结一条在干净基线上真实失败的公开行为命令。"""
+
+    def register(inp: dict) -> ToolResponse:
+        command = str(inp.get("command") or "").strip()
+        expected = str(inp.get("expected_behavior") or "").strip()
+        if state.get("public_verification_registered"):
+            return ToolResponse.failure(
+                "PUBLIC_VERIFICATION_ALREADY_REGISTERED",
+                "A public behavior command is already frozen for this run.",
+            )
+        if state.get("public_verification_execution_attempted"):
+            return ToolResponse.failure(
+                "PUBLIC_VERIFICATION_ATTEMPT_EXHAUSTED",
+                "The single baseline behavior execution was already used. Continue only if it registered successfully.",
+            )
+        safety_reason = verification_command_safety_reason(command)
+        if safety_reason:
+            return ToolResponse.failure(
+                "UNSAFE_PUBLIC_VERIFICATION",
+                f"{safety_reason}. Use one direct pytest/unittest or python -c assert command.",
+            )
+        if classify_verification_command(command) != "behavior":
+            return ToolResponse.failure(
+                "PUBLIC_BEHAVIOR_COMMAND_REQUIRED",
+                "The command must be pytest/unittest or python -c with explicit assert/raise; print-only probes are rejected.",
+            )
+        contract_reason = public_assertion_contract_reason(command, expected)
+        if contract_reason:
+            return ToolResponse.failure(
+                "PUBLIC_ASSERTION_CONTRACT_MISMATCH",
+                (
+                    f"{contract_reason}. Assert the exact requested new output/exception, not merely a change from "
+                    "the baseline and not the old expected value."
+                ),
+            )
+        run_tool = runner.base_tools.get("run_command")
+        if run_tool is None:
+            return ToolResponse.failure(
+                "PUBLIC_VERIFICATION_RUNTIME_MISSING",
+                "The deterministic controller has no run_command tool.",
+            )
+
+        state["public_verification_execution_attempted"] = True
+        response = runner._run_swebench_verification_command(
+            run_tool,
+            {"command": command},
+        )
+        exit_code = response.data.get("exit_code")
+        execution = {
+            "attempted": True,
+            "requested_command": command,
+            "execution_command": response.data.get("execution_command", ""),
+            "exit_code": exit_code,
+            "tool_status": response.status.value,
+            "output": response.text[-2_000:],
+        }
+        assessment = assess_verification_result(
+            {
+                "status": (
+                    "passed"
+                    if exit_code == 0
+                    else "failed"
+                    if isinstance(exit_code, int)
+                    else "blocked_by_environment"
+                ),
+                "command": command,
+                "exit_code": exit_code if isinstance(exit_code, int) else None,
+                "evidence": response.text[-2_000:],
+            }
+        )
+        failure_reason = behavior_failure_evidence_reason(
+            command,
+            response.text[-2_000:],
+            exit_code if isinstance(exit_code, int) else None,
+            expected,
+            str(state.get("problem_statement") or ""),
+        )
+        state["reproducer_attempted"] = True
+        state["reproduction_execution"] = execution
+        state.setdefault("worker_attempts", {})["reproducer"] = 1
+        state.setdefault("worker_requests", {})["reproducer"] = 1
+        if assessment.get("classification") != "behavior_failed" or failure_reason:
+            state["public_verification_registered"] = False
+            state["reproducer_trust_reason"] = str(
+                failure_reason
+                or assessment.get("classification")
+                or "baseline_did_not_reproduce_bug"
+            )
+            # 注册只有一次机会；失败后关闭硬门禁，避免环境问题或不可靠预期阻塞修复。
+            budget_state["public_verification_required"] = False
+            return ToolResponse.failure(
+                "PUBLIC_VERIFICATION_NOT_REPRODUCED",
+                (
+                    "The frozen public command must fail on the clean baseline, but it was classified as "
+                    f"{state['reproducer_trust_reason']}. Do not invent another expected value."
+                ),
+            )
+
+        trigger = str(inp.get("trigger") or "").strip()
+        invariant = str(inp.get("old_behavior_invariant") or "").strip()
+        partitions = [
+            {
+                "id": "reported_behavior",
+                "expected": expected or "public issue behavior",
+                "evidence": [
+                    {
+                        "type": "issue",
+                        "location": "problem_statement",
+                        "claim": trigger or "public behavior reproduced on the clean baseline",
+                    },
+                    {
+                        "type": "execution",
+                        "location": "clean_baseline",
+                        "claim": "the frozen command failed with a behavioral assertion",
+                    },
+                ],
+            }
+        ]
+        if invariant:
+            partitions.append(
+                {
+                    "id": "adjacent_old_behavior",
+                    "expected": invariant,
+                    "evidence": [
+                        {
+                            "type": "code",
+                            "location": "repository",
+                            "claim": invariant,
+                        }
+                    ],
+                }
+            )
+        covers = [partition["id"] for partition in partitions]
+        evidence = {
+            "reproduction_contract": {
+                "trigger": [trigger or "public issue input"],
+                "expected_behavior": [expected or "public issue expected behavior"],
+            },
+            "target_partitions": partitions,
+            "verify_commands": [{"command": command, "covers": covers}],
+            "unknowns": [],
+        }
+        state["public_verification_registered"] = True
+        state["public_verification_command"] = command
+        state["public_verification_covers"] = covers
+        state["reproducer_done"] = True
+        state["reproducer_trusted"] = True
+        state["reproducer_trust_reason"] = "deterministic_clean_baseline_behavior_failure"
+        state["reproduction_stop_reason"] = "deterministic_registered"
+        state["reproduction_contract"] = evidence
+        state["reproduction_commands"] = [command]
+        state["semantic_evidence"] = evidence
+        state["semantic_evidence_issues"] = []
+        state["semantic_evidence_warnings"] = []
+        state["repair_brief"] = build_repair_brief(
+            evidence,
+            str(state.get("problem_statement") or ""),
+        ).to_dict()
+        budget_state["public_verification_registered"] = True
+        budget_state["required_transition"] = "implement"
+        return ToolResponse.success(
+            "Public behavior reproduced on the clean baseline. The exact command is frozen. The only permitted next "
+            "state transition is agent(type=implement); it will be replayed automatically after that patch.",
+            {
+                "command": command,
+                "covers": covers,
+                "baseline_execution": execution,
+                "assessment": assessment,
+            },
+        )
+
+    return build_tool(
+        name="register_public_verification",
+        description=(
+            "Execute and freeze one safe public behavior assertion on the clean baseline. "
+            "Use only when the public issue gives an exact expected behavior."
+        ),
+        parameters=[
+            ToolParameter("command", "string", "Direct pytest/unittest or python -c assert command"),
+            ToolParameter("trigger", "string", "Public issue trigger"),
+            ToolParameter("expected_behavior", "string", "Exact public expected behavior"),
+            ToolParameter(
+                "old_behavior_invariant",
+                "string",
+                "Adjacent old behavior asserted by the same command, or empty",
+                required=False,
+            ),
+        ],
+        handler=register,
+        prompt=(
+            "该工具会立即在干净 SWE-bench testbed 执行命令并冻结原文。禁止 cd、print-only、管道和改写命令；"
+            "基线必须因公开的新行为断言失败。内联脚本必须精确 assert 新值/异常，不能断言旧值或只写 != old。"
+            "trigger 必须忠实保留题意中的构造器、类型、容器、调用层和求值顺序；禁止用 Python 原生值或提前计算替换框架表达式。"
+            "先区分 primary_failure、semantic_witness、old_behavior_invariant；只有 primary_failure 必须在基线失败，"
+            "已通过的 witness 不能单独注册复现。"
+            "多个 assert 必须分别带 case ID、expected 和 actual repr；covers 只能声明命令中真实执行的案例。"
+        ),
+        is_read_only=True,
+        is_concurrency_safe=False,
+    )
+
+
 class CoordinatorEngine:
+    """多 Agent 编排层。
+
+    Coordinator 自己也是一个 QueryEngine，但只获得轻量只读工具和 `agent` 元工具。
+    它通过 SubAgentRunner 创建独立 Worker，把定位/契约与受限代码修改分开；共享的是
+    cwd 中的 worktree，隔离的是 messages、system prompt、工具集、步数和输出目录。
+    """
+
     def __init__(
         self,
         *,
@@ -148,20 +410,35 @@ class CoordinatorEngine:
         swebench_profile: bool = False,
         candidate_mode: str = "off",
         forced_implement_scope: dict | None = None,
+        repair_mode: str = RepairRunMode.STANDARD.value,
     ):
         self.llm = llm
         self.cwd = Path(cwd).resolve()
         self.output_dir = Path(output_dir)
         self.memory_store = memory_store or MemoryStore.for_project(self.cwd)
         self.semantic_memory_recall = semantic_memory_recall
-        self.repair_memory_recall = repair_memory_recall
         self.swebench_profile = swebench_profile
         self.candidate_mode = candidate_mode
+        self.repair_mode = RepairRunMode(repair_mode)
+        self.repair_policy = repair_mode_policy(self.repair_mode)
+        # Experience-build 只生产新经验，不读取历史 recipe、episode 或 semantic insight。
+        # 写入能力由 repair_policy.memory_write 单独控制，不受该召回开关影响。
+        self.repair_memory_recall = bool(
+            repair_memory_recall
+            and self.repair_mode != RepairRunMode.EXPERIENCE_BUILD
+        )
         self.forced_implement_scope = forced_implement_scope or {}
-        excluded_memory_types = set() if repair_memory_recall else {MemoryType.REPAIR_RECIPE}
+        # 修复记忆走显式的角色化召回，避免通用 memory prompt 把 episode 或
+        # implement insight 广播给不相关 Worker。
+        excluded_memory_types = {
+            MemoryType.REPAIR_RECIPE,
+            MemoryType.REPAIR_EPISODE,
+            MemoryType.SEMANTIC_INSIGHT,
+        }
         self.last_recalled_repair_recipes: tuple[str, ...] = ()
         self.last_repair_recipe_applicability: tuple[RepairRecipeApplicability, ...] = ()
         self.last_applicable_repair_recipes: tuple[str, ...] = ()
+        self.last_recalled_semantic_insights: tuple[str, ...] = ()
         self.active_repair_recipe_constraints: tuple[RepairRecipeConstraint, ...] = ()
         self._agent_state: dict = {}
         self.runner = SubAgentRunner(
@@ -174,8 +451,17 @@ class CoordinatorEngine:
             semantic_memory_recall=semantic_memory_recall,
             excluded_memory_types=excluded_memory_types,
             swebench_profile=swebench_profile,
+            implement_phase=(
+                "experience_initial"
+                if swebench_profile and self.repair_mode == RepairRunMode.EXPERIENCE_BUILD
+                else "benchmark_initial"
+                if swebench_profile and self.repair_mode == RepairRunMode.BENCHMARK
+                else "default"
+            ),
         )
         coordinator_tools = ToolRegistry()
+        # budget_state 是代码层状态机，不依赖模型是否记得 prompt。它记录只读预算、
+        # Worker 次数和必须执行的下一转换，用来拒绝重复研究或越序派发。
         budget_state = {
             "read_calls_before_worker": 0,
             "worker_calls": 0,
@@ -188,6 +474,10 @@ class CoordinatorEngine:
             "post_failed_research_read_calls": 0,
             "candidate_mode_required": False,
             "required_transition": "",
+            "agent_error_counts": {},
+            "reproducer_required": False,
+            "public_verification_required": False,
+            "public_verification_registered": False,
         }
         coordinator_tools.register_many(
             _coordinator_read_only_tools(
@@ -205,14 +495,48 @@ class CoordinatorEngine:
                         repair_recipe_constraints=(
                             None if swebench_profile else lambda: self.active_repair_recipe_constraints
                         ),
+                        repair_episode_prompt=(
+                            (
+                                lambda prompt: augment_implement_with_episodes(
+                                    prompt=prompt,
+                                    memory_store=self.memory_store,
+                                    limit=1,
+                                )
+                            )
+                            if self.repair_policy.episodic_recall and self.repair_memory_recall
+                            else None
+                        ),
+                        role_semantic_prompt=(
+                            (
+                                lambda role, prompt: augment_task_with_semantic_insights(
+                                    task=prompt,
+                                    memory_store=self.memory_store,
+                                    role=role,
+                                )
+                            )
+                            if self.repair_policy.semantic_recall and self.repair_memory_recall
+                            else None
+                        ),
                         require_patch_review=not swebench_profile,
                         conditional_patch_review=swebench_profile,
                         require_reproducer_before_implement=False,
-                        allowed_agent_types=_swebench_allowed_agent_types(candidate_mode)
+                        require_public_verification_before_implement=lambda: bool(
+                            self._coordinator_budget_state.get("public_verification_required")
+                        ),
+                        auto_verify_public_verification=False,
+                        allowed_agent_types=_swebench_allowed_agent_types(
+                            candidate_mode,
+                            self.repair_mode,
+                        )
                         if swebench_profile
                         else None,
                         candidate_mode_required=lambda: bool(
                             self._coordinator_budget_state.get("candidate_mode_required")
+                            or (
+                                self.candidate_mode == "auto"
+                                and (self._agent_state.get("repair_brief") or {}).get("candidate_policy")
+                                == "eligible"
+                            )
                         ),
                         forced_implement_scope=(
                             lambda: _worker_constraints_from_scope(self.forced_implement_scope)
@@ -232,7 +556,10 @@ class CoordinatorEngine:
         self.engine = QueryEngine(
             llm=llm,
             tools=coordinator_tools,
-            system_prompt=SWEBENCH_COORDINATOR_SYSTEM_PROMPT if swebench_profile else COORDINATOR_SYSTEM_PROMPT,
+            system_prompt=coordinator_system_prompt(
+                swebench_profile=swebench_profile,
+                repair_mode=self.repair_mode,
+            ),
             max_steps=max_steps,
             output_dir=self.output_dir,
             cwd=self.cwd,
@@ -253,9 +580,20 @@ class CoordinatorEngine:
         )
 
     def run(self, task: str) -> str:
+        """重置一次编排状态，注入适用记忆，运行 Coordinator 并保存阶段归因。"""
+
         reset_agent_tool_state(self._agent_state, self.cwd)
-        self._agent_state["problem_statement"] = extract_public_problem_statement(task)
+        # 只提取公开 problem statement 供语义门禁使用，避免 batch 指令、评测元数据或
+        # 运行说明被误当成待修复的软件行为契约。
+        problem_statement = extract_public_problem_statement(task)
+        self._agent_state["problem_statement"] = problem_statement
         candidate_required = _candidate_mode_required_for_task(task, self.candidate_mode)
+        public_verification_required = _public_verification_required_for_task(
+            task,
+            problem_statement=problem_statement,
+            repair_mode=self.repair_mode,
+            swebench_profile=self.swebench_profile,
+        )
         self._coordinator_budget_state.update(
             {
                 "read_calls_before_worker": 0,
@@ -269,8 +607,21 @@ class CoordinatorEngine:
                 "post_failed_research_read_calls": 0,
                 "candidate_mode_required": candidate_required,
                 "required_transition": "",
+                "agent_error_counts": {},
+                "reproducer_required": False,
+                "public_verification_required": public_verification_required,
+                "public_verification_registered": False,
             }
         )
+        if public_verification_required:
+            task = (
+                "## Public Verification Runtime State\n"
+                "PUBLIC_VERIFICATION_REQUIRED_BEFORE_IMPLEMENT=true. The public problem contains exact assertable "
+                "behavior and a clean verification runtime is ready. After lightweight localization, call "
+                "`register_public_verification` exactly once before Implement. Do not dispatch a Reproducer or Verify "
+                "Worker; the controller executes, freezes, and automatically replays the exact command.\n\n"
+                f"{task}"
+            )
         if self.swebench_profile and candidate_required:
             task = (
                 "## Candidate Runtime State\n"
@@ -280,26 +631,49 @@ class CoordinatorEngine:
                 f"{task}"
             )
         if self.repair_memory_recall:
-            recall = augment_task_with_repair_recipes(
-                task=task,
-                memory_store=self.memory_store,
-                side_query=self._side_query if self.semantic_memory_recall and hasattr(self.llm, "invoke_text") else None,
-            )
-            self.last_recalled_repair_recipes = tuple(memory.header.filename for memory in recall.memories)
-            self.last_repair_recipe_applicability = recall.applicability
-            self.last_applicable_repair_recipes = tuple(
-                result.source for result in self.last_repair_recipe_applicability if result.applicable
-            )
-            self.active_repair_recipe_constraints = hard_constraints_from_repair_recipes(recall.memories, task=task)
-            for memory in recall.memories:
-                self.engine.already_surfaced_memories.add(str(memory.header.path))
-            task = recall.task
+            if self.repair_policy.semantic_recall:
+                task, semantic_memories = augment_task_with_semantic_insights(
+                    task=task,
+                    memory_store=self.memory_store,
+                    role="coordinator",
+                )
+                self.last_recalled_semantic_insights = tuple(
+                    memory.header.filename for memory in semantic_memories
+                )
+            else:
+                self.last_recalled_semantic_insights = ()
+            # SWE-bench uses only the dual semantic/episodic memory. Legacy
+            # repair recipes remain available to the non-benchmark maintainer
+            # flow, but must not add a second set of task-specific constraints.
+            if not self.swebench_profile:
+                recall = augment_task_with_repair_recipes(
+                    task=task,
+                    memory_store=self.memory_store,
+                    side_query=self._side_query if self.semantic_memory_recall and hasattr(self.llm, "invoke_text") else None,
+                )
+                self.last_recalled_repair_recipes = tuple(memory.header.filename for memory in recall.memories)
+                self.last_repair_recipe_applicability = recall.applicability
+                self.last_applicable_repair_recipes = tuple(
+                    result.source for result in self.last_repair_recipe_applicability if result.applicable
+                )
+                self.active_repair_recipe_constraints = hard_constraints_from_repair_recipes(recall.memories, task=task)
+                for memory in recall.memories:
+                    self.engine.already_surfaced_memories.add(str(memory.header.path))
+                task = recall.task
+            else:
+                self.last_recalled_repair_recipes = ()
+                self.last_repair_recipe_applicability = ()
+                self.last_applicable_repair_recipes = ()
+                self.active_repair_recipe_constraints = ()
         else:
+            self.last_recalled_semantic_insights = ()
             self.last_repair_recipe_applicability = ()
             self.last_applicable_repair_recipes = ()
             self.active_repair_recipe_constraints = ()
         answer = ""
         try:
+            # 这里进入的仍是第一周学习的 QueryEngine/query_loop；多 Agent 能力只是
+            # Coordinator Registry 中多了一个会启动独立 QueryEngine 的 agent 工具。
             answer = self.engine.chat(task)
             return answer
         finally:
@@ -324,6 +698,34 @@ class CoordinatorEngine:
         return self.runner.run(
             agent_type="case_curator",
             description="Curate repair recipe",
+            prompt=prompt,
+        )
+
+    def curate_repair_experience(
+        self,
+        *,
+        task: str,
+        successful_patch: str,
+        validation: dict | str,
+        provenance: str,
+        failed_patch: str = "",
+        feedback: FailureFeedback | dict | None = None,
+    ):
+        if not self.repair_policy.memory_write:
+            raise RuntimeError(f"repair mode {self.repair_mode.value} has read-only memory")
+        if not independent_validation_succeeded(validation):
+            raise ValueError("dual memory can be updated only after independent validation succeeds")
+        prompt = build_experience_curator_prompt(
+            task=task,
+            successful_patch=successful_patch,
+            validation=validation,
+            provenance=provenance,
+            failed_patch=failed_patch,
+            feedback=feedback,
+        )
+        return self.runner.run(
+            agent_type="experience_curator",
+            description="Curate dual repair memory",
             prompt=prompt,
         )
 
@@ -386,6 +788,21 @@ class CoordinatorEngine:
         payload = {
             "schema_version": 1,
             "pipeline": "simplified_pass1",
+            "repair_mode": self.repair_mode.value,
+            "memory_policy": {
+                "semantic_recall": self.repair_policy.semantic_recall,
+                "episodic_recall": self.repair_policy.episodic_recall,
+                "memory_write": self.repair_policy.memory_write,
+                "feedback_correction": self.repair_policy.feedback_correction,
+            },
+            "recalled_memory": {
+                "semantic_insights": list(self.last_recalled_semantic_insights),
+                "semantic_insights_by_role": dict(
+                    self._agent_state.get("recalled_semantic_insights_by_role") or {}
+                ),
+                "repair_recipes": list(self.last_recalled_repair_recipes),
+                "repair_episodes": list(self._agent_state.get("recalled_repair_episodes") or []),
+            },
             "candidate_mode": self.candidate_mode,
             "stages": {
                 "localization": {
@@ -403,6 +820,8 @@ class CoordinatorEngine:
                     "contract_parseable": bool(self._agent_state.get("reproduction_contract")),
                     "contract": self._agent_state.get("reproduction_contract") or {},
                     "verify_commands": list(self._agent_state.get("reproduction_commands") or []),
+                    "baseline_execution": self._agent_state.get("reproduction_execution") or {},
+                    "repair_brief": self._agent_state.get("repair_brief") or {},
                     "semantic_evidence": self._agent_state.get("semantic_evidence") or {},
                     "semantic_evidence_issues": list(self._agent_state.get("semantic_evidence_issues") or []),
                     "semantic_evidence_warnings": list(
@@ -486,6 +905,15 @@ def _coordinator_completion_guard(
             f"The workflow requires agent(type={required_transition}) before completion. "
             "Dispatch it now, or explicitly finish with blocked_insufficient_edit_scope and the one missing fact."
         )
+    if (
+        budget_state.get("public_verification_required")
+        and not agent_state.get("public_verification_registered")
+    ):
+        return (
+            "The public behavior must be registered before completion. Call register_public_verification once with "
+            "one direct public assertion, or explicitly finish with blocked_insufficient_edit_scope if no truthful "
+            "assertion can be derived from the issue."
+        )
     if not agent_state.get("implementation_done"):
         return None
     if agent_state.get("review_required") and not agent_state.get("patch_review_attempted"):
@@ -517,7 +945,7 @@ def _worker_constraints_from_scope(scope: dict) -> WorkerConstraints:
 def _budgeted_agent_tools(
     tools: list[Tool],
     *,
-    budget_state: dict[str, int],
+    budget_state: dict[str, object],
     swebench_profile: bool = False,
 ) -> list[Tool]:
     wrapped: list[Tool] = []
@@ -527,8 +955,13 @@ def _budgeted_agent_tools(
             continue
 
         def handler(inp: dict, original: Tool = tool) -> ToolResponse:
-            agent_type = inp.get("type") or "general"
             required_transition = str(budget_state.get("required_transition") or "")
+            # Some model responses omit the optional `type` after a tool error.
+            # The controller already knows the only legal next transition, so
+            # inherit it instead of turning a valid retry into a generic worker.
+            agent_type = inp.get("type") or required_transition or "general"
+            if required_transition and not inp.get("type"):
+                inp = {**inp, "type": required_transition}
             if required_transition and agent_type != required_transition:
                 return ToolResponse.failure(
                     "COORDINATOR_TRANSITION_REQUIRED",
@@ -557,6 +990,32 @@ def _budgeted_agent_tools(
                 )
             response = original.run_with_timing(inp)
             if response.error:
+                if agent_type == "implement":
+                    code = str(response.error.get("code") or "UNKNOWN")
+                    if code == "REPRODUCER_REQUIRED":
+                        budget_state["required_transition"] = "reproducer"
+                        return response
+                    error_counts = budget_state.setdefault("agent_error_counts", {})
+                    assert isinstance(error_counts, dict)
+                    key = f"{agent_type}:{code}"
+                    error_counts[key] = int(error_counts.get(key, 0)) + 1
+                    if error_counts[key] >= 2:
+                        budget_state["required_transition"] = ""
+                        return ToolResponse.partial(
+                            (
+                                f"Repeated deterministic Implement rejection ({code}). "
+                                "Stop rephrasing the same request and attribute this run to blocked_tool_validation."
+                            ),
+                            {
+                                "terminate_loop": True,
+                                "terminal_reason": "blocked_tool_validation",
+                                "terminal_completed": False,
+                                "final_answer": (
+                                    f"blocked_tool_validation: Implement was rejected twice with {code}; "
+                                    "no further retry is allowed."
+                                ),
+                            },
+                        )
                 return response
             budget_state["worker_calls"] = budget_state.get("worker_calls", 0) + 1
             if agent_type == "research":
@@ -600,8 +1059,8 @@ def _failed_research_agent_message(swebench_profile: bool) -> str:
     if swebench_profile:
         return (
             "A research Worker already returned completed=false/max_steps. In SWE-bench profile, recover with "
-            "one of: agent(type=reproducer), agent(type=implement) using the best current EditBrief, or "
-            "agent(type=verify) after a non-empty patch. Do not launch another research/plan/general/review Worker."
+            "agent(type=implement) using the best current EditBrief. Do not launch another "
+            "research/plan/general/review Worker."
         )
     return (
         "A research Worker already returned completed=false/max_steps. Allowed sequence is now: "
@@ -664,7 +1123,7 @@ def _budgeted_read_only_tool(
                     budget_state["post_failed_research_read_calls"] = used + 1
                     response = original.run_with_timing(inp)
                     if used + 1 >= read_budget_after_failed_research:
-                        budget_state["required_transition"] = "implement"
+                        budget_state["required_transition"] = _next_pre_implement_transition(budget_state)
                     return response
             return ToolResponse.failure(
                 "COORDINATOR_RESEARCH_FAILED_IMPLEMENT_REQUIRED",
@@ -677,24 +1136,26 @@ def _budgeted_read_only_tool(
         ):
             used = budget_state.get("post_research_read_calls", 0)
             if used >= read_budget_after_research_before_implement:
-                budget_state["required_transition"] = "implement"
+                budget_state["required_transition"] = _next_pre_implement_transition(budget_state)
+                required_transition = str(budget_state["required_transition"])
                 return ToolResponse.failure(
                     "COORDINATOR_POST_RESEARCH_READ_BUDGET_EXHAUSTED",
                     (
                         f"Coordinator already used {used} read/search/list calls after the single research Worker. "
-                        "Do not continue repository archaeology. Dispatch agent(type=implement) with the best current "
+                        f"Do not continue repository archaeology. Dispatch agent(type={required_transition}) with the best current "
                         "allowed_files/allowed_ranges, or finish with the exact missing edit-scope fact."
                     ),
                 )
             budget_state["post_research_read_calls"] = used + 1
             if used + 1 >= read_budget_after_research_before_implement:
-                budget_state["required_transition"] = "implement"
+                budget_state["required_transition"] = _next_pre_implement_transition(budget_state)
         if original.name in budgeted_names and budget_state.get("worker_calls", 0) == 0:
             used = budget_state.get("read_calls_before_worker", 0)
             if used >= read_budget_before_worker:
-                budget_state["required_transition"] = "implement"
+                budget_state["required_transition"] = _next_pre_implement_transition(budget_state)
+                required_transition = str(budget_state["required_transition"])
                 next_step = (
-                    "Dispatch agent(type=implement) with the best current allowed_files/allowed_ranges, "
+                    f"Dispatch agent(type={required_transition}) with the best current code scope, "
                     "or finish with the exact missing edit-scope fact."
                 )
                 return ToolResponse.failure(
@@ -706,17 +1167,68 @@ def _budgeted_read_only_tool(
                 )
             budget_state["read_calls_before_worker"] = used + 1
             if used + 1 >= read_budget_before_worker:
-                budget_state["required_transition"] = "implement"
+                budget_state["required_transition"] = _next_pre_implement_transition(budget_state)
         return original.run_with_timing(inp)
 
     return _clone_tool_with_handler(tool, handler)
+
+
+def _next_pre_implement_transition(budget_state: dict[str, object]) -> str:
+    if (
+        budget_state.get("reproducer_required")
+        and int(budget_state.get("reproducer_calls", 0)) == 0
+    ):
+        return "reproducer"
+    return "implement"
+
+
+def _public_verification_required_for_task(
+    task: str,
+    *,
+    problem_statement: str,
+    repair_mode: RepairRunMode,
+    swebench_profile: bool,
+) -> bool:
+    """SWE-bench 的初始回合不再拟合公开 oracle，统一由外层 harness 评估。"""
+
+    return False
+
+
+def _public_problem_has_exact_assertable_behavior(problem_statement: str) -> bool:
+    """识别公开题意中的 assert、doctest 输入输出或明确异常契约。"""
+
+    text = problem_statement.strip()
+    if not text:
+        return False
+    if re.search(r"(?m)^\s*assert\s+.+", text):
+        return True
+    if re.search(
+        r"(?m)^\s*(?:raises|with\s+pytest\.raises)\s*[\(:].+",
+        text,
+    ):
+        return True
+
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if not line.lstrip().startswith(">>>"):
+            continue
+        for following in lines[index + 1 :]:
+            value = following.strip()
+            if not value:
+                continue
+            if value.startswith(">>>"):
+                break
+            if value.startswith("```"):
+                continue
+            return True
+    return False
 
 
 def _failed_research_read_message(swebench_profile: bool) -> str:
     if swebench_profile:
         return (
             "A research Worker already failed or hit max_steps and the limited recovery read budget is exhausted. "
-            "Dispatch agent(type=reproducer) or agent(type=implement) with the best current EditBrief, or finish with "
+            "Dispatch agent(type=implement) with the best current EditBrief, or finish with "
             "blocked_insufficient_edit_scope."
         )
     return (
@@ -735,7 +1247,12 @@ def _candidate_mode_required_for_task(task: str, candidate_mode: str) -> bool:
     return False
 
 
-def _swebench_allowed_agent_types(candidate_mode: str) -> set[str]:
+def _swebench_allowed_agent_types(
+    candidate_mode: str,
+    repair_mode: RepairRunMode,
+) -> set[str]:
+    if repair_mode == RepairRunMode.EXPERIENCE_BUILD:
+        return {"implement", "patch_ranker", "patch_review"}
     if (candidate_mode or "auto").strip().lower() in {"auto", "required"}:
         return {"reproducer", "implement", "patch_ranker", "patch_review", "verify"}
     return {"reproducer", "implement", "patch_review", "verify"}

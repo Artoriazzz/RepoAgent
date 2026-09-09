@@ -244,6 +244,42 @@ def test_completion_guard_gets_no_tool_correction_outside_max_steps(tmp_path):
     assert '"completion_guard_correction": true' in trace
 
 
+def test_completion_guard_repairs_reasoning_content_draft(tmp_path):
+    registry = ToolRegistry()
+    llm = FakeLLM(
+        [
+            LLMToolResponse(
+                content="",
+                tool_calls=[],
+                raw_message={"reasoning_content": '{"value":"incomplete"}'},
+                usage={},
+            ),
+            LLMToolResponse(
+                content='{"value":"complete"}',
+                tool_calls=[],
+                raw_message={"content": '{"value":"complete"}'},
+                usage={},
+            ),
+        ]
+    )
+
+    def guard(answer):
+        return None if '"complete"' in answer else "Return corrected JSON only."
+
+    engine = QueryEngine(
+        llm=llm,
+        tools=registry,
+        max_steps=1,
+        output_dir=tmp_path,
+        completion_guard=guard,
+        completion_guard_extra_turns=1,
+    )
+
+    assert engine.chat("produce JSON") == '{"value":"complete"}'
+    correction_prompt = llm.calls[1]["messages"][1]["content"]
+    assert '{"value":"incomplete"}' in correction_prompt
+
+
 def test_completion_guard_invalid_extra_turn_is_incomplete(tmp_path):
     registry = ToolRegistry()
     llm = FakeLLM(

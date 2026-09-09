@@ -33,6 +33,86 @@ def test_read_failure_excerpt_prefers_failure_section(tmp_path):
     assert "noise" not in excerpt
 
 
+def test_read_failure_excerpt_prioritizes_target_over_early_environment_noise(tmp_path):
+    batch = load_batch_module()
+    output = tmp_path / "test_output.txt"
+    output.write_text(
+        "FAILURES\n"
+        "____________________________ test_clipping ____________________________\n"
+        "/site-packages/tool.py: DeprecationWarning: old configuration\n"
+        + ("environment stack\n" * 300)
+        + "________________ test_format_cursor_data_BoundaryNorm ________________\n"
+        "assert img.format_cursor_data(v) == label\n"
+        "E AssertionError: assert '[0.900]' == '[0.9]'\n"
+        "=============================== PASSES ===============================\n"
+        "PASSED unrelated_test\n",
+        encoding="utf-8",
+    )
+    report = {
+        "tests_status": {
+            "FAIL_TO_PASS": {
+                "success": [],
+                "failure": ["lib/matplotlib/tests/test_artist.py::test_format_cursor_data_BoundaryNorm"],
+            },
+            "PASS_TO_PASS": {
+                "success": [],
+                "failure": ["lib/matplotlib/tests/test_artist.py::test_clipping"],
+            },
+        }
+    }
+
+    excerpt = batch.read_failure_excerpt(
+        output,
+        max_chars=2_000,
+        instance_report=report,
+        changed_files=["lib/matplotlib/artist.py"],
+    )
+
+    assert excerpt.startswith("## TARGET FAILURE")
+    assert "assert '[0.900]' == '[0.9]'" in excerpt
+    assert "environment stack\nenvironment stack\nenvironment stack" not in excerpt
+    assert "PASSED unrelated_test" not in excerpt
+    assert "OTHER FAILURE SUMMARY" in excerpt
+    assert "DeprecationWarning" in excerpt
+
+
+def test_read_failure_excerpt_keeps_changed_path_regression_after_target(tmp_path):
+    batch = load_batch_module()
+    output = tmp_path / "test_output.txt"
+    output.write_text(
+        "FAILURES\n"
+        "________________________ test_same_relations _________________________\n"
+        "E AssertionError: expected related_name, got none\n"
+        "________________ test_attribute_name_not_python_keyword _____________\n"
+        "django/core/management/commands/inspectdb.py:190\n"
+        "E AssertionError: unexpected related_name on from_field\n",
+        encoding="utf-8",
+    )
+    report = {
+        "tests_status": {
+            "FAIL_TO_PASS": {
+                "success": [],
+                "failure": ["test_same_relations (inspectdb.tests.InspectDBTestCase)"],
+            },
+            "PASS_TO_PASS": {
+                "success": [],
+                "failure": ["test_attribute_name_not_python_keyword (inspectdb.tests.InspectDBTestCase)"],
+            },
+        }
+    }
+
+    excerpt = batch.read_failure_excerpt(
+        output,
+        instance_report=report,
+        changed_files=["django/core/management/commands/inspectdb.py"],
+    )
+
+    assert "## TARGET FAILURE" in excerpt
+    assert "expected related_name, got none" in excerpt
+    assert "## REGRESSION FAILURE" in excerpt
+    assert "unexpected related_name on from_field" in excerpt
+
+
 def test_parser_defaults_to_single_pass_official_mode(tmp_path):
     batch = load_batch_module()
 
@@ -52,6 +132,8 @@ def test_parser_defaults_to_single_pass_official_mode(tmp_path):
     )
 
     assert args.max_steps == 16
+    assert args.repair_mode == "benchmark"
+    assert args.memory_provenance == ""
     assert args.implement_model is None
     assert args.evolve_memory is False
     assert args.no_repair_memory is False
@@ -60,8 +142,622 @@ def test_parser_defaults_to_single_pass_official_mode(tmp_path):
     assert args.offline_cache is False
     assert args.diagnostic_mode == "none"
     assert args.corrective_source_dir is None
+    assert args.harness_python is None
+    assert args.prebuild_instance_image is None
+    assert args.image_build_timeout == 3600
     assert not hasattr(args, "max_feedback_rounds")
     assert not hasattr(batch, "build_feedback_task")
+
+
+def test_batch_validates_cli_normalized_failure_routes():
+    batch = load_batch_module()
+    actionable = {
+        "correction_route": "corrective_implement",
+        "correction_readiness": "actionable",
+        "failure_observation_quality": "expected_actual",
+        "scope_expansion": [],
+        "evidence_ledger": [
+            {
+                "id": "E1",
+                "source": "public_task",
+                "fact": "Expected canonical identity.",
+                "support": "direct",
+            },
+            {
+                "id": "E2",
+                "source": "failure_log",
+                "fact": "Observed alias identity.",
+                "support": "direct",
+            },
+        ],
+        "correction_evidence_ids": ["E1", "E2"],
+    }
+    replan = {
+        "correction_route": "coordinator_replan",
+        "correction_readiness": "needs_replan",
+        "next_evidence_source": "public_test",
+    }
+
+    assert batch.validated_failure_feedback_route(actionable) == "corrective_implement"
+    actionable["evidence_ledger"].append(
+        {
+            "id": "E3",
+            "source": "failed_patch",
+            "fact": "The alias assignment is the likely causal link.",
+            "support": "inference",
+        }
+    )
+    actionable["correction_evidence_ids"].append("E3")
+    assert batch.validated_failure_feedback_route(actionable) == "corrective_implement"
+    actionable["evidence_ledger"][-1]["support"] = "unknown"
+    assert batch.validated_failure_feedback_route(actionable) is None
+    actionable["evidence_ledger"][-1]["support"] = "inference"
+    assert batch.validated_failure_feedback_route(replan) == "coordinator_replan"
+    actionable["failure_observation_quality"] = "failure_only"
+    assert batch.validated_failure_feedback_route(actionable) is None
+
+
+def test_batch_extracts_reproducer_before_after_lightweight_validation():
+    batch = load_batch_module()
+    attribution = {
+        "stages": {
+            "reproduction": {
+                "contract": {
+                    "target_partitions": [
+                        {
+                            "id": "symbolic_invariant",
+                            "expected": "symbolic integer assumptions preserve the old branch",
+                            "evidence": [
+                                {
+                                    "type": "code",
+                                    "location": "src/mod.py:40",
+                                    "claim": "the original guard accepts integer exponents",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "baseline_execution": {
+                    "requested_command": "python -m pytest tests/test_public.py -q",
+                    "exit_code": 1,
+                    "output": "expected canonical, got alias",
+                }
+            },
+            "focused_verification": {
+                "result": {
+                    "status": "failed",
+                    "command": "python -m pytest tests/test_public.py -q",
+                    "exit_code": 1,
+                    "evidence": "expected canonical, got requested alias",
+                }
+            },
+        },
+    }
+
+    result = batch.lightweight_validation_from_attribution(attribution)
+
+    assert result["status"] == "still_failing"
+    assert result["feedback_eligible"] is True
+    assert result["semantic_evidence"]["target_partitions"][0]["id"] == "symbolic_invariant"
+
+
+def test_experience_harness_feedback_routes_only_real_unresolved_failures():
+    batch = load_batch_module()
+    report = {
+        "tests_status": {
+            "FAIL_TO_PASS": {"success": [], "failure": ["test_target"]},
+            "PASS_TO_PASS": {"success": ["test_old"], "failure": []},
+        }
+    }
+    feedback = batch.build_experience_harness_feedback(
+        {
+            "resolved": False,
+            "unresolved": True,
+            "error": False,
+            "failure_excerpt": "AssertionError: expected 2, got 1",
+            "failure_facts": {"exception_types": ["AssertionError"]},
+            "instance_report": report,
+        },
+        "diff --git a/app.py b/app.py\n",
+    )
+    error_feedback = batch.build_experience_harness_feedback(
+        {
+            "resolved": False,
+            "unresolved": False,
+            "error": True,
+            "failure_excerpt": "Docker timeout",
+            "instance_report": {},
+        },
+        "diff --git a/app.py b/app.py\n",
+    )
+
+    assert feedback["feedback_eligible"] is True
+    assert feedback["test_counts"]["fail_to_pass_failed"] == 1
+    assert feedback["failure_attribution"]["failure_class"] == "target_semantics_incomplete"
+    assert error_feedback["feedback_eligible"] is False
+    assert "infrastructure errors" in error_feedback["reason"]
+
+
+def test_harness_dependency_contamination_is_not_code_feedback():
+    batch = load_batch_module()
+    report = {
+        "tests_status": {
+            "FAIL_TO_PASS": {"success": ["test_target"], "failure": []},
+            "PASS_TO_PASS": {"success": [], "failure": ["test_image[png]", "test_image[pdf]"]},
+        }
+    }
+    output = """
+________________ test_image[png] _________________
+E DeprecationWarning: Version scheme 'release-branch-semver' has been renamed
+________________ test_image[pdf] _________________
+E ResourceWarning: unclosed file '/tmp/image.pdf'
+E pytest.PytestUnraisableExceptionWarning: Exception ignored in FileIO
+================ short test summary info ================
+"""
+
+    contamination = batch.classify_harness_environment_contamination(report, output)
+    feedback = batch.build_experience_harness_feedback(
+        {
+            "resolved": False,
+            "unresolved": True,
+            "error": False,
+            "failure_excerpt": output,
+            "instance_report": report,
+            "environment_contamination": contamination,
+        },
+        "diff --git a/app.py b/app.py\n",
+    )
+
+    assert contamination["contaminated"] is True
+    assert feedback["feedback_eligible"] is False
+    assert "toolchain contamination" in feedback["reason"]
+
+
+def test_differential_expansion_is_opt_in_and_accepts_safe_diagnostic_validation():
+    batch = load_batch_module()
+
+    assert not batch.should_run_experience_differential({"status": "fixed"})
+    assert batch.should_run_experience_differential({"status": "fixed"}, enabled=True)
+    assert batch.should_run_experience_differential(
+        {
+            "status": "invalid_reproducer",
+            "command": "python -c 'assert 1 == 1'",
+            "baseline": {
+                "command": "python -c 'assert 1 == 1'",
+                "exit_code": 0,
+                "status": "passed",
+            },
+        },
+        enabled=True,
+    )
+
+
+def test_differential_expansion_rejects_real_failure_and_unsafe_baseline():
+    batch = load_batch_module()
+
+    assert not batch.should_run_experience_differential(
+        {
+            "status": "still_failing",
+            "baseline": {
+                "command": "python -c 'raise AssertionError'",
+                "exit_code": 1,
+            },
+        },
+        enabled=True,
+    )
+    assert not batch.should_run_experience_differential(
+        {
+            "status": "invalid_reproducer",
+            "baseline": {
+                "command": "python -c 'import subprocess'",
+                "exit_code": 0,
+            },
+        },
+        enabled=True,
+    )
+
+
+def test_differential_expansion_replaces_executed_import_error_reproducer():
+    batch = load_batch_module()
+
+    assert batch.should_run_experience_differential(
+        {
+            "status": "invalid_reproducer",
+            "command": "python -c 'from package import missing_name'",
+            "baseline": {
+                "attempted": True,
+                "status": "failed",
+                "command": "python -c 'from package import missing_name'",
+                "exit_code": 1,
+                "evidence": "ImportError: cannot import name 'missing_name'",
+            },
+        },
+        enabled=True,
+    )
+
+
+def test_differential_expansion_does_not_replace_docker_environment_failure():
+    batch = load_batch_module()
+
+    assert not batch.should_run_experience_differential(
+        {
+            "status": "invalid_reproducer",
+            "command": "python -c 'print(1)'",
+            "baseline": {
+                "attempted": True,
+                "status": "blocked_by_environment",
+                "command": "python -c 'print(1)'",
+                "exit_code": None,
+                "evidence": "Cannot connect to the Docker daemon",
+            },
+        },
+        enabled=True,
+    )
+
+
+def test_invalid_validation_review_routes_to_differential_replacement():
+    batch = load_batch_module()
+
+    assert batch.correction_rejected_invalid_validation(
+        {
+            "attempted": False,
+            "route": "none",
+            "failure_stage": "invalid_test",
+            "feedback": {"correction_readiness": "not_needed"},
+        }
+    )
+    assert not batch.correction_rejected_invalid_validation(
+        {
+            "attempted": True,
+            "route": "corrective_implement",
+            "failure_stage": "implementation_semantics",
+            "feedback": {"correction_readiness": "actionable"},
+        }
+    )
+
+
+def test_complete_gate_does_not_correct_from_relation_without_oracle():
+    batch = load_batch_module()
+    validation = {
+        "validation_kind": "differential_trace",
+        "test_plan": {
+            "guard_coverage_complete": True,
+            "guard_coverage": [
+                {
+                    "obligation_id": "exponent_negative_boundary",
+                    "case_ids": ["negative_exp"],
+                    "required_relation": "must_change",
+                }
+            ],
+        },
+        "case_matrix": [{"case": "negative_exp", "changed": False}],
+    }
+    feedback = {
+        "failure_stage": "complete",
+        "issue_contract": ["Do not take the zero branch outside its valid domain."],
+        "regression_guards": [],
+    }
+
+    gated = batch.enforce_differential_complete_gate(
+        feedback,
+        validation,
+        "diff --git a/mod.py b/mod.py\n",
+    )
+
+    assert gated["failure_stage"] == "insufficient_evidence"
+    assert gated["correction_route"] == "none"
+    assert gated["controller_oracle_gate"] is True
+    assert batch.validated_failure_feedback_route(gated) == "none"
+
+
+def test_complete_gate_preserves_complete_when_all_relations_hold():
+    batch = load_batch_module()
+    validation = {
+        "validation_kind": "differential_trace",
+        "test_plan": {
+            "guard_coverage_complete": True,
+            "guard_coverage": [
+                {
+                    "obligation_id": "target",
+                    "case_ids": ["reported"],
+                    "required_relation": "must_change",
+                },
+                {
+                    "obligation_id": "invariant",
+                    "case_ids": ["old"],
+                    "required_relation": "must_preserve",
+                },
+            ],
+            "cases": [
+                {
+                    "id": "reported",
+                    "role": "target",
+                    "expected_relation": "must_change",
+                    "oracle_strength": "exact",
+                },
+                {
+                    "id": "old",
+                    "role": "invariant",
+                    "expected_relation": "must_preserve",
+                    "oracle_strength": "invariant",
+                },
+            ],
+        },
+        "case_matrix": [
+            {"case": "reported", "role": "target", "oracle_strength": "exact", "oracle_passed": True, "changed": True},
+            {"case": "old", "role": "invariant", "oracle_strength": "invariant", "oracle_passed": True, "changed": False},
+        ],
+    }
+    feedback = {"failure_stage": "complete"}
+
+    assert (
+        batch.enforce_differential_complete_gate(feedback, validation, "patch")
+        == feedback
+    )
+
+
+def test_complete_gate_checks_every_declared_case_relation():
+    batch = load_batch_module()
+    validation = {
+        "validation_kind": "differential_trace",
+        "test_plan": {
+            "guard_coverage_complete": True,
+            "guard_coverage": [],
+            "cases": [
+                {
+                    "id": "reported",
+                    "expected_relation": "must_change",
+                }
+            ],
+        },
+        "case_matrix": [{"case": "reported", "changed": False}],
+    }
+
+    violations = batch.differential_complete_gate_violations(validation)
+
+    assert violations == []
+    assert batch.differential_oracle_gaps(validation) == ["reported"]
+
+
+def test_relation_gate_overrides_invalid_failure_review_output():
+    batch = load_batch_module()
+    validation = {
+        "validation_kind": "differential_trace",
+        "test_plan": {
+            "guard_coverage_complete": True,
+            "guard_coverage": [],
+            "cases": [
+                {"id": "negative", "expected_relation": "must_change"}
+            ],
+        },
+        "case_matrix": [{"case": "negative", "changed": False}],
+    }
+    invalid_feedback = {
+        "parse_error": True,
+        "raw": {"failure_observation_quality": "insufficient"},
+    }
+
+    gated = batch.enforce_differential_relation_gate(
+        invalid_feedback,
+        validation,
+        "diff --git a/mod.py b/mod.py\n",
+    )
+
+    assert gated["controller_oracle_gate"] is True
+    assert gated["correction_route"] == "none"
+    assert batch.validated_failure_feedback_route(gated) == "none"
+
+
+def test_baseline_matching_exact_target_is_invalid_probe_not_corrective():
+    batch = load_batch_module()
+    validation = {
+        "validation_kind": "differential_trace",
+        "invalid_target_cases": ["reverse_relation"],
+        "case_matrix": [],
+    }
+
+    gated = batch.enforce_differential_relation_gate(
+        {"failure_stage": "implementation_semantics"}, validation, "patch"
+    )
+
+    assert gated["failure_stage"] == "invalid_test"
+    assert gated["correction_route"] == "none"
+
+
+def test_experience_validation_preserves_failed_patch_for_lightweight_correction():
+    batch = load_batch_module()
+    patch = "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n"
+    attribution = {
+        "stages": {
+            "focused_verification": {
+                "attempts": 1,
+                "result_parseable": True,
+                "result": {
+                    "status": "failed",
+                    "command": "python -m pytest tests/test_public.py -q",
+                    "exit_code": 1,
+                    "evidence": "1 failed",
+                },
+            }
+        }
+    }
+
+    result = batch.validate_model_patch(
+        patch,
+        stage_attribution=attribution,
+        require_patch_review=False,
+        reject_failed_verification=False,
+    )
+
+    assert result["invalid"] is False
+    assert result["discard_patch"] is False
+    assert "verification_failed_feedback_eligible:behavior_failed" in result["warnings"]
+
+
+def test_experience_batch_uses_initial_harness_failure_then_evaluates_correction(tmp_path, monkeypatch):
+    batch = load_batch_module()
+    repo = tmp_path / "work" / "repos" / "owner__repo-1"
+    output = tmp_path / "out"
+    output.mkdir()
+    initial_patch = "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+first\n"
+    corrected_patch = initial_patch.replace("+first", "+corrected")
+    current = {"patch": initial_patch}
+    harness_calls = []
+    correction_feedback = []
+
+    def fake_checkout(*args, **kwargs):
+        repo.mkdir(parents=True, exist_ok=True)
+
+    def fake_agent_pass(*args, **kwargs):
+        return {
+            "status": "agent_ok",
+            "agent_exit_code": 0,
+            "patch_chars": len(initial_patch),
+            "model_patch": initial_patch,
+            "output_dir": str(output / "pass-1"),
+            "stage_attribution": {
+                "problem_statement": "fix public behavior",
+                "stages": {
+                    "reproduction": {
+                        "baseline_execution": {
+                            "requested_command": "python -m pytest tests/test_public.py -q",
+                            "exit_code": 1,
+                            "output": "expected fixed, got old",
+                        }
+                    },
+                    "focused_verification": {
+                        "result": {
+                            "status": "failed",
+                            "command": "python -m pytest tests/test_public.py -q",
+                            "exit_code": 1,
+                            "evidence": "expected fixed, got first",
+                        }
+                    },
+                }
+            },
+        }
+
+    def fake_correction(*args, **kwargs):
+        correction_feedback.append(args[5])
+        current["patch"] = corrected_patch
+        feedback_file = output / "pass-1" / "experience-correction" / "feedback.json"
+        feedback_file.parent.mkdir(parents=True, exist_ok=True)
+        feedback_file.write_text("{}", encoding="utf-8")
+        return {
+            "attempted": True,
+            "model_patch": corrected_patch,
+            "output_dir": str(feedback_file.parent),
+            "feedback_file": str(feedback_file),
+            "stage_attribution": {},
+        }
+
+    def fake_harness(*args, **kwargs):
+        harness_calls.append(args[1])
+        if len(harness_calls) == 1:
+            return {
+                "resolved": False,
+                "unresolved": True,
+                "error": False,
+                "failure_excerpt": "AssertionError: expected fixed, got first",
+                "failure_facts": {"exception_types": ["AssertionError"]},
+                "instance_report": {
+                    "tests_status": {
+                        "FAIL_TO_PASS": {"success": [], "failure": ["test_public"]},
+                        "PASS_TO_PASS": {"success": ["test_old"], "failure": []},
+                    }
+                },
+            }
+        return {
+            "resolved": True,
+            "unresolved": False,
+            "error": False,
+            "failure_excerpt": "",
+            "failure_facts": {},
+            "instance_report": {},
+        }
+
+    monkeypatch.setattr(batch, "checkout_repo", fake_checkout)
+    monkeypatch.setattr(batch, "run_agent_pass", fake_agent_pass)
+    monkeypatch.setattr(batch, "git_diff", lambda path: current["patch"])
+    monkeypatch.setattr(
+        batch,
+        "validate_model_patch",
+        lambda patch, **kwargs: {"invalid": False, "discard_patch": False, "reasons": [], "warnings": []},
+    )
+    monkeypatch.setattr(batch, "run_experience_correction", fake_correction)
+    monkeypatch.setattr(
+        batch,
+        "run_experience_curator_for_success",
+        lambda *args, **kwargs: {"status": "saved"},
+    )
+    monkeypatch.setattr(
+        batch,
+        "run_lightweight_feedback_command",
+        lambda *args, **kwargs: {
+            "status": "passed",
+            "command": "python -m pytest tests/test_public.py -q",
+            "exit_code": 0,
+            "evidence": "1 passed",
+        },
+    )
+    monkeypatch.setattr(batch, "run_harness_for_instance", fake_harness)
+
+    args = SimpleNamespace(
+        work_dir=tmp_path / "work",
+        diagnostic_mode="none",
+        corrective_source_dir=None,
+        full_agent_profile=False,
+        repair_mode="experience-build",
+        evaluate=True,
+        evolve_memory=False,
+        timeout=60,
+        offline_cache=False,
+        prebuild_instance_image=False,
+    )
+    result = batch.run_instance_once(
+        {
+            "instance_id": "owner__repo-1",
+            "repo": "owner/repo",
+            "base_commit": "abc",
+            "problem_statement": "fix public behavior",
+        },
+        repo,
+        output,
+        args,
+        {},
+    )
+
+    assert result["model_patch"] == corrected_patch, result
+    assert harness_calls == [initial_patch, corrected_patch]
+    assert correction_feedback[0]["validation_kind"] == "swebench_harness_feedback"
+    assert correction_feedback[0]["feedback_eligible"] is True
+    assert result["passes"][0]["initial_harness"]["unresolved"] is True
+    assert result["passes"][0]["harness"]["resolved"] is True
+
+
+def test_experience_build_requires_evaluation_and_provenance(tmp_path):
+    batch = load_batch_module()
+    base = [
+        "--dataset",
+        str(tmp_path / "data.parquet"),
+        "--repo-agent-bin",
+        str(tmp_path / "repo-agent"),
+        "--model",
+        "test-model",
+        "--work-dir",
+        str(tmp_path / "work"),
+        "--output-dir",
+        str(tmp_path / "out"),
+        "--repair-mode",
+        "experience-build",
+    ]
+
+    import pytest
+
+    with pytest.raises(SystemExit, match="requires --evaluate"):
+        batch.main(base)
+    with pytest.raises(SystemExit, match="requires --memory-provenance"):
+        batch.main([*base, "--evaluate"])
 
 
 def test_format_memory_scope_supports_repo_placeholder(tmp_path):
@@ -100,6 +796,66 @@ def test_swebench_eval_image_uses_instance_id_and_rejects_shell_text():
         batch.swebench_eval_image("repo__issue; touch /tmp/unsafe")
 
 
+def test_instance_image_prebuild_defaults_only_to_experience_mode():
+    batch = load_batch_module()
+
+    assert batch.should_prebuild_instance_image(
+        SimpleNamespace(repair_mode="experience-build", prebuild_instance_image=None)
+    )
+    assert not batch.should_prebuild_instance_image(
+        SimpleNamespace(repair_mode="benchmark", prebuild_instance_image=None)
+    )
+    assert batch.should_prebuild_instance_image(
+        SimpleNamespace(repair_mode="benchmark", prebuild_instance_image=True)
+    )
+
+
+def test_prebuild_instance_image_uses_harness_python_and_records_ready_image(tmp_path, monkeypatch):
+    batch = load_batch_module()
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["env"] = kwargs["env"]
+        result_file = Path(command[command.index("--result-file") + 1])
+        result_file.write_text(
+            json.dumps(
+                {
+                    "status": "ready",
+                    "image": "sweb.eval.x86_64.proj__repo-1:latest",
+                    "already_present": False,
+                    "seconds": 4.2,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, stdout="built")
+
+    monkeypatch.setattr(batch.subprocess, "run", fake_run)
+    args = SimpleNamespace(
+        harness_python=tmp_path / "swebench-python",
+        dataset=tmp_path / "data.parquet",
+        namespace="none",
+        swebench_dir=tmp_path,
+        docker_network="host",
+        proxy="http://127.0.0.1:7897",
+        image_build_timeout=60,
+    )
+
+    result = batch.prebuild_swebench_instance_image(
+        {"instance_id": "proj__repo-1"},
+        tmp_path / "out",
+        args,
+        {},
+    )
+
+    assert captured["command"][0] == str(args.harness_python)
+    assert captured["env"]["SWEBENCH_DOCKER_BUILD_NETWORK"] == "host"
+    assert captured["env"]["SWEBENCH_GIT_PROXY"] == args.proxy
+    assert result["status"] == "ready"
+    assert result["image"] == "sweb.eval.x86_64.proj__repo-1:latest"
+
+
 def test_harness_receives_git_proxy_for_docker_build(tmp_path, monkeypatch):
     batch = load_batch_module()
     captured = {}
@@ -134,6 +890,44 @@ def test_harness_receives_git_proxy_for_docker_build(tmp_path, monkeypatch):
 
     assert captured["env"]["SWEBENCH_GIT_PROXY"] == "http://127.0.0.1:7897"
     assert captured["env"]["SWEBENCH_DOCKER_NETWORK"] == "host"
+
+
+def test_harness_uses_explicit_python_and_preserves_startup_error(tmp_path, monkeypatch):
+    batch = load_batch_module()
+    captured = {}
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        return subprocess.CompletedProcess(command, 1, stdout="ModuleNotFoundError: missing dependency")
+
+    monkeypatch.setattr(batch.subprocess, "run", fake_run)
+    args = SimpleNamespace(
+        swebench_dir=tmp_path,
+        dataset=tmp_path / "data.parquet",
+        harness_python=tmp_path / "swebench-python",
+        run_id="python-test",
+        model="test-model",
+        namespace="none",
+        cache_level="env",
+        harness_timeout=10,
+        docker_network="",
+        proxy="",
+    )
+
+    result = batch.run_harness_for_instance(
+        {"instance_id": "proj__repo-1"},
+        "diff --git a/a.py b/a.py\n",
+        output_dir,
+        args,
+        {},
+        0,
+    )
+
+    assert captured["command"][0] == str(args.harness_python)
+    assert result["error"] is True
+    assert "ModuleNotFoundError" in result["failure_excerpt"]
 
 
 def test_checkout_repo_offline_cache_skips_fetch(tmp_path, monkeypatch):
@@ -250,7 +1044,7 @@ def test_static_safe_unverified_patch_is_kept_with_precise_warning():
     assert result["warnings"] == ["verification_not_available"]
 
 
-def test_build_task_contains_pass1_execution_deadlines(tmp_path):
+def test_build_task_contains_compact_benchmark_policy(tmp_path):
     batch = load_batch_module()
     task = batch.build_task(
         {
@@ -264,25 +1058,39 @@ def test_build_task_contains_pass1_execution_deadlines(tmp_path):
     assert "hints_text" in task
     assert "secret hint" not in task
     assert "Hints From Issue Discussion" not in task
-    assert "at most 5 narrow calls" in task
+    assert "at most 3 narrow search/read rounds" in task
     assert "Never install dependencies" in task
-    assert "semantic precision matters" in task
     assert "allowed_ranges" in task
-    assert "semantic_coverage" in task
-    assert "simplified Coordinator path" in task
-    assert "deterministic validation" in task
-    assert "optional soft-evidence reproducer" in task
-    assert "Reproducer is optional and non-blocking" in task
-    assert "one implement Worker" in task
-    assert "Conditional patch review required" in task
-    assert "target_code_context" in task
-    assert "exact original snippet or line_replacements" in task
-    assert "adjacent old behavior" in task
+    assert "Benchmark is strict pass@1" in task
+    assert "Reproducer is optional" in task
+    assert "Historical memory is soft evidence" in task
+    assert "source-confirmed obligations" in task
+    assert "rejected failed attempts" in task
+    assert "FailureReview, at most one Corrective Implement" not in task
+    assert "named algorithm/formula/bound replacement" in task
     assert "Nullable pandas dtype constraint" not in task
     assert "mandatory patch_review" not in task
     assert "verdict=accept" not in task
-    assert "public regression risks inferred only from changed files" not in task
-    assert "corrective implement is not a fresh solution attempt" not in task
+
+
+def test_build_task_uses_harness_feedback_only_after_initial_experience_patch(tmp_path):
+    batch = load_batch_module()
+    task = batch.build_task(
+        {
+            "instance_id": "proj__repo-1",
+            "problem_statement": "Public example returns the wrong value.",
+        },
+        tmp_path / "repo",
+        repair_mode="experience-build",
+    )
+
+    assert "without constructing a public verification command" in task
+    assert "one full harness evaluation" in task
+    assert "unresolved result may be reviewed once and corrected once" in task
+    assert "environment errors are never code feedback" in task
+    assert "Only FailureReview and Corrective Implement" in task
+    assert "Memory is written only after" in task
+    assert "Benchmark is strict pass@1" not in task
 
 
 def test_build_task_leaves_matched_alias_details_to_constraint_router(tmp_path):
@@ -298,13 +1106,10 @@ def test_build_task_leaves_matched_alias_details_to_constraint_router(tmp_path):
 
     assert "Matched alias propagation constraint" not in task
     assert "matched_display_name" not in task
-    assert "canonical lookup identity separate from rendered identity" in task
+    assert "canonical lookup identity separate from rendered identity" not in task
     assert "dict.pop(orig, 'backend', None)" not in task
     assert "mplot3d/art3d.py" not in task
-    assert "second solution attempt" in task
-    assert "Run at most one focused verification" in task
-    assert "source-backed SemanticEvidence as supplemental context" in task
-    assert "covered_cases" in task
+    assert "Do not spend steps inventing a public verification oracle" in task
 
 
 def test_build_task_leaves_nullable_pandas_details_to_constraint_router(tmp_path):
@@ -320,7 +1125,7 @@ def test_build_task_leaves_nullable_pandas_details_to_constraint_router(tmp_path
     assert "Nullable pandas dtype constraint" not in task
     assert "_pandas_dtype_needs_early_conversion" not in task
     assert "check_array(y, dtype=None, ensure_2d=False)" not in task
-    assert "Split every representation named or directly implied" in task
+    assert "Split every representation named or directly implied" not in task
 
 
 def test_diagnostic_gold_oracles_expose_scope_without_patch_content(tmp_path):
@@ -369,7 +1174,7 @@ def test_unparseable_verification_preserves_statically_safe_patch():
     assert "verification_result_unparseable" in result["warnings"]
 
 
-def test_semantic_stage_gate_discards_patch_before_harness():
+def test_semantic_alignment_does_not_discard_nonempty_patch():
     batch = load_batch_module()
     patch = "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n"
     attribution = {
@@ -386,13 +1191,8 @@ def test_semantic_stage_gate_discards_patch_before_harness():
 
     result = batch.validate_model_patch(patch, stage_attribution=attribution, require_patch_review=False)
 
-    assert result["invalid"] is True
-    assert result["discard_patch"] is True
-    assert (
-        "semantic_patch_gate_failed:semantic_wrong_layer:consumer_compatibility_required_but_producer_changed"
-        in result["reasons"]
-    )
-    assert "workflow_terminal_gate:semantic_patch_gate_failed" in result["reasons"]
+    assert result["invalid"] is False
+    assert result["discard_patch"] is False
 
 
 def test_degraded_reproducer_evidence_preserves_static_patch():
@@ -527,6 +1327,9 @@ def test_corrective_task_requires_causal_diagnosis_before_editing():
     assert "corrective_diagnosis" in task
     assert "invalidated_patch_assumption" in task
     assert "first wrong predicate/identity/state transition" in task
+    assert "Every directly observed relation violation is an acceptance criterion" in task
+    assert "Public Task omission alone does not invalidate" in task
+    assert "structural-versus-semantic" in task
 
 
 def test_extract_failure_facts_finds_pytest_expected_and_actual_l031_messages():

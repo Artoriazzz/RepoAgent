@@ -4,10 +4,10 @@ set -euo pipefail
 REPO_AGENT_ROOT=${REPO_AGENT_ROOT:-/home/artoria/workspace/RepoAgent/RepoAgent}
 SWEBENCH_ROOT=${SWEBENCH_ROOT:-/home/artoria/workspace/SWE-bench}
 WORK_DIR=${WORK_DIR:-$SWEBENCH_ROOT/agent_work}
-RUN_ID=${RUN_ID:-lite-target2-semantic-v29-flash-coordinator-pro-implement}
+RUN_ID=${RUN_ID:-lite-target2-semantic-v30-all-flash-thinking}
 OUTPUT_DIR=${OUTPUT_DIR:-$WORK_DIR/runs/$RUN_ID}
 MODEL=${MODEL:-deepseek-v4-flash}
-IMPLEMENT_MODEL=${IMPLEMENT_MODEL:-deepseek-v4-pro}
+IMPLEMENT_MODEL=${IMPLEMENT_MODEL:-deepseek-v4-flash}
 PROXY=${PROXY:-http://127.0.0.1:7897}
 MAX_STEPS=${MAX_STEPS:-30}
 AGENT_TIMEOUT=${AGENT_TIMEOUT:-2400}

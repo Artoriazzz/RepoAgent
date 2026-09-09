@@ -13,9 +13,10 @@ from typing import Any
 
 from repo_agent.core.subagent import LineRange, SubAgentRunner, WorkerConstraints, get_worker_spec
 from repo_agent.core.static_analysis import newly_undefined_names
-from repo_agent.core.task_constraints import ConstraintRouting, route_task_constraints
+from repo_agent.core.task_constraints import ConstraintRouting
 from repo_agent.core.semantic_evidence import (
     blocking_patch_semantic_issues,
+    build_repair_brief,
     build_verification_plan,
     extract_json_object as extract_semantic_evidence,
     format_semantic_evidence,
@@ -31,16 +32,24 @@ from repo_agent.core.semantic_evidence import (
 from repo_agent.core.tool import Tool, ToolParameter, ToolResponse, ToolSource, build_tool
 from repo_agent.core.verification import (
     assess_verification_result,
+    classify_verification_command,
     prepare_verification_command,
     verification_command_safety_reason,
 )
 
 
 RepairConstraintProvider = Callable[[], tuple[Any, ...]]
+RepairEpisodePromptProvider = Callable[[str], tuple[str, tuple[Any, ...]]]
+RoleSemanticPromptProvider = Callable[[str, str], tuple[str, tuple[Any, ...]]]
+ReproducerRequirement = bool | Callable[[], bool]
 
 
 def reset_agent_tool_state(state: dict[str, Any], cwd: Path) -> None:
-    """重置一次 Coordinator run 的工具状态，供阶段归因读取。"""
+    """重置一次 Coordinator run 的确定性工作流状态，供门禁和阶段归因共用。
+
+    这些字段独立于 Coordinator messages。即使模型忘记自己已派过 Implement，工具层
+    仍能根据 implementation_done、worker_attempts 等状态拒绝越序或重复调用。
+    """
     state.clear()
     state.update(
         {
@@ -65,12 +74,20 @@ def reset_agent_tool_state(state: dict[str, Any], cwd: Path) -> None:
             "candidate_initial_diff": _git_diff_text(cwd),
             "reproducer_attempted": False,
             "reproducer_done": False,
+            "reproducer_trusted": False,
+            "reproducer_trust_reason": "",
             "reproduction_stop_reason": "",
             "candidate_list_done": False,
             "candidate_evaluation_done": False,
             "candidate_base_results": [],
             "reproduction_contract": {},
             "reproduction_commands": [],
+            "reproduction_execution": {},
+            "public_verification_registered": False,
+            "public_verification_execution_attempted": False,
+            "public_verification_command": "",
+            "public_verification_covers": [],
+            "repair_brief": {},
             "semantic_evidence": {},
             "semantic_evidence_issues": [],
             "semantic_evidence_warnings": [],
@@ -78,6 +95,7 @@ def reset_agent_tool_state(state: dict[str, Any], cwd: Path) -> None:
             "semantic_evidence_degraded": False,
             "semantic_patch_issues": [],
             "semantic_patch_warnings": [],
+            "implementation_report": {},
             "semantic_corrective_required": False,
             "patch_ranker_done": False,
             "patch_ranker_selected_index": None,
@@ -107,6 +125,8 @@ def reset_agent_tool_state(state: dict[str, Any], cwd: Path) -> None:
             "worker_requests": {},
             "worker_attempts": {},
             "worker_events": [],
+            "recalled_repair_episodes": [],
+            "recalled_semantic_insights_by_role": {},
         }
     )
 
@@ -114,21 +134,96 @@ def reset_agent_tool_state(state: dict[str, Any], cwd: Path) -> None:
 def build_agent_tools(
     runner: SubAgentRunner,
     repair_recipe_constraints: RepairConstraintProvider | None = None,
+    repair_episode_prompt: RepairEpisodePromptProvider | None = None,
+    role_semantic_prompt: RoleSemanticPromptProvider | None = None,
     *,
     require_patch_review: bool = True,
     conditional_patch_review: bool = False,
-    require_reproducer_before_implement: bool = False,
+    require_reproducer_before_implement: ReproducerRequirement = False,
+    require_public_verification_before_implement: Callable[[], bool] | None = None,
+    auto_verify_public_verification: bool = False,
     allowed_agent_types: set[str] | frozenset[str] | None = None,
     candidate_mode_required: Callable[[], bool] | None = None,
     forced_implement_scope: Callable[[], WorkerConstraints | None] | None = None,
     state: dict[str, Any] | None = None,
 ) -> list[Tool]:
+    """构造 Coordinator 用来派发 Worker 的元工具和确定性状态机。"""
+
     state = state if state is not None else {}
     reset_agent_tool_state(state, runner.cwd)
     review_policy = "required" if require_patch_review else ("conditional" if conditional_patch_review else "off")
 
     def review_required_now() -> bool:
         return review_policy == "required" or bool(state.get("review_required"))
+
+    def reproducer_required_now() -> bool:
+        if callable(require_reproducer_before_implement):
+            return bool(require_reproducer_before_implement())
+        return bool(require_reproducer_before_implement)
+
+    def public_verification_required_now() -> bool:
+        return bool(
+            require_public_verification_before_implement
+            and require_public_verification_before_implement()
+        )
+
+    def run_frozen_public_verification() -> None:
+        command = str(state.get("public_verification_command") or "").strip()
+        run_tool = runner.base_tools.get("run_command")
+        if not command or run_tool is None:
+            return
+        response = runner._run_swebench_verification_command(
+            run_tool,
+            {"command": command},
+        )
+        exit_code = response.data.get("exit_code")
+        verification = {
+            "status": (
+                "passed"
+                if exit_code == 0
+                else "failed"
+                if isinstance(exit_code, int)
+                else "blocked_by_environment"
+            ),
+            "command": command,
+            "exit_code": exit_code if isinstance(exit_code, int) else None,
+            "covered_cases": list(state.get("public_verification_covers") or []),
+            "evidence": response.text[-2_000:],
+        }
+        assessment = assess_verification_result(verification)
+        state.setdefault("worker_attempts", {})["verify"] = 1
+        state.setdefault("worker_requests", {})["verify"] = 1
+        state["verification_plan"] = {
+            "command": command,
+            "covers": list(state.get("public_verification_covers") or []),
+        }
+        state["verification_execution"] = {
+            "attempted": True,
+            "requested_command": command,
+            "execution_command": response.data.get("execution_command", ""),
+            "exit_code": exit_code,
+            "tool_status": response.status.value,
+            "output": response.text[-2_000:],
+        }
+        state["verification_result"] = verification
+        state["verification_assessment"] = assessment
+        state["verify_attempted"] = True
+        state["verify_completed"] = isinstance(exit_code, int)
+        state["verification_result_parseable"] = True
+        state["verification_passed"] = bool(assessment.get("submission_ready"))
+        if state["verification_passed"]:
+            if not state.get("review_required"):
+                state["workflow_terminal_reason"] = "focused_verification_passed"
+                state["workflow_terminal_completed"] = True
+        elif assessment.get("classification") == "environment_blocked":
+            state["workflow_terminal_reason"] = "focused_verification_blocked"
+            state["workflow_terminal_completed"] = False
+        elif assessment.get("classification") == "behavior_failed":
+            state["workflow_terminal_reason"] = "focused_verification_failed"
+            state["workflow_terminal_completed"] = False
+        else:
+            state["workflow_terminal_reason"] = "focused_verification_inconclusive"
+            state["workflow_terminal_completed"] = False
 
     def record_worker_result(result, constraints: WorkerConstraints) -> None:
         state.setdefault("worker_events", []).append(
@@ -143,6 +238,10 @@ def build_agent_tools(
                     path: [[line_range.start, line_range.end] for line_range in ranges]
                     for path, ranges in (constraints.allowed_ranges or {}).items()
                 },
+                "context_ranges": {
+                    path: [[line_range.start, line_range.end] for line_range in ranges]
+                    for path, ranges in (constraints.context_ranges or {}).items()
+                },
                 "prompt_tokens": result.prompt_tokens,
                 "completion_tokens": result.completion_tokens,
                 "total_tokens": result.total_tokens,
@@ -150,6 +249,8 @@ def build_agent_tools(
         )
 
     def launch_agent(inp: dict) -> ToolResponse:
+        # 这是从“模型建议派发 Worker”到“程序允许启动 Worker”的真正边界。后续检查
+        # 类型白名单、调用预算、阶段顺序、EditBrief scope 和 corrective 次数。
         agent_type = inp.get("type") or "general"
         spec = get_worker_spec(agent_type)
         state.setdefault("worker_requests", {})[spec.name] = int(
@@ -192,8 +293,24 @@ def build_agent_tools(
                 "SWE-bench slim profile allows only one verify Worker. Keep the existing patch and finish.",
             )
         description = inp.get("description") or "sub-agent task"
-        prompt = inp["prompt"]
+        raw_prompt = inp["prompt"]
+        prompt = raw_prompt
         constraints = WorkerConstraints.from_tool_input(inp)
+        semantic_role = {
+            "implement": "implement",
+            "patch_review": "review",
+        }.get(spec.name)
+        if semantic_role and role_semantic_prompt is not None:
+            prompt, recalled_insights = role_semantic_prompt(semantic_role, prompt)
+            state.setdefault("recalled_semantic_insights_by_role", {})[semantic_role] = [
+                memory.header.filename for memory in recalled_insights
+            ]
+        if spec.name == "implement" and repair_episode_prompt is not None:
+            episode_query = f"{prompt}\n{state.get('last_patch_gate_text') or ''}".strip()
+            prompt, recalled_episodes = repair_episode_prompt(episode_query)
+            state["recalled_repair_episodes"] = [
+                memory.header.filename for memory in recalled_episodes
+            ]
         if spec.name == "implement" and forced_implement_scope is not None:
             forced_constraints = forced_implement_scope()
             if forced_constraints is not None and forced_constraints.has_scope:
@@ -216,45 +333,28 @@ def build_agent_tools(
                     f"{prompt}\n\nTool-enforced semantic scope: preferred_change_layer=consumer, so these "
                     f"producer-only writable ranges were removed: {removed_ranges}. Do not modify canonical storage."
                 )
-            routing_problem = str(state.get("problem_statement") or prompt)
-            constraint_routing = route_task_constraints(
-                problem_statement=routing_problem,
-                cwd=runner.cwd,
-                allowed_ranges=constraints.allowed_ranges or {},
-            )
-            candidate_profiles = set(constraint_routing.candidate_profiles)
-            if "matched_alias" in candidate_profiles:
-                constraints, inferred_ranges = _constrain_star_alias_scope_from_source(
-                    constraints,
-                    f"{prompt}\n{routing_problem}",
-                    runner.cwd,
+            # Scope is supplied by Coordinator and enforced structurally. Do
+            # not infer a task-specific edit recipe from issue keywords.
+            if constraints.context_ranges:
+                constraints = WorkerConstraints(
+                    allowed_files=constraints.allowed_files,
+                    allowed_ranges=constraints.allowed_ranges,
+                    context_ranges=_compact_context_ranges(constraints.context_ranges),
                 )
-                if inferred_ranges:
-                    prior = list(state.get("semantic_scope_adjustments") or [])
-                    state["semantic_scope_adjustments"] = [*prior, *inferred_ranges]
-                    prompt = (
-                        f"{prompt}\n\nTool-enforced source contract: the producer's bare parameter keys are read-only. "
-                        "The writable scope was narrowed to the parameter annotation/output loops in the direct consumers."
-                    )
-            if "nullable_pandas" in candidate_profiles:
-                constraints, inferred_ranges = _constrain_nullable_pandas_scope_from_source(
-                    constraints,
-                    f"{prompt}\n{routing_problem}",
-                    runner.cwd,
-                )
-                if inferred_ranges:
-                    prior = list(state.get("semantic_scope_adjustments") or [])
-                    state["semantic_scope_adjustments"] = [*prior, *inferred_ranges]
-                    prompt = (
-                        f"{prompt}\n\nTool-enforced source contract: this representation fix may edit only the existing "
-                        "validation import and type_of_target(). unique_labels() and downstream callers are read-only."
-                    )
-            constraint_routing = route_task_constraints(
-                problem_statement=routing_problem,
-                cwd=runner.cwd,
-                allowed_ranges=constraints.allowed_ranges or {},
-            )
             state["constraint_routing"] = constraint_routing.to_dict()
+        if spec.name == "implement" and swebench_context:
+            constraints, removed_test_paths = _strip_test_paths_from_constraints(constraints)
+            if removed_test_paths:
+                state["test_scope_adjustments"] = removed_test_paths
+                prompt = (
+                    f"{prompt}\n\nTool-enforced scope: test/fixture paths were removed from writable scope: "
+                    f"{removed_test_paths}. Modify production source only."
+                )
+            if not constraints.has_scope:
+                return ToolResponse.failure(
+                    "SWEBENCH_TEST_EDIT_DENIED",
+                    "The requested Implement scope contained only tests/fixtures. Provide a production source range.",
+                )
         scope_key = _scope_key(constraints)
         if spec.name == "implement" and state.get("last_chance_failed_scope") == scope_key:
             return ToolResponse.failure(
@@ -265,7 +365,18 @@ def build_agent_tools(
             )
         candidate_required = bool(candidate_mode_required and candidate_mode_required())
         if (
-            require_reproducer_before_implement
+            public_verification_required_now()
+            and spec.name == "implement"
+            and not state.get("public_verification_registered")
+            and not state.get("implementation_done")
+        ):
+            return ToolResponse.failure(
+                "PUBLIC_VERIFICATION_REQUIRED",
+                "Register one safe public behavior assertion with register_public_verification before Implement. "
+                "The deterministic controller will execute and freeze it; do not dispatch a Reproducer Worker.",
+            )
+        if (
+            reproducer_required_now()
             and spec.name == "implement"
             and not state.get("reproducer_attempted")
             and not state.get("implementation_done")
@@ -348,11 +459,7 @@ def build_agent_tools(
                 "Patch Risk Review did not accept the patch. Dispatch one corrective agent(type=implement) using "
                 "the review findings/required_changes, then run patch_review again before verify.",
             )
-        semantic_corrective_now = bool(
-            review_policy == "conditional"
-            and state.get("semantic_corrective_required")
-            and int(state.get("corrective_implement_count") or 0) < 1
-        )
+        semantic_corrective_now = False
         if (
             review_policy == "conditional"
             and state["implementation_done"]
@@ -421,9 +528,9 @@ def build_agent_tools(
             description = f"Evidence correction: {description}"
             state["candidate_refinement_used"] = True
         if spec.name == "implement" and swebench_context:
-            edit_brief_denial = _check_swebench_implement_edit_brief(prompt, constraints)
-            if edit_brief_denial:
-                return edit_brief_denial
+            # Scope is the reliable boundary. Prompt wording may contain
+            # prohibitions such as "do not run commands"; never reject an
+            # otherwise scoped edit because of those words.
             semantic_issues = implementation_semantic_issues(list(state.get("semantic_evidence_issues") or []))
             if state.get("problem_statement") and semantic_issues:
                 state["semantic_gate_denials"] = int(state.get("semantic_gate_denials") or 0) + 1
@@ -444,16 +551,6 @@ def build_agent_tools(
                     },
                 )
             state["semantic_evidence_degraded"] = bool(semantic_issues)
-            test_paths = _test_paths_in_scope(constraints.allowed_files)
-            if test_paths:
-                return ToolResponse.failure(
-                    "SWEBENCH_TEST_EDIT_DENIED",
-                    (
-                        "SWE-bench pass@1 mode must not modify tests, fixtures, or expected-output files. "
-                        f"Denied allowed_files: {', '.join(test_paths)}. Rewrite the EditBrief to modify only "
-                        "production source files required by the public problem statement."
-                    ),
-                )
         if spec.name == "implement" and repair_recipe_constraints is not None:
             recipe_denial = _check_repair_recipe_constraints(inp, constraints, repair_recipe_constraints(), runner.cwd)
             if recipe_denial:
@@ -518,6 +615,8 @@ def build_agent_tools(
             verification_plan=verification_plan,
         )
         record_worker_result(result, constraints)
+        # Worker 的结果既作为本次 agent 工具 observation 返回 Coordinator，也被解析为
+        # 下一阶段的代码状态，例如 ready_to_implement、implementation_done 或 review 风险。
         result_text = result.text
         if result.type == "research" and result.completed and _contains_structured_edit_brief(result.text):
             state["ready_to_implement"] = True
@@ -536,20 +635,36 @@ def build_agent_tools(
                 if runner.swebench_profile or state.get("problem_statement")
                 else []
             )
+            execution = dict(result.verification_execution)
             if runner.swebench_profile:
-                # Reproducer 是软证据。即使整个 JSON 不可解析，Coordinator 的公开题意和代码范围
-                # 仍足以派发一次 Implement；这里只降低后续验证置信度。
+                trusted, trust_reason = _trusted_swebench_reproducer_evidence(
+                    evidence,
+                    all_evidence_issues,
+                    execution,
+                )
+                # 未实际复现的模型输出只用于阶段归因，不能成为 Implement 的语义前提。
+                usable_evidence = evidence if trusted else {}
                 evidence_issues = []
-                evidence_warnings = list(all_evidence_issues)
+                evidence_warnings = [] if trusted else [trust_reason]
             else:
+                trusted = bool(result.completed and evidence)
+                trust_reason = "not_swebench_profile"
+                usable_evidence = evidence
                 evidence_issues = implementation_semantic_issues(all_evidence_issues)
                 evidence_warnings = semantic_evidence_warnings(all_evidence_issues)
-            state["semantic_evidence"] = evidence
+            state["semantic_evidence"] = usable_evidence
             state["semantic_evidence_issues"] = evidence_issues
             state["semantic_evidence_warnings"] = evidence_warnings
-            state["reproducer_done"] = bool(result.completed and evidence and not evidence_issues)
+            state["reproducer_done"] = trusted
+            state["reproducer_trusted"] = trusted
+            state["reproducer_trust_reason"] = trust_reason
             state["reproduction_contract"] = evidence
             state["reproduction_commands"] = _extract_reproduction_commands(evidence)
+            state["reproduction_execution"] = execution
+            state["repair_brief"] = build_repair_brief(
+                usable_evidence,
+                str(state.get("problem_statement") or ""),
+            ).to_dict()
         if result.type == "verify":
             verification = _extract_verification_result(result.text)
             verification, execution_issues = _bind_verification_to_plan(
@@ -616,19 +731,17 @@ def build_agent_tools(
             state["verification_passed"] = False
             state["verification_skipped_reason"] = ""
             current_patch = _git_diff_text(runner.cwd)
-            all_semantic_patch_issues = [
-                *patch_evidence_alignment_issues(
-                    current_patch,
-                    state.get("semantic_evidence"),
-                ),
-            ]
-            all_semantic_patch_issues = list(dict.fromkeys(all_semantic_patch_issues))
-            semantic_patch_issues = blocking_patch_semantic_issues(all_semantic_patch_issues)
-            semantic_patch_warnings = patch_semantic_warnings(all_semantic_patch_issues)
-            state["semantic_patch_issues"] = semantic_patch_issues
-            state["semantic_patch_warnings"] = semantic_patch_warnings
+            implementation_report = _extract_json_object(result.text) or {}
+            state["implementation_report"] = implementation_report
+            # Semantic alignment is evidence for Review/diagnostics, not a
+            # second task-specific patch generator. Only deterministic syntax,
+            # scope and basic safety checks can block this initial patch.
+            semantic_patch_issues = []
+            semantic_patch_warnings = []
+            state["semantic_patch_issues"] = []
+            state["semantic_patch_warnings"] = []
             state["semantic_corrective_required"] = False
-            static_issues = [*_static_patch_sanity(runner.cwd, result.changed_files), *semantic_patch_issues]
+            static_issues = _static_patch_sanity(runner.cwd, result.changed_files)
             state["static_issues"] = list(static_issues)
             if review_policy == "conditional":
                 if semantic_patch_issues and int(state.get("corrective_implement_count") or 0) < 1:
@@ -670,6 +783,19 @@ def build_agent_tools(
                         f"{review_message}"
                     )
                 result_text = f"{result.text}\n\n{review_message}"
+            if (
+                auto_verify_public_verification
+                and state.get("public_verification_registered")
+                and not static_issues
+            ):
+                run_frozen_public_verification()
+                verification_class = str(
+                    (state.get("verification_assessment") or {}).get("classification") or ""
+                )
+                result_text = (
+                    f"{result_text}\n\nDeterministic frozen-command verification: "
+                    f"{verification_class or 'unknown'}."
+                )
             if require_patch_review:
                 if static_issues:
                     state["patch_review_done"] = True
@@ -680,11 +806,7 @@ def build_agent_tools(
             if terminal_message:
                 result_text = f"{result_text}\n\n{terminal_message}"
         if result.type == "implement" and not result.changed_files:
-            if semantic_corrective_now:
-                state["semantic_corrective_required"] = False
-                state["workflow_terminal_reason"] = "semantic_patch_gate_failed"
-                state["workflow_terminal_completed"] = False
-            elif state["last_chance_used"]:
+            if state["last_chance_used"]:
                 state["last_chance_required"] = False
                 state["last_chance_used"] = False
                 state["last_chance_failed_scope"] = state.get("last_chance_scope")
@@ -817,6 +939,12 @@ def build_agent_tools(
                     "allowed_ranges",
                     "object",
                     "Required for implement reads: {path: [[start_line, end_line], ...]}",
+                    required=False,
+                ),
+                ToolParameter(
+                    "context_ranges",
+                    "object",
+                    "Optional read-only Implement context: {path: [[start_line, end_line], ...]}",
                     required=False,
                 ),
             ],
@@ -1495,6 +1623,53 @@ def _git_diff_text(cwd: Path) -> str:
     return result.stdout if result.returncode in {0, 1} else ""
 
 
+def _compact_context_ranges(
+    ranges_by_path: dict[str, tuple[LineRange, ...]],
+    *,
+    max_total_lines: int = 240,
+    max_range_lines: int = 100,
+) -> dict[str, tuple[LineRange, ...]]:
+    """限制 Implement 的只读旁路上下文，目标源码范围不受此预算影响。"""
+
+    remaining = max_total_lines
+    compacted: dict[str, tuple[LineRange, ...]] = {}
+    for path, ranges in ranges_by_path.items():
+        kept: list[LineRange] = []
+        for item in ranges:
+            if remaining <= 0:
+                break
+            length = min(item.end - item.start + 1, max_range_lines, remaining)
+            if length <= 0:
+                continue
+            kept.append(LineRange(item.start, item.start + length - 1))
+            remaining -= length
+        if kept:
+            compacted[path] = tuple(kept)
+        if remaining <= 0:
+            break
+    return compacted
+
+
+def _extend_profile_edit_ranges(
+    constraints: WorkerConstraints,
+    derived_ranges: dict[str, tuple[tuple[int, int], ...]],
+) -> WorkerConstraints:
+    """只在 Coordinator 已允许的生产文件内补齐 profile 的直接耦合方法。"""
+
+    allowed_ranges = dict(constraints.allowed_ranges or {})
+    for path, ranges in derived_ranges.items():
+        if path not in constraints.allowed_files:
+            continue
+        existing = list(allowed_ranges.get(path, ()))
+        existing.extend(LineRange(start, end) for start, end in ranges)
+        allowed_ranges[path] = tuple(existing)
+    return WorkerConstraints(
+        allowed_files=constraints.allowed_files,
+        allowed_ranges=allowed_ranges,
+        context_ranges=constraints.context_ranges,
+    )
+
+
 def _conditional_patch_review_reasons(cwd: Path, changed_files: tuple[str, ...]) -> list[str]:
     """只用确定性 diff 特征决定是否值得支付一次 review 成本。"""
     patch = _git_diff_text(cwd)
@@ -1548,6 +1723,32 @@ def _conditional_patch_review_reasons(cwd: Path, changed_files: tuple[str, ...])
         fragment in path for fragment in core_path_fragments for path in normalized_paths
     ):
         reasons.append("shared_core_path")
+    return list(dict.fromkeys(reasons))
+
+
+def _implementation_report_review_reasons(report: dict[str, Any]) -> list[str]:
+    """把 Implement 自报的未证实语义和重叠风险路由给轻量 review。"""
+
+    if not isinstance(report, dict):
+        return []
+    reasons: list[str] = []
+    challenge = report.get("semantic_challenge") or {}
+    if isinstance(challenge, dict):
+        for name, item in challenge.items():
+            if isinstance(item, dict) and str(item.get("support") or "") != "proven":
+                reasons.append(f"implement_unproven_{name}")
+    for item in report.get("semantic_coverage") or []:
+        if isinstance(item, dict) and item.get("covered_by_change") is False:
+            reasons.append("implement_reported_coverage_gap")
+    for item in report.get("known_risks") or []:
+        if isinstance(item, dict):
+            text = str(item.get("risk") or "").strip()
+            overlaps = item.get("overlaps_changed_contract") is True
+        else:
+            text = str(item).strip()
+            overlaps = bool(text)
+        if overlaps and text:
+            reasons.append("implement_reported_contract_risk")
     return list(dict.fromkeys(reasons))
 
 
@@ -1734,10 +1935,13 @@ def _augment_corrective_prompt(prompt: str, state: dict) -> str:
     semantic_issues = [str(value) for value in state.get("semantic_patch_issues") or []]
     obligations = [
         "The current patch is cumulative: fixing a second location does not remove a rejected earlier hunk.",
-        "First read every allowed range implicated by the gate and explicitly revert or replace each rejected hunk; "
-        "only then add the narrow correction.",
+        "Preserve every existing hunk and semantic case that the direct feedback does not invalidate. Revert or replace "
+        "only the first hunk whose stated assumption is contradicted by the supplied evidence, then make one causal correction.",
         "The tool-enforced gate overrides contradictory exact replacements, `do not modify` clauses, or stale root-cause "
         "claims in the Coordinator prompt below.",
+        "Do not turn an exact-contract failure into a catch-all fallback, fixed default, hard-coded example, or a second "
+        "parallel mechanism. Repair the first wrong predicate, identity, conversion, or state transition using an existing "
+        "repository rule visible in the allowed ranges.",
     ]
     if any("normalization_after_first_dependent_predicate" in issue for issue in semantic_issues):
         obligations.append(
@@ -1786,9 +1990,12 @@ def _augment_corrective_prompt(prompt: str, state: dict) -> str:
         "- Prefer the smallest correction to the existing diff; do not stack a second broad mechanism.\n"
         "- Do not introduce new files, new global behavior, new searches, new commands, or a second independent solution.\n"
         "- Preserve the original Problem Contract and old_behavior_invariants.\n"
+        "- Map each corrective change to one directly observed failure or validation issue; do not invent a "
+        "task-specific contract from keywords.\n"
         + "\n".join(f"- {item}" for item in obligations)
         + "\n- If the gate cannot be cleared inside the supplied scope, output blocked_remaining_risk with the exact missing scope/fact."
-        "\n- Output JSON with changed_files, corrective_changes, preserved_invariants, remaining_risk."
+        "\n- Output the standard compact Implement JSON: target_behavior, changed_decision, preserve_cases, "
+        "verification, changed_files, known_risks."
     )
 
 
@@ -1804,44 +2011,37 @@ def _augment_swebench_semantic_prompt(
     evidence_issues.extend(
         f"coverage_warning:{value}" for value in state.get("semantic_evidence_warnings") or []
     )
-    evidence_text = format_semantic_evidence(
-        state.get("semantic_evidence"),
-        evidence_issues,
-    )
+    repair_brief = dict(state.get("repair_brief") or {})
+    if not repair_brief:
+        repair_brief = build_repair_brief(
+            state.get("semantic_evidence"),
+            str(state.get("problem_statement") or ""),
+        ).to_dict()
+    if evidence_issues:
+        repair_brief["evidence_issues"] = evidence_issues[:6]
+    compact_brief = {
+        "problem_contract": repair_brief.get("problem_contract") or {},
+        "semantic_cases": list(repair_brief.get("semantic_cases") or [])[:3],
+        "unknowns": list(repair_brief.get("unknowns") or [])[:3],
+    }
+    if repair_brief.get("contract_edges"):
+        compact_brief["contract_edges"] = list(repair_brief["contract_edges"])[:2]
+    if evidence_issues:
+        compact_brief["evidence_issues"] = evidence_issues[:3]
+    evidence_text = json.dumps(compact_brief, ensure_ascii=False, separators=(",", ":"))
+    if len(evidence_text) > 2_000:
+        evidence_text = evidence_text[:2_000] + "...[clipped]"
     active_contracts = "\n\n".join(constraint_prompts)
     return (
         f"{prompt}\n\n"
-        "## Tool-enforced SemanticEvidence\n"
-        "This object comes from the public reproducer. It is evidence, not a suggested patch. "
-        "Coordinator code snippets and exact replacements remain untrusted hypotheses.\n"
+        "## Compact public repair contract\n"
+        "This object is evidence, not a suggested patch. Coordinator replacements remain hypotheses.\n"
         f"{evidence_text}\n\n"
-        "Entries prefixed with `coverage_warning:` are non-blocking uncertainty. Do not expand the patch merely to "
-        "satisfy them, and do not block solely because they exist. Use a narrow guard to preserve the adjacent behavior; "
-        "block only when the requested target behavior or change layer cannot be established from the supplied code.\n"
-        "Cover every required target_partition and differential_case. Claims may be marked proven only when their "
-        "evidence type is issue, code, public_test, or execution; model reasoning and common knowledge are not proof.\n"
-        "Treat every exact change requested by the Coordinator as a hypothesis, not an authority. Before the first "
-        "write/replace, output a compact `semantic_challenge` JSON with: `assumptions_checked` (claim, code/contract "
-        "evidence, proven|contradicted|unproven), `first_semantic_decision`, `non_target_case`, and `decision` (apply|revise|block).\n"
-        "For target_partitions, account separately for each container/rank/dtype protocol and identify the first predicate "
-        "that consumes it by tracing from the public entry point, including an earlier helper predicate that can return. "
-        "A later dtype fallback is not the first predicate merely because it exposes the bug. A `.dtype` guard is not "
-        "evidence for a `.dtypes` container, and normalization after the first dependent predicate is too late.\n"
-        "For contract_edges, preserve the current producer canonical identity and account for every "
-        "visible consumer lookup/render/write expectation. Never mutate a shared storage key or return contract when the "
-        "consumer scope is absent; block and request that scope. A consumer coverage warning does not authorize a producer "
-        "edit: inspect every supplied consumer range and keep matched alias/display identity separate from canonical storage.\n"
+        "Cover the listed cases and preserve the existing producer/consumer identity, ordering, and state lifecycle. "
+        "Evidence issues lower confidence but do not permit broader scope.\n"
         f"{active_contracts}\n"
-        "Critical claims about accepted container/rank/dtype variants, automatic closure/cardinality, matched lookup identity, "
-        "constant fallback precision, mutation target, or shared state require evidence from the allowed code or reproducer. "
-        "Do not rationalize an unproven claim. Revise the proposed local change when evidence contradicts it; if the needed "
-        "fact is outside readable scope, block with that one missing fact instead of writing.\n"
-        "When applying: use the repository's existing validation/normalization helper in every public/helper entry point "
-        "that performs an earlier semantic classification; do not add a bespoke first-element object coercion after an "
-        "earlier dispatch predicate. Preserve producer canonical keys and resolve decorated aliases only in consumers; "
-        "propagate an alias's matched key "
-        "through writes/rendering; derive values from domain boundaries instead of constants; preserve shape/cardinality/closure "
-        "and exact output. Then make one minimal edit."
+        "If a critical claim is unproven inside the allowed ranges, block with that one missing fact. Otherwise make one "
+        "minimal edit using existing repository helpers and preserve exact output, shape, ordering, and public state."
     )
 
 
@@ -1866,9 +2066,15 @@ def _augment_swebench_verify_prompt(
 def _augment_swebench_patch_review_prompt(prompt: str, state: dict) -> str:
     issues = list(state.get("semantic_patch_issues") or [])
     evidence_text = format_semantic_evidence(state.get("semantic_evidence"), issues, max_chars=5_000)
+    report_text = json.dumps(state.get("implementation_report") or {}, ensure_ascii=False, indent=2)
+    if len(report_text) > 4_000:
+        report_text = report_text[:4_000] + "\n[Implement report clipped]"
     return (
         f"{prompt}\n\n## SemanticEvidence and deterministic alignment findings\n{evidence_text}\n"
-        "Treat a non-empty alignment finding as a concrete coverage/risk obligation; do not accept by merely restating it."
+        f"\n## Structured Implement report\n{report_text}\n"
+        "Treat a non-empty alignment finding or an Implement-reported risk overlapping the changed contract as a "
+        "concrete coverage obligation. Check whether repository_native_rule source_precondition actually matches "
+        "target_precondition; a nearby fallback with a different domain is not proof. Do not accept by merely restating it."
     )
 
 
@@ -2008,7 +2214,7 @@ def _format_static_gate_text(issues: list[str]) -> str:
 def _format_semantic_gate_text(issues: list[str]) -> str:
     joined = "\n".join(f"- {issue}" for issue in issues)
     return (
-        "Automatic SemanticEvidence patch gate: the current diff contradicts source-backed public semantic evidence.\n"
+        "Automatic deterministic patch contract gate: the current diff violates a source-backed task contract.\n"
         f"{joined}\n"
         "Dispatch exactly one corrective implement using the original allowed_files/allowed_ranges. It must repair or "
         "narrow the existing diff without harness feedback, then continue to focused verification."
@@ -2063,6 +2269,41 @@ def _extract_reproduction_commands(contract: dict[str, Any]) -> list[str]:
         if len(commands) >= 2:
             break
     return commands
+
+
+def _trusted_swebench_reproducer_evidence(
+    evidence: dict[str, Any],
+    evidence_issues: list[str],
+    execution: dict[str, Any],
+) -> tuple[bool, str]:
+    """只信任在干净基线上真实触发公开缺陷的复现证据。"""
+
+    if evidence_issues:
+        return False, f"semantic_evidence_invalid: {evidence_issues[0]}"
+    plan = build_verification_plan(evidence)
+    if not plan:
+        return False, "missing_validated_behavior_command"
+    command = str(plan.get("command") or "").strip()
+    if classify_verification_command(command) != "behavior":
+        return False, "verification_command_is_not_behavioral"
+    if not execution.get("attempted"):
+        return False, "baseline_command_not_executed"
+    if str(execution.get("requested_command") or "").strip() != command:
+        return False, "baseline_command_does_not_match_evidence"
+    exit_code = execution.get("exit_code")
+    if not isinstance(exit_code, int):
+        return False, "baseline_execution_has_no_exit_code"
+    assessment = assess_verification_result(
+        {
+            "status": "passed" if exit_code == 0 else "failed",
+            "command": command,
+            "exit_code": exit_code,
+            "evidence": str(execution.get("output") or ""),
+        }
+    )
+    if assessment.get("classification") != "behavior_failed":
+        return False, str(assessment.get("classification") or "baseline_did_not_reproduce_bug")
+    return True, "clean_baseline_behavior_failure"
 
 
 def _extract_verification_result(text: str) -> dict[str, Any]:
@@ -2637,7 +2878,11 @@ def _constrain_implement_to_consumer_layer(
     if not removed or not kept:
         return constraints, []
     return (
-        WorkerConstraints(allowed_files=frozenset(kept), allowed_ranges=kept),
+        WorkerConstraints(
+            allowed_files=frozenset(kept),
+            allowed_ranges=kept,
+            context_ranges=constraints.context_ranges,
+        ),
         removed,
     )
 
@@ -2698,6 +2943,7 @@ def _constrain_star_alias_scope_from_source(
         WorkerConstraints(
             allowed_files=frozenset({target_path}),
             allowed_ranges={target_path: ranges},
+            context_ranges=constraints.context_ranges,
         ),
         [f"star_alias_scope:{value}" for value in [*original, *replacement]],
     )
@@ -2765,6 +3011,7 @@ def _constrain_nullable_pandas_scope_from_source(
         WorkerConstraints(
             allowed_files=frozenset({target_path}),
             allowed_ranges={target_path: ranges},
+            context_ranges=constraints.context_ranges,
         ),
         [f"nullable_pandas_scope:{value}" for value in [*original, *replacement]],
     )
@@ -2803,6 +3050,28 @@ def _scope_key(constraints: WorkerConstraints) -> tuple[tuple[str, ...], tuple[t
 
 def _test_paths_in_scope(paths: frozenset[str]) -> list[str]:
     return sorted(path for path in paths if _looks_like_test_path(path))
+
+
+def _strip_test_paths_from_constraints(
+    constraints: WorkerConstraints,
+) -> tuple[WorkerConstraints, list[str]]:
+    removed = _test_paths_in_scope(constraints.allowed_files)
+    if not removed:
+        return constraints, []
+    kept_files = constraints.allowed_files.difference(removed)
+    kept_ranges = {
+        path: ranges
+        for path, ranges in (constraints.allowed_ranges or {}).items()
+        if path in kept_files
+    }
+    return (
+        WorkerConstraints(
+            allowed_files=frozenset(kept_files),
+            allowed_ranges=kept_ranges,
+            context_ranges=constraints.context_ranges,
+        ),
+        removed,
+    )
 
 
 def _looks_like_test_path(path: str) -> bool:

@@ -20,6 +20,12 @@ DIFF_RESULT_LIMIT = 16_000
 
 @dataclass
 class RepoWorkspace:
+    """仓库工具共享的安全边界和运行状态。
+
+    它负责路径限制、敏感文件拒绝、读后写 freshness 和修改文件数量限制。需要注意：
+    shell 命令黑名单只是应用层护栏，不能代替 Docker/容器或低权限 OS 用户隔离。
+    """
+
     repo_path: Path
     output_dir: Path
     max_modified_files: int = 20
@@ -32,6 +38,7 @@ class RepoWorkspace:
             raise ValueError(f"Repo path does not exist: {self.repo_path}")
 
     def resolve(self, path: str) -> Path:
+        # 先 resolve 再 relative_to，可同时拦截 ../ 越界和指向仓库外部的符号链接。
         candidate = (self.repo_path / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
         try:
             candidate.relative_to(self.repo_path)
@@ -46,6 +53,8 @@ class RepoWorkspace:
             self.read_file_mtimes[str(path)] = path.stat().st_mtime_ns
 
     def require_fresh_read(self, path: Path, operation: str) -> ToolResponse | None:
+        # 这是乐观并发控制：read_file 记录版本（mtime），写入时确认期间没有外部变化。
+        # 它避免 Agent 根据旧上下文覆盖用户的新修改，但不提供数据库式事务或自动回滚。
         if not path.exists():
             return None
         remembered = self.read_file_mtimes.get(str(path))
@@ -76,6 +85,8 @@ class RepoWorkspace:
         )
 
     def ensure_safe_command(self, command: str) -> None:
+        # 这里有意只做高风险模式拦截。基于字符串的 denylist 无法证明任意 shell 命令
+        # 安全，生产部署还必须依靠容器、低权限用户、网络策略和资源限制。
         lowered = command.strip().lower()
         if lowered in {"python", "python3", "bash", "sh", "vim", "vi", "nano"}:
             raise ValueError(f"Interactive command is blocked: {command}")
@@ -100,6 +111,12 @@ class RepoWorkspace:
 
 
 def build_repo_tools(workspace: RepoWorkspace) -> list[Tool]:
+    """构造绑定到同一个 RepoWorkspace 的仓库工具集合。
+
+    闭包共享 read_file_mtimes 和修改状态，因此 read_file 与 write/apply_patch 之间能够
+    执行 freshness 检查；换一个 Workspace 就会得到完全隔离的工具状态。
+    """
+
     def finish(inp: dict) -> ToolResponse:
         answer = inp["answer"]
         patch = _git_diff(workspace)
@@ -184,6 +201,8 @@ def build_repo_tools(workspace: RepoWorkspace) -> list[Tool]:
         if ".env" in patch:
             return ToolResponse.failure("UNSAFE_PATCH", "Patch touches .env-style files.")
         for relative_path in _paths_from_patch(patch):
+            # patch 涉及的每个已有文件都必须先被当前 Workspace 读取。只在 prompt 中要求
+            # “先读后写”不够，因为模型可能忘记或被工具输出中的文本诱导。
             target = workspace.resolve(relative_path)
             read_error = workspace.require_fresh_read(target, "apply_patch")
             if read_error:

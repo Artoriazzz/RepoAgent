@@ -42,6 +42,7 @@ class QueryEngine:
         completion_guard_extra_turns: int = 0,
         force_completion_after_max_steps: bool = False,
     ):
+        # 运行依赖：LLM 决定如何推理，ToolRegistry 决定允许执行哪些动作。
         self.llm = llm
         self.tools = tools
         self.cwd = Path(cwd or Path.cwd()).resolve()
@@ -56,6 +57,8 @@ class QueryEngine:
         self.short_memory = ShortTermMemory(repo_path=str(self.cwd))
         self._hydrate_repo_context()
         self.context_manager = ConversationContextManager(self.output_dir)
+        # system prompt 由稳定规则、仓库动态上下文、工具规则和长期记忆共同组成。
+        # 这些内容只在会话初始化时装配，单轮循环只消费最终 messages。
         tool_prompt = tools.prompt().strip() if tool_prompt_enabled else ""
         memory_prompt = (
             self.memory_store.build_prompt_section(excluded_types=self.excluded_memory_types)
@@ -77,6 +80,7 @@ class QueryEngine:
         self.completion_guard_extra_turns = max(0, completion_guard_extra_turns)
         self.force_completion_after_max_steps = force_completion_after_max_steps
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": self.system_prompt}]
+        # token 和完成状态属于会话级指标，所以由 Engine 持有，而不是塞进纯循环。
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0
         self.total_tokens = 0
@@ -90,10 +94,14 @@ class QueryEngine:
         return asyncio.run(self.achat(user_message))
 
     async def achat(self, user_message: str) -> str:
+        """执行一次用户回合，并把 query_loop 事件归档为会话状态。"""
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.abort_signal = AbortSignal()
         self.short_memory.start_turn(user_message)
         self.messages.append({"role": "user", "content": user_message})
+        # 长期记忆作为额外 user message 注入，而不是永久拼入 system prompt。
+        # already_surfaced_memories 会避免同一会话反复召回同一条记忆。
         self._inject_recalled_memories(user_message)
         self.context_manager.maybe_auto_compact(self.messages, self.short_memory)
         final_answer = ""
@@ -101,6 +109,8 @@ class QueryEngine:
         self.stop_reason = "running"
 
         try:
+            # query_loop 是异步生成器：它只产生事实事件；Engine 决定如何累计统计、
+            # 写 trace、更新短期记忆以及解释最终停止原因。
             async for event in query_loop(
                 messages=self.messages,
                 llm=self.llm,
@@ -137,6 +147,8 @@ class QueryEngine:
         self.abort_signal.abort()
 
     def _handle_event(self, event: LoopEvent) -> None:
+        """把一个循环事件投影到 token、上下文、短期记忆和 trace。"""
+
         if event.type == LoopEventType.LLM_RESPONSE:
             usage = event.payload.get("usage") or {}
             prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
@@ -158,6 +170,8 @@ class QueryEngine:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
     def _auto_save(self, final_answer: str) -> None:
+        """无论成功、异常还是中断都保存可复盘的会话快照。"""
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
         (self.output_dir / "messages.json").write_text(
             json.dumps(self.messages, ensure_ascii=False, indent=2),

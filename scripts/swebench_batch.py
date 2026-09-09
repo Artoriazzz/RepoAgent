@@ -16,12 +16,27 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from repo_agent.core.verification import assess_verification_result
 from repo_agent.core.static_analysis import newly_undefined_names
+from repo_agent.core.differential_validation import assess_differential_validation
+from repo_agent.core.experience import assess_lightweight_validation
+from repo_agent.core.verification import (
+    assess_verification_result,
+    prepare_verification_command,
+    verification_command_safety_reason,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
+    """批量实验入口，并在启动前执行模式完整性检查。"""
     args = build_parser().parse_args(argv)
+    # 学习模式必须用独立评测证明成功后才能写记忆；正式评测则冻结记忆。
+    if args.repair_mode == "experience-build":
+        if not args.evaluate:
+            raise SystemExit("experience-build requires --evaluate so memory is written only after independent success")
+        if not args.memory_provenance.strip():
+            raise SystemExit("experience-build requires --memory-provenance")
+    if args.repair_mode == "benchmark" and args.evolve_memory:
+        raise SystemExit("benchmark mode is frozen/read-only; remove --evolve-memory")
     started = time.time()
     work_dir = args.work_dir.resolve()
     output_dir = args.output_dir.resolve()
@@ -77,9 +92,26 @@ def main(argv: list[str] | None = None) -> int:
         "dataset": str(args.dataset),
         "model": args.model,
         "implement_model": args.implement_model or args.model,
+        "reasoning_effort": args.reasoning_effort,
+        "implement_reasoning_effort": args.implement_reasoning_effort,
         "diagnostic_only": args.diagnostic_mode != "none",
         "diagnostic_mode": args.diagnostic_mode,
-        "leaderboard_eligible": args.diagnostic_mode == "none",
+        "leaderboard_eligible": args.diagnostic_mode == "none" and args.repair_mode == "benchmark",
+        "repair_mode": args.repair_mode,
+        "evaluation_policy": {
+            "agent_feedback": (
+                "initial_harness_failure_once"
+                if args.repair_mode == "experience-build"
+                else "disabled"
+            ),
+            "max_corrections": 1 if args.repair_mode == "experience-build" else 0,
+            "max_full_harness_runs_per_instance": (
+                2 if args.repair_mode == "experience-build" else 1
+            ),
+            "max_full_harness_runs_per_candidate": 1,
+            "harness_feedback_to_agent": args.repair_mode == "experience-build",
+            "prebuild_instance_image": should_prebuild_instance_image(args),
+        },
         "count": len(instances),
         "seconds": round(time.time() - started, 3),
         "predictions_path": str(predictions_path),
@@ -96,10 +128,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run RepoAgent over a SWE-bench pass@1 batch.")
     parser.add_argument("--dataset", required=True, type=Path, help="SWE-bench parquet file.")
     parser.add_argument("--repo-agent-bin", required=True, type=Path, help="Path to repo-agent executable.")
-    parser.add_argument("--model", required=True)
+    parser.add_argument("--model", default="deepseek-v4-flash")
     parser.add_argument(
         "--implement-model",
         help="Optional model override for Implement and corrective Implement Workers.",
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=("low", "medium", "high", "max"),
+        default="high",
+        help="Reasoning effort for Coordinator and reasoning-enabled review Workers.",
+    )
+    parser.add_argument(
+        "--implement-reasoning-effort",
+        choices=("low", "medium", "high", "max"),
+        default="max",
+        help="Reasoning effort for Implement and corrective Implement.",
     )
     parser.add_argument("--work-dir", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
@@ -114,15 +158,45 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--start-index", type=int, default=0)
     parser.add_argument("--instance-id", action="append", default=[], help="Explicit instance id. Repeatable.")
     parser.add_argument("--max-steps", type=int, default=16)
+    parser.add_argument(
+        "--repair-mode",
+        choices=("benchmark", "experience-build"),
+        default="benchmark",
+        help="benchmark uses frozen dual memory and one patch; experience-build permits one feedback correction and memory write.",
+    )
     parser.add_argument("--timeout", type=int, default=1800, help="Seconds per RepoAgent run.")
     parser.add_argument("--skip-existing", action="store_true")
-    parser.add_argument("--evaluate", action="store_true", help="Run SWE-bench harness after each Agent pass.")
+    parser.add_argument(
+        "--evaluate",
+        action="store_true",
+        help="Run the SWE-bench harness once for each final candidate patch.",
+    )
     parser.add_argument("--swebench-dir", type=Path, help="SWE-bench checkout. Defaults to dataset parent.")
+    parser.add_argument(
+        "--harness-python",
+        type=Path,
+        help="Python interpreter containing SWE-bench and its dependencies. Defaults to the batch interpreter.",
+    )
     parser.add_argument("--run-id", default="repoagent-batch", help="Base run_id for SWE-bench harness.")
     parser.add_argument("--harness-timeout", type=int, default=900, help="SWE-bench per-instance timeout.")
     parser.add_argument("--cache-level", default="env")
     parser.add_argument("--namespace", default="none")
     parser.add_argument("--docker-network", default="", help="Optional SWEBENCH_DOCKER_NETWORK value.")
+    parser.add_argument(
+        "--prebuild-instance-image",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Build and verify the SWE-bench instance image before Agent execution. "
+            "Defaults to enabled for experience-build and disabled for benchmark."
+        ),
+    )
+    parser.add_argument(
+        "--image-build-timeout",
+        type=int,
+        default=3600,
+        help="Maximum seconds allowed for prebuilding one SWE-bench instance image.",
+    )
     parser.add_argument("--memory-root", type=Path, help="Optional RepoAgent memory root.")
     parser.add_argument(
         "--memory-scope",
@@ -136,6 +210,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Candidate-pool ablation policy. off is the simplified single-patch default.",
     )
     parser.add_argument(
+        "--enable-test-expander",
+        action="store_true",
+        help="Diagnostic opt-in for LLM-generated public differential cases. Disabled in the normal simplified flow.",
+    )
+    parser.add_argument(
         "--full-agent-profile",
         action="store_true",
         help="Use the full RepoAgent maintainer profile instead of the slim SWE-bench profile.",
@@ -144,6 +223,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--evolve-memory",
         action="store_true",
         help="After a resolved instance, run CaseCurator to save an abstract repair_recipe. Do not use for official scoring.",
+    )
+    parser.add_argument(
+        "--memory-provenance",
+        default="",
+        help="Required for experience-build, for example swebench-dev. It is stored unchanged in memory metadata.",
     )
     parser.add_argument(
         "--diagnostic-mode",
@@ -183,9 +267,20 @@ def run_instance_once(
     args: argparse.Namespace,
     env: dict[str, str],
 ) -> dict[str, Any]:
+    """执行一道题的完整状态机：checkout、推理、patch 校验、harness 与归因。
+
+    benchmark 只产生一个最终 patch，再由 harness 评测，结果不会回流给 Agent；
+    experience-build 才允许把首次失败送入 FailureReview，并最多执行一次纠正。
+    """
     started = time.time()
     instance_id = row["instance_id"]
     passes: list[dict[str, Any]] = []
+    verification_image = ""
+    image_lifecycle: dict[str, Any] = {
+        "prebuild_requested": should_prebuild_instance_image(args),
+        "prebuild": {},
+        "cleanup": {},
+    }
     try:
         checkout_repo(
             row["repo"],
@@ -197,13 +292,35 @@ def run_instance_once(
         )
         pass_output = output_dir / "pass-1"
         pass_output.mkdir(parents=True, exist_ok=True)
+        if image_lifecycle["prebuild_requested"]:
+            image_lifecycle["prebuild"] = prebuild_swebench_instance_image(
+                row,
+                pass_output,
+                args,
+                env,
+            )
+            verification_image = str(image_lifecycle["prebuild"].get("image") or "")
         if args.diagnostic_mode == "corrective":
             if args.corrective_source_dir is None:
                 raise ValueError("--corrective-source-dir is required for diagnostic corrective mode")
             pass_summary = run_corrective_diagnostic_pass(row, repo_dir, pass_output, args, env, 0)
         else:
-            task = build_task(row, repo_dir, diagnostic_mode=args.diagnostic_mode)
-            pass_summary = run_agent_pass(row, repo_dir, pass_output, task, args, env, 0)
+            task = build_task(
+                row,
+                repo_dir,
+                diagnostic_mode=args.diagnostic_mode,
+                repair_mode=args.repair_mode,
+            )
+            pass_summary = run_agent_pass(
+                row,
+                repo_dir,
+                pass_output,
+                task,
+                args,
+                env,
+                0,
+                verification_image=verification_image,
+            )
         patch = pass_summary.get("model_patch", "")
         candidate_patch = patch
         (output_dir / "candidate.patch").write_text(candidate_patch, encoding="utf-8")
@@ -212,6 +329,7 @@ def run_instance_once(
             repo_dir=repo_dir,
             agent_output_dir=pass_output,
             require_patch_review=args.full_agent_profile,
+            reject_failed_verification=args.repair_mode != "experience-build",
             stage_attribution=(
                 pass_summary.get("stage_attribution")
                 if args.diagnostic_mode != "corrective"
@@ -227,9 +345,88 @@ def run_instance_once(
             patch = ""
             pass_summary["model_patch"] = patch
             pass_summary["patch_chars"] = 0
+        failed_patch_for_memory = ""
+        feedback_file_for_memory: Path | None = None
+        initial_harness: dict[str, Any] = {}
+        correction_applied = False
+        if (
+            args.repair_mode == "experience-build"
+            and args.evaluate
+            and patch.strip()
+            and not patch_validation.get("discard_patch")
+        ):
+            initial_harness = run_harness_for_instance(
+                row,
+                patch,
+                pass_output / "initial-evaluation",
+                args,
+                env,
+                0,
+            )
+            pass_summary["initial_harness"] = strip_large_fields(initial_harness)
+            harness_feedback = build_experience_harness_feedback(initial_harness, patch)
+            pass_summary["harness_feedback"] = strip_large_fields(harness_feedback)
+            if harness_feedback.get("feedback_eligible"):
+                failed_patch = patch
+                correction = run_experience_correction(
+                    row,
+                    repo_dir,
+                    pass_output / "experience-correction",
+                    task,
+                    failed_patch,
+                    harness_feedback,
+                    args,
+                    env,
+                )
+                corrected_patch = correction.get("model_patch", "")
+                if correction.get("attempted"):
+                    correction_validation = validate_model_patch(
+                        corrected_patch,
+                        repo_dir=repo_dir,
+                        agent_output_dir=Path(correction["output_dir"]),
+                        require_patch_review=False,
+                        reject_failed_verification=False,
+                        stage_attribution=correction.get("stage_attribution"),
+                    )
+                    correction["patch_validation"] = correction_validation
+                    if (
+                        corrected_patch.strip()
+                        and corrected_patch != failed_patch
+                        and not correction_validation.get("discard_patch")
+                    ):
+                        patch = corrected_patch
+                        pass_summary["model_patch"] = corrected_patch
+                        pass_summary["patch_chars"] = len(corrected_patch)
+                        pass_summary["patch_validation"] = correction_validation
+                        failed_patch_for_memory = failed_patch
+                        feedback_file_for_memory = Path(correction["feedback_file"])
+                        correction_applied = True
+                    elif corrected_patch == failed_patch:
+                        correction["no_effect"] = True
+                    else:
+                        correction["rejected"] = True
+                        restore_worktree_patch(repo_dir, failed_patch)
+                else:
+                    correction["patch_validation"] = pass_summary.get("patch_validation") or {}
+                pass_summary["experience_correction"] = strip_large_fields(correction)
+
+        # Benchmark 只跑一次；experience-build 最多对初始候选和纠正候选各跑一次。
         if args.evaluate:
-            if patch_validation.get("discard_patch"):
-                pass_summary["harness"] = skipped_harness_for_invalid_patch(patch_validation, 0)
+            final_patch_validation = pass_summary.get("patch_validation") or patch_validation
+            if args.repair_mode == "experience-build" and initial_harness:
+                if correction_applied:
+                    pass_summary["harness"] = run_harness_for_instance(
+                        row,
+                        patch,
+                        pass_output / "corrected-evaluation",
+                        args,
+                        env,
+                        1,
+                    )
+                else:
+                    pass_summary["harness"] = initial_harness
+            elif final_patch_validation.get("discard_patch"):
+                pass_summary["harness"] = skipped_harness_for_invalid_patch(final_patch_validation, 0)
                 if args.diagnostic_mode != "none" and candidate_patch.strip():
                     pass_summary["diagnostic_candidate_harness"] = run_harness_for_instance(
                         row,
@@ -243,6 +440,23 @@ def run_instance_once(
                 pass_summary["harness"] = run_harness_for_instance(row, patch, pass_output, args, env, 0)
                 if args.diagnostic_mode != "none":
                     pass_summary["diagnostic_candidate_harness"] = pass_summary["harness"]
+
+        if (
+            args.repair_mode == "experience-build"
+            and (pass_summary.get("harness") or {}).get("resolved")
+        ):
+            pass_summary["experience_curator"] = run_experience_curator_for_success(
+                row,
+                repo_dir,
+                pass_output,
+                task=task,
+                failed_patch=failed_patch_for_memory,
+                successful_patch=patch,
+                feedback_file=feedback_file_for_memory,
+                validation=pass_summary.get("harness") or {},
+                args=args,
+                env=env,
+            )
         if args.evolve_memory and (pass_summary.get("harness") or {}).get("resolved"):
             pass_summary["case_curator"] = run_case_curator_for_success(row, repo_dir, pass_output, pass_summary, args, env)
         pass_summary["stage_attribution"] = finalize_stage_attribution(pass_summary)
@@ -273,6 +487,12 @@ def run_instance_once(
             errors="replace",
         )
 
+    if verification_image and args.cache_level in {"none", "base", "env"}:
+        image_lifecycle["cleanup"] = cleanup_swebench_instance_image(
+            verification_image,
+            output_dir,
+            env,
+        )
     raw_patch = git_diff(repo_dir) if repo_dir.exists() else ""
     final_validation = passes[-1].get("patch_validation", {}) if passes else {}
     patch = "" if final_validation.get("discard_patch") else raw_patch
@@ -288,10 +508,12 @@ def run_instance_once(
         "model_patch": patch,
         "output_dir": str(output_dir),
         "passes": passes,
-        "official_pass1": args.diagnostic_mode == "none",
+        "official_pass1": args.diagnostic_mode == "none" and args.repair_mode == "benchmark",
         "official_no_hints": args.diagnostic_mode in {"none", "baseline"},
-        "diagnostic_only": args.diagnostic_mode != "none",
+        "diagnostic_only": args.diagnostic_mode != "none" or args.repair_mode != "benchmark",
         "diagnostic_mode": args.diagnostic_mode,
+        "repair_mode": args.repair_mode,
+        "verification_image_lifecycle": image_lifecycle,
         "resolved": any((pass_data.get("harness") or {}).get("resolved") for pass_data in passes),
         "diagnostic_candidate_resolved": any(
             (pass_data.get("diagnostic_candidate_harness") or {}).get("resolved") for pass_data in passes
@@ -307,10 +529,13 @@ def run_agent_pass(
     args: argparse.Namespace,
     env: dict[str, str],
     round_index: int,
+    *,
+    verification_image: str = "",
 ) -> dict[str, Any]:
     started = time.time()
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "task.md").write_text(task, encoding="utf-8")
+    agent_task = task
+    (output_dir / "task.md").write_text(agent_task, encoding="utf-8")
     command = [
         str(args.repo_agent_bin),
         "run",
@@ -326,8 +551,14 @@ def run_agent_pass(
         str(output_dir),
         "--candidate-mode",
         args.candidate_mode,
+        "--repair-mode",
+        args.repair_mode,
+        "--reasoning-effort",
+        args.reasoning_effort,
+        "--implement-reasoning-effort",
+        args.implement_reasoning_effort,
         "--task",
-        task,
+        agent_task,
     ]
     if args.implement_model:
         command.extend(["--implement-model", args.implement_model])
@@ -340,7 +571,10 @@ def run_agent_pass(
         command.remove("--swebench-profile")
     add_memory_cli_args(command, row, args)
     agent_env = env.copy()
-    agent_env["REPO_AGENT_VERIFY_DOCKER_IMAGE"] = swebench_eval_image(row["instance_id"])
+    if verification_image:
+        agent_env["REPO_AGENT_VERIFY_DOCKER_IMAGE"] = verification_image
+    else:
+        agent_env.pop("REPO_AGENT_VERIFY_DOCKER_IMAGE", None)
     result = subprocess.run(
         command,
         text=True,
@@ -373,6 +607,110 @@ def swebench_eval_image(instance_id: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_.-]+__[A-Za-z0-9_.-]+", instance_id):
         raise ValueError(f"Invalid SWE-bench instance_id: {instance_id}")
     return f"sweb.eval.x86_64.{instance_id}:latest"
+
+
+def should_prebuild_instance_image(args: argparse.Namespace) -> bool:
+    """模式一默认预构建；模式二保持原有只在最终 harness 构建的行为。"""
+
+    configured = getattr(args, "prebuild_instance_image", None)
+    if configured is not None:
+        return bool(configured)
+    return getattr(args, "repair_mode", "benchmark") == "experience-build"
+
+
+def prebuild_swebench_instance_image(
+    row: dict[str, Any],
+    output_dir: Path,
+    args: argparse.Namespace,
+    env: dict[str, str],
+) -> dict[str, Any]:
+    """用 harness Python 预构建并确认单实例镜像，不把测试元数据暴露给 Agent。"""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    result_path = output_dir / "verification_image.json"
+    stdout_path = output_dir / "verification_image_build.log"
+    harness_python = str(getattr(args, "harness_python", None) or sys.executable)
+    command = [
+        harness_python,
+        str(PROJECT_ROOT / "scripts" / "prebuild_swebench_image.py"),
+        "--dataset",
+        str(args.dataset),
+        "--instance-id",
+        str(row["instance_id"]),
+        "--namespace",
+        str(args.namespace),
+        "--result-file",
+        str(result_path),
+    ]
+    build_env = dict(env)
+    if args.docker_network:
+        build_env["SWEBENCH_DOCKER_NETWORK"] = args.docker_network
+        build_env["SWEBENCH_DOCKER_BUILD_NETWORK"] = args.docker_network
+    if args.proxy:
+        build_env["SWEBENCH_GIT_PROXY"] = args.proxy
+    started = time.time()
+    result = subprocess.run(
+        command,
+        cwd=(args.swebench_dir or args.dataset.parent).resolve(),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=int(getattr(args, "image_build_timeout", 3600)),
+        check=False,
+        env=build_env,
+    )
+    stdout_path.write_text(result.stdout, encoding="utf-8", errors="replace")
+    payload = read_json_file(result_path)
+    payload.update(
+        {
+            "exit_code": result.returncode,
+            "seconds": payload.get("seconds", round(time.time() - started, 3)),
+            "stdout_path": str(stdout_path),
+        }
+    )
+    expected_image = (
+        swebench_eval_image(str(row["instance_id"]))
+        if str(args.namespace).strip().lower() in {"", "none"}
+        else str(payload.get("image") or "")
+    )
+    if (
+        result.returncode != 0
+        or payload.get("status") != "ready"
+        or payload.get("image") != expected_image
+    ):
+        detail = payload.get("error") or result.stdout[-2_000:] or "unknown image build failure"
+        raise RuntimeError(f"SWE-bench verification image is not ready: {detail}")
+    return payload
+
+
+def cleanup_swebench_instance_image(
+    image: str,
+    output_dir: Path,
+    env: dict[str, str],
+) -> dict[str, Any]:
+    """任务结束后删除 instance 层；共享 base/env 层由 Docker 缓存保留。"""
+
+    result = subprocess.run(
+        ["docker", "image", "rm", image],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=300,
+        check=False,
+        env=env,
+    )
+    payload = {
+        "attempted": True,
+        "image": image,
+        "removed": result.returncode == 0 or "No such image" in result.stdout,
+        "exit_code": result.returncode,
+        "output": result.stdout[-2_000:],
+    }
+    (output_dir / "verification_image_cleanup.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return payload
 
 
 def run_corrective_diagnostic_pass(
@@ -433,7 +771,11 @@ def run_corrective_diagnostic_pass(
         failure_facts=source_harness.get("failure_facts") or {},
         instance_report=source_harness.get("instance_report") or {},
     )
-    constraints = corrective_constraints_from_patch(source_patch, repo_dir)
+    constraints = corrective_constraints_from_patch(
+        source_patch,
+        repo_dir,
+        problem_statement=str(row["problem_statement"]),
+    )
     task = build_corrective_task(row, source_patch, failure_excerpt, failure_attribution)
     task_path = output_dir / "task.md"
     constraints_path = output_dir / "constraints.json"
@@ -458,6 +800,7 @@ def run_corrective_diagnostic_pass(
     ]
     if args.implement_model:
         command.extend(["--implement-model", args.implement_model])
+    add_reasoning_cli_args(command, args)
     result = subprocess.run(
         command,
         text=True,
@@ -501,6 +844,894 @@ def run_corrective_diagnostic_pass(
                 }
             },
             "token_usage": {"coordinator": 0, "workers": worker_tokens, "total": worker_tokens},
+        },
+    }
+
+
+def lightweight_validation_from_attribution(stage_attribution: dict[str, Any]) -> dict[str, Any]:
+    """从 pass@1 轨迹提取 patch 前后同命令的公开行为差分。"""
+
+    stages = stage_attribution.get("stages") or {}
+    reproduction = stages.get("reproduction") or {}
+    focused = stages.get("focused_verification") or {}
+    baseline = dict(reproduction.get("baseline_execution") or {})
+    patched = dict(focused.get("result") or {})
+    if baseline and "command" not in baseline:
+        baseline["command"] = baseline.get("requested_command") or ""
+    validation = assess_lightweight_validation(baseline, patched).to_dict()
+    # FailureReview 只能消费已经由控制器注册并在基线执行过的语义证据，
+    # 不能把模型临时猜测或最终 harness 信息当作直接证据。
+    semantic_evidence = reproduction.get("contract")
+    if isinstance(semantic_evidence, dict) and semantic_evidence:
+        validation["semantic_evidence"] = semantic_evidence
+    return validation
+
+
+def should_run_experience_differential(
+    validation: dict[str, Any],
+    *,
+    enabled: bool = False,
+) -> bool:
+    """Test Expander 仅供显式诊断实验使用，正常修复流程默认不支付该成本。"""
+
+    if not enabled:
+        return False
+
+    if validation.get("status") == "fixed":
+        return True
+    if validation.get("status") != "invalid_reproducer":
+        return False
+    baseline = validation.get("baseline") or {}
+    command = str(
+        baseline.get("command")
+        or baseline.get("requested_command")
+        or validation.get("command")
+        or ""
+    ).strip()
+    if not command:
+        # 没有公开命令是证据缺口，不是环境失败。Experience-build 可以让
+        # Test Expander 根据公开题意、当前 diff 和局部源码生成一次差分计划。
+        return baseline.get("attempted") is False
+    if verification_command_safety_reason(command):
+        return False
+    if re.search(r"\bimport\s+(?:subprocess|socket|requests|urllib)\b", command):
+        return False
+    if replaceable_invalid_reproducer(baseline):
+        return True
+    assessment = assess_verification_result(baseline)
+    return assessment.get("classification") == "behavior_passed"
+
+
+def replaceable_invalid_reproducer(baseline: dict[str, Any]) -> bool:
+    """区分验证构造错误与真正无法执行的运行环境。"""
+
+    if baseline.get("attempted") is False:
+        return False
+    if str(baseline.get("status") or "") == "blocked_by_environment":
+        return False
+    evidence = str(
+        baseline.get("evidence")
+        or baseline.get("output")
+        or baseline.get("stderr")
+        or ""
+    ).lower()
+    environment_markers = (
+        "docker daemon",
+        "no such image",
+        "cannot connect to the docker",
+        "connection timed out",
+        "temporary failure in name resolution",
+        "lightweight feedback command timed out",
+    )
+    return not any(marker in evidence for marker in environment_markers)
+
+
+def correction_rejected_invalid_validation(correction: dict[str, Any]) -> bool:
+    """识别只否定验证本身、尚未消耗代码纠正机会的审查结果。"""
+
+    feedback = correction.get("feedback") or {}
+    return (
+        correction.get("attempted") is False
+        and correction.get("route") == "none"
+        and correction.get("failure_stage") == "invalid_test"
+        and feedback.get("correction_readiness") == "not_needed"
+    )
+
+
+def run_experience_differential_validation(
+    row: dict[str, Any],
+    repo_dir: Path,
+    output_dir: Path,
+    task: str,
+    candidate_patch: str,
+    initial_validation: dict[str, Any],
+    args: argparse.Namespace,
+    env: dict[str, str],
+    *,
+    verification_image: str = "",
+) -> dict[str, Any]:
+    """初始验证已修复或无区分力时，用公开差分输入检查语义边界。"""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    task_path = output_dir / "task.md"
+    patch_path = output_dir / "candidate.patch"
+    validation_path = output_dir / "initial_validation.json"
+    task_path.write_text(task, encoding="utf-8")
+    patch_path.write_text(candidate_patch, encoding="utf-8")
+    validation_path.write_text(
+        json.dumps(initial_validation, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    design_dir = output_dir / "test-expander"
+    command = [
+        str(args.repo_agent_bin),
+        "design-differential-tests",
+        "--repo",
+        str(repo_dir),
+        "--model",
+        args.model,
+        "--output-dir",
+        str(design_dir),
+        "--task-file",
+        str(task_path),
+        "--patch-file",
+        str(patch_path),
+        "--validation-file",
+        str(validation_path),
+    ]
+    add_memory_cli_args(command, row, args)
+    add_reasoning_cli_args(command, args)
+    started = time.time()
+    try:
+        result = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=min(int(args.timeout), 900),
+            check=False,
+            env=env,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "validation_kind": "differential_trace",
+            "status": "test_expander_timeout",
+            "feedback_eligible": False,
+            "reason": str(exc),
+            "seconds": round(time.time() - started, 3),
+        }
+    (output_dir / "test_expander_stdout.txt").write_text(
+        result.stdout,
+        encoding="utf-8",
+        errors="replace",
+    )
+    plan = read_json_file(design_dir / "differential_test_plan.json")
+    if result.returncode != 0 or plan.get("parse_error") or not plan.get("command"):
+        return {
+            "validation_kind": "differential_trace",
+            "status": "invalid_differential_plan",
+            "feedback_eligible": False,
+            "reason": "Test Expander did not produce a valid public differential command",
+            "test_expander_exit_code": result.returncode,
+            "test_expander": read_json_file(design_dir / "worker_result.json"),
+            "stdout_excerpt": result.stdout[-2_000:],
+            "seconds": round(time.time() - started, 3),
+        }
+
+    probe_command = str(plan["command"])
+    baseline = run_lightweight_feedback_command(
+        row,
+        repo_dir,
+        probe_command,
+        args,
+        env,
+        verification_image=verification_image,
+        apply_host_patch=False,
+    )
+    patched = run_lightweight_feedback_command(
+        row,
+        repo_dir,
+        probe_command,
+        args,
+        env,
+        verification_image=verification_image,
+        apply_host_patch=True,
+    )
+    assessment = assess_differential_validation(
+        plan=plan,
+        baseline=baseline,
+        patched=patched,
+    )
+    assessment.update(
+        {
+            "test_expander_exit_code": result.returncode,
+            "test_expander": read_json_file(design_dir / "worker_result.json"),
+            "seconds": round(time.time() - started, 3),
+        }
+    )
+    return assessment
+
+
+def run_lightweight_feedback_command(
+    row: dict[str, Any],
+    repo_dir: Path,
+    command: str,
+    args: argparse.Namespace,
+    env: dict[str, str],
+    *,
+    verification_image: str = "",
+    apply_host_patch: bool = True,
+) -> dict[str, Any]:
+    """在现有 SWE-bench eval 镜像中重跑同一条轻量公开命令，不启动完整 harness。"""
+
+    command = command.strip()
+    unsafe = verification_command_safety_reason(command)
+    if not command or unsafe:
+        return {
+            "attempted": False,
+            "status": "blocked_by_environment",
+            "command": command,
+            "exit_code": None,
+            "evidence": unsafe or "missing feedback command",
+        }
+    prepared, runtime = prepare_verification_command(
+        command,
+        repo_dir,
+        docker_image=verification_image or swebench_eval_image(row["instance_id"]),
+        apply_host_patch=apply_host_patch,
+    )
+    try:
+        result = subprocess.run(
+            prepared,
+            cwd=repo_dir,
+            shell=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=min(int(args.timeout), 300),
+            check=False,
+            env=env,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "attempted": True,
+            "status": "blocked_by_environment",
+            "command": command,
+            "execution_command": prepared,
+            "runtime": runtime,
+            "exit_code": None,
+            "evidence": f"lightweight feedback command timed out: {exc}",
+        }
+    return {
+        "attempted": True,
+        "status": "passed" if result.returncode == 0 else "failed",
+        "command": command,
+        "execution_command": prepared,
+        "runtime": runtime,
+        "exit_code": result.returncode,
+        "evidence": result.stdout[-4_000:],
+    }
+
+
+def run_experience_correction(
+    row: dict[str, Any],
+    repo_dir: Path,
+    output_dir: Path,
+    task: str,
+    failed_patch: str,
+    lightweight_validation: dict[str, Any],
+    args: argparse.Namespace,
+    env: dict[str, str],
+) -> dict[str, Any]:
+    """经验构建模式只允许一次“失败证据 -> 归因 -> 修正”。"""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    task_path = output_dir / "task.md"
+    failed_patch_path = output_dir / "failed.patch"
+    failure_log_path = output_dir / "failure.log"
+    validation_path = output_dir / "failed_validation.json"
+    task_path.write_text(task, encoding="utf-8")
+    failed_patch_path.write_text(failed_patch, encoding="utf-8")
+    failure_log_path.write_text(
+        str(
+            lightweight_validation.get("failure_evidence")
+            or (lightweight_validation.get("patched") or {}).get("evidence")
+            or ""
+        ),
+        encoding="utf-8",
+    )
+    validation_path.write_text(
+        json.dumps(lightweight_validation, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    review_dir = output_dir / "failure-review"
+    review_command = [
+        str(args.repo_agent_bin),
+        "review-failure",
+        "--repo",
+        str(repo_dir),
+        "--model",
+        args.model,
+        "--output-dir",
+        str(review_dir),
+        "--task-file",
+        str(task_path),
+        "--patch-file",
+        str(failed_patch_path),
+        "--failure-log-file",
+        str(failure_log_path),
+        "--validation-file",
+        str(validation_path),
+    ]
+    add_memory_cli_args(review_command, row, args)
+    add_reasoning_cli_args(review_command, args)
+    review = subprocess.run(
+        review_command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=min(args.timeout, 900),
+        check=False,
+        env=env,
+    )
+    (review_dir / "review_stdout.txt").write_text(
+        review.stdout,
+        encoding="utf-8",
+        errors="replace",
+    )
+    feedback_file = review_dir / "failure_feedback.json"
+    raw_feedback = read_json_file(feedback_file)
+    gated_feedback = enforce_differential_relation_gate(
+        raw_feedback,
+        lightweight_validation,
+        failed_patch,
+    )
+    if gated_feedback != raw_feedback:
+        feedback_file = review_dir / "controller_failure_feedback.json"
+        feedback_file.write_text(
+            json.dumps(gated_feedback, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        raw_feedback = gated_feedback
+    correction_route = validated_failure_feedback_route(raw_feedback)
+    feedback = raw_feedback if correction_route is not None else {
+        "failure_stage": "insufficient_evidence",
+        "correction_readiness": "insufficient_evidence",
+        "correction_route": "none",
+        "parse_error": True,
+        "raw": raw_feedback,
+    }
+    failure_stage = str(feedback.get("failure_stage") or "insufficient_evidence")
+    correction_route = correction_route or "none"
+
+    started = time.time()
+    route = "none"
+    attempted = False
+    correction_summary: dict[str, Any]
+    if correction_route == "coordinator_replan":
+        route = "deferred_replan"
+        correction_summary = {
+            "status": "replan_skipped_in_compact_loop",
+            "model_patch": failed_patch,
+            "patch_chars": len(failed_patch),
+            "output_dir": str(output_dir),
+            "stage_attribution": {"pre_harness_attribution": "experience_replan_deferred"},
+        }
+    elif correction_route == "corrective_implement":
+        route = "corrective_implement"
+        attempted = True
+        correction_summary = run_inline_experience_corrective(
+            row,
+            repo_dir,
+            output_dir / "corrective-implement",
+            task,
+            failed_patch,
+            feedback,
+            args,
+            env,
+        )
+    else:
+        correction_summary = {
+            "status": "feedback_not_actionable",
+            "model_patch": failed_patch,
+            "patch_chars": len(failed_patch),
+            "output_dir": str(output_dir),
+            "stage_attribution": {"pre_harness_attribution": failure_stage},
+        }
+
+    correction_summary.update(
+        {
+            "seconds": round(time.time() - started, 3),
+            "route": route,
+            "attempted": attempted,
+            "failure_stage": failure_stage,
+            "feedback": feedback,
+            "feedback_file": str(feedback_file),
+            "failure_review_exit_code": review.returncode,
+        }
+    )
+    return correction_summary
+
+
+def build_experience_harness_feedback(
+    harness: dict[str, Any],
+    failed_patch: str,
+) -> dict[str, Any]:
+    """把首次 harness 结果压缩成模式一唯一允许消费的失败反馈。"""
+
+    failure_excerpt = str(harness.get("failure_excerpt") or "").strip()
+    failure_facts = dict(harness.get("failure_facts") or {})
+    instance_report = harness.get("instance_report") or {}
+    test_counts = _harness_test_counts(instance_report)
+    environment_contamination = dict(harness.get("environment_contamination") or {})
+    failed_tests = test_counts["fail_to_pass_failed"] + test_counts["pass_to_pass_failed"]
+    unresolved = bool(harness.get("unresolved")) or failed_tests > 0
+    feedback_eligible = bool(
+        unresolved
+        and not harness.get("resolved")
+        and not harness.get("error")
+        and not environment_contamination.get("contaminated")
+        and failure_excerpt
+    )
+    if harness.get("resolved"):
+        reason = "the initial harness resolved the instance"
+    elif harness.get("error"):
+        reason = "harness infrastructure errors are not code feedback"
+    elif environment_contamination.get("contaminated"):
+        reason = "target behavior passed; remaining failures are harness dependency/toolchain contamination"
+    elif not unresolved:
+        reason = "the harness did not report an unresolved behavioral failure"
+    elif not failure_excerpt:
+        reason = "the harness reported unresolved without an actionable failure log"
+    else:
+        reason = "the initial harness produced direct unresolved failure evidence"
+    return {
+        "validation_kind": "swebench_harness_feedback",
+        "status": "failed" if feedback_eligible else "not_actionable",
+        "feedback_eligible": feedback_eligible,
+        "reason": reason,
+        "failure_evidence": failure_excerpt,
+        "failure_facts": failure_facts,
+        "environment_contamination": environment_contamination,
+        "test_counts": test_counts,
+        "failure_attribution": build_corrective_failure_attribution(
+            failed_patch,
+            failure_excerpt,
+            failure_facts=failure_facts,
+            instance_report=instance_report,
+        ),
+    }
+
+
+def restore_worktree_patch(repo_dir: Path, patch: str) -> None:
+    """纠正候选无效时恢复初始候选，避免工作树和最终 prediction 不一致。"""
+
+    reset = subprocess.run(
+        ["git", "-C", str(repo_dir), "reset", "--hard", "HEAD"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if reset.returncode != 0:
+        raise RuntimeError(f"Could not restore repository baseline: {reset.stdout[-2000:]}")
+    if not patch.strip():
+        return
+    applied = subprocess.run(
+        ["git", "-C", str(repo_dir), "apply", "--whitespace=nowarn", "-"],
+        input=patch,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if applied.returncode != 0:
+        raise RuntimeError(f"Could not restore initial patch: {applied.stdout[-2000:]}")
+
+
+def differential_complete_gate_violations(
+    validation: dict[str, Any],
+) -> list[str]:
+    """只返回能由 exact/invariant oracle 直接证明的候选错误。"""
+
+    if validation.get("validation_kind") != "differential_trace":
+        return []
+    plan = validation.get("test_plan") or {}
+    violations: list[str] = []
+    matrix = {
+        str(item.get("case") or ""): item
+        for item in validation.get("case_matrix") or []
+        if isinstance(item, dict)
+    }
+    for case in plan.get("cases") or []:
+        case_id = str(case.get("id") or "")
+        relation = str(case.get("expected_relation") or "observe")
+        result = matrix.get(case_id)
+        if result is None:
+            violations.append(f"{case_id}: declared case has no comparable output")
+            continue
+        oracle_strength = str(
+            result.get("oracle_strength")
+            or case.get("oracle_strength")
+            or ("invariant" if relation == "must_preserve" else "differential_only")
+        )
+        if oracle_strength == "exact" and result.get("oracle_passed") is False:
+            violations.append(
+                f"{case_id}: patched observation does not match the exact public oracle"
+            )
+        elif oracle_strength == "invariant" and result.get("changed"):
+            violations.append(f"{case_id}: expected invariant behavior but candidate changed")
+    for item in plan.get("guard_coverage") or []:
+        obligation_id = str(item.get("obligation_id") or "")
+        relation = str(item.get("required_relation") or "observe")
+        cases = [matrix.get(str(case_id)) for case_id in item.get("case_ids") or []]
+        cases = [case for case in cases if case is not None]
+        if not cases:
+            violations.append(f"{obligation_id}: no executable mapped case")
+            continue
+        if relation == "must_preserve" and not all(
+            not case.get("changed") for case in cases
+        ):
+            violations.append(f"{obligation_id}: candidate changed a preserve boundary")
+    return violations
+
+
+def differential_oracle_gaps(validation: dict[str, Any]) -> list[str]:
+    """返回无法据此宣布 complete、也不能据此纠正代码的弱证据。"""
+
+    if validation.get("validation_kind") != "differential_trace":
+        return []
+    gaps = [str(value) for value in validation.get("oracle_gaps") or [] if str(value)]
+    plan = validation.get("test_plan") or {}
+    matrix = {
+        str(row.get("case") or ""): row
+        for row in validation.get("case_matrix") or []
+        if isinstance(row, dict)
+    }
+    declared = list(plan.get("cases") or [])
+    declared_ids = {str(case.get("id") or "") for case in declared if isinstance(case, dict)}
+    for case in declared:
+        if not isinstance(case, dict):
+            continue
+        case_id = str(case.get("id") or "")
+        row = matrix.get(case_id) or {}
+        relation = str(row.get("expected_relation") or case.get("expected_relation") or "observe")
+        role = str(
+            row.get("role")
+            or case.get("role")
+            or ("invariant" if relation == "must_preserve" else "target" if relation == "must_change" else "exploratory")
+        )
+        strength = str(
+            row.get("oracle_strength")
+            or case.get("oracle_strength")
+            or ("invariant" if relation == "must_preserve" else "differential_only")
+        )
+        if role in {"target", "invariant"} and strength == "differential_only":
+            gaps.append(case_id or "unnamed_case")
+    for obligation in plan.get("guard_coverage") or []:
+        if not isinstance(obligation, dict):
+            continue
+        relation = str(obligation.get("required_relation") or "observe")
+        if relation != "must_change":
+            continue
+        for case_id in obligation.get("case_ids") or []:
+            case_id = str(case_id)
+            row = matrix.get(case_id) or {}
+            if case_id not in declared_ids and str(row.get("oracle_strength") or "differential_only") == "differential_only":
+                gaps.append(case_id)
+    if not plan.get("guard_coverage_complete"):
+        gaps.append("required guard coverage is incomplete")
+    return list(dict.fromkeys(gaps))
+
+
+def differential_invalid_target_cases(validation: dict[str, Any]) -> list[str]:
+    """target baseline 已满足 exact oracle 时，probe 没有复现公开 bug。"""
+
+    cases = [
+        str(value)
+        for value in validation.get("invalid_target_cases") or []
+        if str(value)
+    ]
+    cases.extend(
+        str(row.get("case") or "")
+        for row in validation.get("case_matrix") or []
+        if isinstance(row, dict)
+        and str(row.get("role") or "") == "target"
+        and row.get("baseline_matches_expected") is True
+    )
+    return list(dict.fromkeys(value for value in cases if value))
+
+
+def enforce_differential_relation_gate(
+    feedback: dict[str, Any],
+    validation: dict[str, Any],
+    failed_patch: str,
+) -> dict[str, Any]:
+    """关系矩阵已有直接反证时，覆盖无效或错误的 FailureReview 路由。"""
+
+    invalid_targets = differential_invalid_target_cases(validation)
+    if invalid_targets:
+        return {
+            "failure_stage": "invalid_test",
+            "issue_contract": [
+                str(value) for value in feedback.get("issue_contract") or [] if str(value).strip()
+            ],
+            "observed_failure": [
+                f"{case_id}: clean baseline already matches expected_after; target probe did not reproduce the bug"
+                for case_id in invalid_targets
+            ],
+            "failure_observation_quality": "behavior_delta",
+            "root_cause": "The public differential target is non-discriminating because its clean baseline already satisfies the exact target oracle.",
+            "invalidated_assumption": "A baseline-passing target was incorrectly treated as evidence that the candidate still needed to change.",
+            "required_correction": "Replace the target probe with a faithful public reproducer; do not rewrite the patch from this evidence.",
+            "evidence_ledger": [
+                {
+                    "id": "O1",
+                    "source": "validation_summary",
+                    "fact": "; ".join(invalid_targets),
+                    "support": "direct",
+                }
+            ],
+            "correction_evidence_ids": [],
+            "scope_expansion": [],
+            "regression_guards": [],
+            "correction_readiness": "not_needed",
+            "next_evidence_source": "public_test",
+            "correction_route": "none",
+            "confidence": 1.0,
+            "controller_oracle_gate": True,
+        }
+
+    violations = differential_complete_gate_violations(validation)
+    gaps = differential_oracle_gaps(validation)
+    if not violations and gaps:
+        return {
+            "failure_stage": "insufficient_evidence",
+            "issue_contract": [
+                str(value) for value in feedback.get("issue_contract") or [] if str(value).strip()
+            ],
+            "observed_failure": [f"oracle gap: {value}" for value in gaps],
+            "failure_observation_quality": "behavior_delta",
+            "root_cause": "The differential trace shows change/no-change but lacks an exact or invariant oracle for every required target behavior.",
+            "invalidated_assumption": "A must_change relation was treated as proof that the changed result was correct.",
+            "required_correction": "No evidence-backed code correction is available from this trace.",
+            "evidence_ledger": [
+                {
+                    "id": "O1",
+                    "source": "validation_summary",
+                    "fact": "; ".join(gaps),
+                    "support": "direct",
+                }
+            ],
+            "correction_evidence_ids": [],
+            "scope_expansion": [],
+            "regression_guards": [
+                str(value) for value in feedback.get("regression_guards") or [] if str(value).strip()
+            ],
+            "correction_readiness": "insufficient_evidence",
+            "next_evidence_source": "public_test",
+            "correction_route": "none",
+            "confidence": 1.0,
+            "controller_oracle_gate": True,
+        }
+    if not violations:
+        return feedback
+    if (
+        feedback.get("failure_stage") in {"implementation_semantics", "regression"}
+        and feedback.get("correction_readiness") == "actionable"
+        and feedback.get("correction_route") == "corrective_implement"
+    ):
+        return feedback
+    issue_contract = [
+        str(value)
+        for value in feedback.get("issue_contract") or []
+        if str(value).strip()
+    ] or ["The public task requires the changed compound guard to preserve its full behavior contract."]
+    return {
+        "failure_stage": "implementation_semantics",
+        "issue_contract": issue_contract,
+        "observed_failure": violations,
+        "failure_observation_quality": "behavior_delta",
+        "root_cause": (
+            "The candidate contradicts an exact target oracle or changes a baseline-backed invariant."
+        ),
+        "invalidated_assumption": (
+            "Passing a weak change/no-change check was treated as proof that the exact result and old behavior were correct."
+        ),
+        "required_correction": (
+            "Repair only the first predicate, conversion, output rule, or state mutation contradicted by the exact/invariant oracle. "
+            "Do not broaden edits outside the current patch scope. Violations: "
+            + "; ".join(violations)
+        ),
+        "evidence_ledger": [
+            {
+                "id": "G1",
+                "source": "validation_summary",
+                "fact": "; ".join(violations),
+                "support": "direct",
+            },
+            {
+                "id": "G2",
+                "source": "failed_patch",
+                "fact": failed_patch[:2_000],
+                "support": "direct",
+            },
+        ],
+        "correction_evidence_ids": ["G1", "G2"],
+        "scope_expansion": [],
+        "regression_guards": [
+            str(value)
+            for value in feedback.get("regression_guards") or []
+            if str(value).strip()
+        ],
+        "correction_readiness": "actionable",
+        "next_evidence_source": "none",
+        "correction_route": "corrective_implement",
+        "confidence": 1.0,
+        "controller_complete_gate": True,
+    }
+
+
+def enforce_differential_complete_gate(
+    feedback: dict[str, Any],
+    validation: dict[str, Any],
+    failed_patch: str,
+) -> dict[str, Any]:
+    """向后兼容旧调用名；实际门禁已独立于 complete 状态。"""
+
+    return enforce_differential_relation_gate(feedback, validation, failed_patch)
+
+
+def validated_failure_feedback_route(feedback: dict[str, Any]) -> str | None:
+    """Validate the CLI-normalized route without importing the Agent runtime."""
+
+    if not isinstance(feedback, dict):
+        return None
+    route = str(feedback.get("correction_route") or "")
+    readiness = str(feedback.get("correction_readiness") or "")
+    if route == "none":
+        return route if readiness in {"not_needed", "insufficient_evidence"} else None
+    if route == "coordinator_replan":
+        source = str(feedback.get("next_evidence_source") or "")
+        return (
+            route
+            if readiness == "needs_replan"
+            and source in {"repository_code", "public_test", "public_documentation"}
+            else None
+        )
+    if route != "corrective_implement":
+        return None
+    if (
+        readiness != "actionable"
+        or feedback.get("scope_expansion")
+        or feedback.get("failure_observation_quality")
+        not in {"expected_actual", "exception_detail", "behavior_delta"}
+    ):
+        return None
+    ledger = {
+        str(item.get("id") or ""): item
+        for item in feedback.get("evidence_ledger") or []
+        if isinstance(item, dict)
+    }
+    evidence_ids = [
+        str(identifier)
+        for identifier in feedback.get("correction_evidence_ids") or []
+    ]
+    selected = [ledger.get(identifier) for identifier in evidence_ids]
+    if not selected or any(
+        item is None or item.get("support") == "unknown"
+        for item in selected
+    ):
+        return None
+    direct_sources = {
+        str(item.get("source") or "")
+        for item in selected
+        if item and item.get("support") == "direct"
+    }
+    return (
+        route
+        if direct_sources & {"failure_log", "validation_summary"}
+        and direct_sources & {"public_task", "failed_patch", "semantic_evidence"}
+        else None
+    )
+
+
+def run_inline_experience_corrective(
+    row: dict[str, Any],
+    repo_dir: Path,
+    output_dir: Path,
+    task: str,
+    failed_patch: str,
+    feedback: dict[str, Any],
+    args: argparse.Namespace,
+    env: dict[str, str],
+) -> dict[str, Any]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    constraints = corrective_constraints_from_patch(
+        failed_patch,
+        repo_dir,
+        padding=120,
+        problem_statement=task,
+    )
+    task_path = output_dir / "task.md"
+    constraints_path = output_dir / "constraints.json"
+    corrective_task = (
+        f"## Public Task\n{task}\n\n"
+        f"## FailureFeedback\n{json.dumps(feedback, ensure_ascii=False, indent=2)}\n\n"
+        f"## Current Failed Patch\n```diff\n{failed_patch}\n```\n\n"
+        "Correct this patch in place exactly once. Every edit must map to the authorizing direct subset of "
+        "correction_evidence_ids; inference may explain causality but cannot add an edit obligation.\n"
+        "The feedback comes from one real experience-build harness run. Treat only logged exceptions, expected/actual "
+        "mismatches, failing target behavior, and observed regressions as acceptance criteria; do not infer hidden test "
+        "source or a gold implementation. For each actionable violation, state which existing predicate, output rule, "
+        "or state mutation caused the observed mismatch.\n"
+        "Before editing, reconstruct the changed guard's compact truth table: structural type versus semantic property, "
+        "True/False/None, and sign boundaries that decide the irreversible return. Minimal means the smallest "
+        "semantically complete guard, not the fewest changed characters. Do not retain a predicate already disproved "
+        "by direct relation evidence merely because Public Task omitted that predicate's terminology.\n"
+        "Only return blocked_untrusted_failure_feedback when direct evidence actually contradicts the Public Task, "
+        "production code, public tests, or baseline facts; omission from the issue text alone is not a conflict. "
+        "For mutable geometry/state, do not infer that an index observed after the failed patch was also in-bounds for "
+        "the original trigger. If direct evidence shows input-dependent cardinality, rebuild the canonical state or use "
+        "its owner setter instead of restoring an out-of-bounds indexed mutation. "
+        "Preserve regression_guards, do not search, do not edit tests, and stay inside the enforced hunk scope."
+    )
+    task_path.write_text(corrective_task, encoding="utf-8")
+    constraints_path.write_text(json.dumps(constraints, ensure_ascii=False, indent=2), encoding="utf-8")
+    command = [
+        str(args.repo_agent_bin),
+        "corrective-implement",
+        "--repo",
+        str(repo_dir),
+        "--model",
+        args.model,
+        "--repair-mode",
+        "experience-build",
+        "--output-dir",
+        str(output_dir),
+        "--task-file",
+        str(task_path),
+        "--constraints-file",
+        str(constraints_path),
+    ]
+    if args.implement_model:
+        command.extend(["--implement-model", args.implement_model])
+    add_reasoning_cli_args(command, args)
+    add_memory_cli_args(command, row, args)
+    result = subprocess.run(
+        command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=args.timeout,
+        check=False,
+        env=env,
+    )
+    (output_dir / "agent_stdout.txt").write_text(
+        result.stdout,
+        encoding="utf-8",
+        errors="replace",
+    )
+    patch = git_diff(repo_dir)
+    (output_dir / "model.patch").write_text(patch, encoding="utf-8")
+    worker_result = read_json_file(output_dir / "worker_result.json")
+    return {
+        "status": "agent_ok" if result.returncode == 0 else "agent_error",
+        "agent_exit_code": result.returncode,
+        "patch_chars": len(patch),
+        "model_patch": patch,
+        "output_dir": str(output_dir),
+        "worker_result": worker_result,
+        "stage_attribution": {
+            "schema_version": 1,
+            "pipeline": "experience_build_corrective",
+            "pre_harness_attribution": "awaiting_harness" if patch.strip() else "implementation_delivery",
+            "token_usage": {
+                "coordinator": 0,
+                "workers": int(worker_result.get("total_tokens") or 0),
+                "total": int(worker_result.get("total_tokens") or 0),
+            },
         },
     }
 
@@ -593,6 +1824,9 @@ def build_corrective_task(
         "Before editing, output a compact `corrective_diagnosis` JSON containing: failure_class, first_divergence, "
         "invalidated_patch_assumption, missing_input_partition_or_state, root_cause_layer, correction_obligations, "
         "and regression_guards. Treat the deterministic attribution as evidence, not as a patch instruction. "
+        "Every directly observed relation violation is an acceptance criterion. Public Task omission alone does not "
+        "invalidate a case that isolates a predicate in the changed guard. Reconstruct structural-versus-semantic, "
+        "True/False/None, and sign behavior; do not retain a predicate disproved by executed relation evidence. "
         "Trace the failure backward to the first wrong predicate/identity/state transition; do not patch only the final assertion. "
         "If target failures and public regressions coexist, the correction must explain both. If the current patch uses a "
         "constant fallback, broad exception, single-container protocol, alias lookup without identity propagation, or removes "
@@ -601,7 +1835,13 @@ def build_corrective_task(
     )
 
 
-def corrective_constraints_from_patch(patch: str, repo_dir: Path, padding: int = 160) -> dict[str, Any]:
+def corrective_constraints_from_patch(
+    patch: str,
+    repo_dir: Path,
+    padding: int = 160,
+    *,
+    problem_statement: str = "",
+) -> dict[str, Any]:
     ranges: dict[str, list[list[int]]] = {}
     current_file = ""
     for line in patch.splitlines():
@@ -618,7 +1858,11 @@ def corrective_constraints_from_patch(patch: str, repo_dir: Path, padding: int =
             total_lines = len(full_path.read_text(encoding="utf-8", errors="replace").splitlines()) if full_path.exists() else start + length + padding
             ranges[current_file].append([max(1, start - padding), min(total_lines, start + length - 1 + padding)])
     ranges = {path: merge_line_ranges(values) for path, values in ranges.items() if values}
-    return {"allowed_files": sorted(ranges), "allowed_ranges": ranges}
+    constraints: dict[str, Any] = {
+        "allowed_files": sorted(ranges),
+        "allowed_ranges": ranges,
+    }
+    return constraints
 
 
 def merge_line_ranges(ranges: list[list[int]]) -> list[list[int]]:
@@ -668,6 +1912,7 @@ def run_case_curator_for_success(
         str(validation_path),
     ]
     add_memory_cli_args(command, row, args)
+    add_reasoning_cli_args(command, args)
     started = time.time()
     result = subprocess.run(
         command,
@@ -687,6 +1932,98 @@ def run_case_curator_for_success(
     }
 
 
+def run_experience_curator_for_success(
+    row: dict[str, Any],
+    repo_dir: Path,
+    output_dir: Path,
+    *,
+    task: str,
+    failed_patch: str,
+    successful_patch: str,
+    feedback_file: Path | None,
+    validation: dict[str, Any],
+    args: argparse.Namespace,
+    env: dict[str, str],
+) -> dict[str, Any]:
+    """只在独立 harness 明确 resolved 后更新 episodic/semantic 双记忆。"""
+
+    curator_dir = output_dir / "experience-curator"
+    curator_dir.mkdir(parents=True, exist_ok=True)
+    task_path = curator_dir / "task.md"
+    successful_patch_path = curator_dir / "successful.patch"
+    failed_patch_path = curator_dir / "failed.patch"
+    validation_path = curator_dir / "validation.json"
+    task_path.write_text(task, encoding="utf-8")
+    successful_patch_path.write_text(successful_patch, encoding="utf-8")
+    failed_patch_path.write_text(failed_patch, encoding="utf-8")
+    validation_path.write_text(
+        json.dumps(
+            {
+                "repo": row["repo"],
+                "resolved": validation.get("resolved"),
+                "error": validation.get("error"),
+                "failure_facts": validation.get("failure_facts") or {},
+                "instance_report": validation.get("instance_report") or {},
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    command = [
+        str(args.repo_agent_bin),
+        "curate-experience",
+        "--repo",
+        str(repo_dir),
+        "--model",
+        args.model,
+        "--output-dir",
+        str(curator_dir),
+        "--task-file",
+        str(task_path),
+        "--successful-patch-file",
+        str(successful_patch_path),
+        "--validation-file",
+        str(validation_path),
+        "--provenance",
+        args.memory_provenance,
+    ]
+    if failed_patch.strip():
+        command.extend(["--failed-patch-file", str(failed_patch_path)])
+    if feedback_file is not None and feedback_file.is_file():
+        command.extend(["--feedback-file", str(feedback_file)])
+    add_memory_cli_args(command, row, args)
+    add_reasoning_cli_args(command, args)
+
+    started = time.time()
+    result = subprocess.run(
+        command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=min(args.timeout, 900),
+        check=False,
+        env=env,
+    )
+    (curator_dir / "curator_stdout.txt").write_text(
+        result.stdout,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return {
+        "exit_code": result.returncode,
+        "seconds": round(time.time() - started, 3),
+        "output_dir": str(curator_dir),
+        "provenance": args.memory_provenance,
+        "trajectory_kind": (
+            "failure_feedback_success"
+            if failed_patch.strip() and feedback_file is not None
+            else "input_success"
+        ),
+        "stdout_excerpt": result.stdout[-2_000:],
+    }
+
+
 def add_memory_cli_args(command: list[str], row: dict[str, Any], args: argparse.Namespace) -> None:
     if args.memory_root:
         command.extend(["--memory-root", str(args.memory_root)])
@@ -695,6 +2032,17 @@ def add_memory_cli_args(command: list[str], row: dict[str, Any], args: argparse.
         command.extend(["--memory-scope", scope])
     if args.no_repair_memory:
         command.append("--no-repair-memory")
+
+
+def add_reasoning_cli_args(command: list[str], args: argparse.Namespace) -> None:
+    command.extend(
+        [
+            "--reasoning-effort",
+            str(args.reasoning_effort),
+            "--implement-reasoning-effort",
+            str(args.implement_reasoning_effort),
+        ]
+    )
 
 
 def format_memory_scope(row: dict[str, Any], args: argparse.Namespace) -> str:
@@ -735,8 +2083,9 @@ def run_harness_for_instance(
         harness_env["SWEBENCH_DOCKER_NETWORK"] = args.docker_network
     if args.proxy:
         harness_env["SWEBENCH_GIT_PROXY"] = args.proxy
+    harness_python = str(getattr(args, "harness_python", None) or sys.executable)
     command = [
-        sys.executable,
+        harness_python,
         "-m",
         "swebench.harness.run_evaluation",
         "--dataset_name",
@@ -784,8 +2133,14 @@ def run_harness_for_instance(
         / row["instance_id"]
         / "test_output.txt"
     )
-    failure_excerpt = read_failure_excerpt(test_output_path)
-    return {
+    failure_excerpt = read_failure_excerpt(
+        test_output_path,
+        instance_report=instance_report,
+        changed_files=changed_files_from_patch(patch),
+    )
+    if not failure_excerpt and result.returncode != 0:
+        failure_excerpt = stdout[-6_000:]
+    harness_result = {
         "round": round_index,
         "exit_code": result.returncode,
         "seconds": round(time.time() - started, 3),
@@ -799,6 +2154,50 @@ def run_harness_for_instance(
         "instance_report": instance_report,
         "failure_excerpt": failure_excerpt,
         "failure_facts": extract_failure_facts(failure_excerpt),
+    }
+    full_test_output = ""
+    if test_output_path.exists():
+        full_test_output = test_output_path.read_text(encoding="utf-8", errors="replace")
+    harness_result["environment_contamination"] = classify_harness_environment_contamination(
+        instance_report,
+        full_test_output or failure_excerpt,
+    )
+    return harness_result
+
+
+def classify_harness_environment_contamination(
+    instance_report: dict[str, Any],
+    test_output: str,
+) -> dict[str, Any]:
+    """识别目标已通过、仅因已知工具链漂移导致 P2P 失败的结果。"""
+
+    target_failures = _failed_harness_test_names(instance_report, "FAIL_TO_PASS")
+    regression_failures = _failed_harness_test_names(instance_report, "PASS_TO_PASS")
+    if target_failures or not regression_failures or not test_output.strip():
+        return {"contaminated": False, "reasons": []}
+
+    markers = {
+        "version_scheme_deprecation": (
+            "DeprecationWarning: Version scheme 'release-branch-semver' has been renamed"
+        ),
+        "unclosed_render_artifact": "ResourceWarning: unclosed file",
+        "pytest_unraisable_cleanup": "PytestUnraisableExceptionWarning",
+    }
+    blocks = _harness_failure_blocks(test_output)
+    matched = _match_failure_blocks(regression_failures, blocks, test_output)
+    if len(matched) != len(regression_failures):
+        return {"contaminated": False, "reasons": []}
+
+    reasons: list[str] = []
+    for _, block in matched:
+        block_reasons = [name for name, marker in markers.items() if marker in block]
+        if not block_reasons:
+            return {"contaminated": False, "reasons": []}
+        reasons.extend(block_reasons)
+    return {
+        "contaminated": True,
+        "reasons": list(dict.fromkeys(reasons)),
+        "failed_regression_tests": regression_failures,
     }
 
 
@@ -828,6 +2227,7 @@ def validate_model_patch(
     repo_dir: Path | None = None,
     agent_output_dir: Path | None = None,
     require_patch_review: bool = True,
+    reject_failed_verification: bool = True,
     stage_attribution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     reasons: list[str] = []
@@ -852,19 +2252,6 @@ def validate_model_patch(
         if semantic_evidence_issues:
             warnings.append("semantic_evidence_degraded")
 
-        deterministic_validation = stages.get("deterministic_validation") or {}
-        semantic_patch_issues = [
-            str(issue)
-            for issue in deterministic_validation.get("issues") or []
-            if str(issue).startswith("semantic_")
-        ]
-        if semantic_patch_issues:
-            reasons.extend(f"semantic_patch_gate_failed:{issue}" for issue in semantic_patch_issues)
-
-        terminal_reason = str(stage_attribution.get("workflow_terminal_reason") or "")
-        if terminal_reason == "semantic_patch_gate_failed":
-            reasons.append("workflow_terminal_gate:" + terminal_reason)
-
         verification = ((stage_attribution.get("stages") or {}).get("focused_verification") or {})
         verification_assessment = dict(verification.get("assessment") or {})
         if not verification_assessment:
@@ -875,9 +2262,14 @@ def validate_model_patch(
             warnings.append("verification_not_attempted")
         elif not verification.get("result_parseable"):
             warnings.append("verification_result_unparseable")
-        elif verification_assessment.get("reject_patch"):
+        elif verification_assessment.get("reject_patch") and reject_failed_verification:
             reasons.append(
                 "verification_evidence_rejected_patch:"
+                + str(verification_assessment.get("classification") or "failed")
+            )
+        elif verification_assessment.get("reject_patch"):
+            warnings.append(
+                "verification_failed_feedback_eligible:"
                 + str(verification_assessment.get("classification") or "failed")
             )
         elif not verification_assessment.get("submission_ready"):
@@ -1252,42 +2644,48 @@ def checkout_repo(
     run(["git", "-C", str(repo_dir), "reset", "--hard", base_commit], env=env, timeout=300)
 
 
-def build_task(row: dict[str, Any], repo_dir: Path, diagnostic_mode: str = "none") -> str:
+def build_task(
+    row: dict[str, Any],
+    repo_dir: Path,
+    diagnostic_mode: str = "none",
+    repair_mode: str = "benchmark",
+) -> str:
+    if repair_mode == "experience-build":
+        mode_instructions = (
+            "- Experience-build generates one initial patch without constructing a public verification command.\n"
+            "- After Implement, the controller runs structural/static checks and one full harness evaluation. An unresolved "
+            "result may be reviewed once and corrected once; environment errors are never code feedback.\n"
+            "- The initial Coordinator and Implement do not see harness output. Only FailureReview and Corrective Implement "
+            "may consume the first harness failure log.\n"
+            "- Memory is written only after the final harness reports resolved.\n"
+        )
+    else:
+        mode_instructions = (
+            "- Benchmark is strict pass@1. Reproducer is optional; do not use failure feedback, Corrective Implement, "
+            "online learning, or memory writes.\n"
+        )
     task = (
         "You are solving a SWE-bench instance using only the public problem statement and repository contents.\n"
-        "Do not use hints_text, hidden gold patch, hidden test patch, PASS_TO_PASS, FAIL_TO_PASS, or harness feedback. "
+        "Do not use hints_text, hidden gold patch, hidden test patch, PASS_TO_PASS, or FAIL_TO_PASS. The initial repair "
+        "must not use harness feedback. "
         "Make the smallest source-code change that fixes the issue.\n\n"
         f"## Instance\n{row['instance_id']}\n\n"
         f"## Repository\n{repo_dir}\n\n"
         f"## Problem Statement\n{row['problem_statement']}\n"
         "\n"
         "## Instructions\n"
-        "- Use the simplified Coordinator path: lightweight localization -> optional soft-evidence reproducer -> one scoped implement -> deterministic validation -> at most one focused verify.\n"
-        "- Before editing, write a compact Problem Contract with trigger input, exact expected behavior, forbidden behavior, and adjacent old behavior that must remain unchanged.\n"
-        "- Use direct search/read tools for at most 5 narrow calls. Once the candidate file, function, and edit locus are known, stop investigating.\n"
-        "- Reproducer is optional and non-blocking. Use it only when public behavior remains unclear after localization; malformed evidence or an unavailable verify command must not block implementation.\n"
-        "- Dispatch one implement Worker with target_code_context, old_behavior_invariants, minimal_fix_strategy, allowed_files, and narrow allowed_ranges. Exact field names are optional; semantic precision matters.\n"
-        "- When Reproducer is used, treat source-backed SemanticEvidence as supplemental context rather than an unlock condition for Implement.\n"
-        "- Before its first write, implement must produce an at-most-8-line semantic_challenge that marks each critical EditBrief assumption proven, contradicted, or unproven using code/reproducer evidence. Coordinator line edits are hypotheses, not authority.\n"
-        "- implement may only read and edit inside allowed_ranges. It must not search the repository, run commands, inspect git history, or read whole files.\n"
-        "- Prefer an exact original snippet or line_replacements. Change the contract owner when its public output is wrong; do not merely wrap a downstream symptom.\n"
-        "- Require implement to report changed_files, semantic_coverage, preserved old behavior, and known risks, then keep its first non-empty patch as the solution. Do not run corrective implement for heuristic coverage/order warnings.\n"
-        "- Only call patch_review when the implement tool explicitly returns `Conditional patch review required`; review is read-only attribution and must not trigger a second solution attempt.\n"
-        "- Static safety is checked deterministically: empty/whitespace patch, git diff --check, syntax, test-file edits, and narrow repository policies.\n"
-        "- Run at most one focused verification after a non-empty diff, and only when a trustworthy public command is available. It must return JSON with status, command, exit_code, and evidence.\n"
-        "- Verification JSON must include covered_cases and cover every required SemanticEvidence case. The single command must execute behavior directly; do not spend it creating a script or asserting a proposed internal representation instead of public output.\n"
-        "- A verify command must assert the requested post-fix behavior. It must not pass by confirming the old exception, `unknown` classification, or other pre-fix bug.\n"
-        "- Missing dependencies, command-not-found, or weak verification are inconclusive rather than proof that the patch is wrong; preserve a statically safe patch for the final harness and report the evidence class honestly.\n"
-        "- Never install dependencies, run pip install, create virtual environments, or repair the SWE-bench Docker environment from inside the agent.\n"
-        "- If an API call is involved, read the target signature or nearby existing usage before choosing parameter names.\n"
-        "- Separate contract_owner from symptom_site. When producer output breaks a consumer, verify the producer's public return contract and sibling methods before adding downstream reshape/cast/ravel wrappers.\n"
-        "- For classification/dispatch/validation pipelines, place normalization before the first predicate that depends on it; changing only a later return branch is too late.\n"
-        "- Trace the first dependent predicate from the public entry point, including helper calls that can return early. A late dtype fallback is not the first predicate merely because it exposes the observed error.\n"
-        "- Split every representation named or directly implied by the public issue into a concrete expected behavior, and prefer an existing repository normalization helper over ad-hoc conversion.\n"
-        "- Keep canonical lookup identity separate from rendered identity; when fallback resolves an alias, propagate the resolved identity through its direct consumer.\n"
-        "- Do not replace unsupported semantics with a fixed precision/default, and do not remove sequence/state updates without proving shape/cardinality/closure/lifecycle invariants.\n"
-        "- If CLI output, exception messages, lint descriptions, or rule text are involved, preserve exact expected strings.\n"
-        "- Do not modify tests unless the problem explicitly asks for test-only changes.\n"
+        + mode_instructions
+        + "- Write a compact Problem Contract: trigger input, exact expected behavior, forbidden behavior, and adjacent old behavior to preserve.\n"
+        "- Use at most 3 narrow search/read rounds. Once the production file, function, and 20-120 line edit range are known, dispatch one scoped Implement.\n"
+        "- EditBrief contains only observed code facts, required change, old-behavior invariants, allowed_files, and allowed_ranges. Implement edits production source directly; it does not search, run commands, inspect history, or edit tests.\n"
+        "- Historical memory is soft evidence. If recalled, keep only source-confirmed obligations and rejected failed "
+        "attempts in the EditBrief; never copy historical commands, identifiers, or patches.\n"
+        "- For a named algorithm/formula/bound replacement, require evidence for the formula, coefficients, rounding/domain behavior, and one direct consumer invariant. If unavailable, mark it unproven instead of guessing.\n"
+        "- Keep the first non-empty minimal patch. Do not spend steps inventing a public verification oracle; the outer controller owns evaluation.\n"
+        "- Never install dependencies or repair the environment. Preserve exact exception/message/output, ordering, roundtrip, mutation target, shape/cardinality, and shared state when relevant.\n"
+        "- Treat code edits suggested by the issue as hypotheses. For mutable state/widgets/geometry/cache, include the constructor and nearest update/consumer in short allowed_ranges before Implement; for generated names or formatting, spend one existing search/read on the repository-native naming or precision rule.\n"
+        "- A nearby fallback is evidence only when its source precondition matches the target precondition. Do not reuse a non-finite/default branch for a finite exceptional input without proving equivalent output semantics.\n"
+        "- For relation/classification guards, enumerate every directly named relation kind in the existing error/contract. A Worker-reported uncovered kind that overlaps the edited guard is a current coverage gap, not automatically future scope.\n"
     )
     if diagnostic_mode == "gold_files":
         files = gold_patch_files(str(row.get("patch") or ""))
@@ -1379,10 +2777,28 @@ def load_instance_report(swebench_dir: Path, run_id: str, model: str, instance_i
     return data.get(instance_id, {})
 
 
-def read_failure_excerpt(path: Path, max_chars: int = 6_000) -> str:
+def read_failure_excerpt(
+    path: Path,
+    max_chars: int = 10_000,
+    *,
+    instance_report: dict[str, Any] | None = None,
+    changed_files: list[str] | tuple[str, ...] = (),
+) -> str:
     if not path.exists():
         return ""
-    text = path.read_text(encoding="utf-8", errors="replace")
+    text = re.sub(
+        r"\x1b\[[0-9;]*m",
+        "",
+        path.read_text(encoding="utf-8", errors="replace"),
+    )
+    prioritized = _prioritized_harness_failure_excerpt(
+        text,
+        instance_report or {},
+        changed_files=changed_files,
+        max_chars=max_chars,
+    )
+    if prioritized:
+        return prioritized
     markers = [
         "FAILURES",
         "FAILED ",
@@ -1394,6 +2810,178 @@ def read_failure_excerpt(path: Path, max_chars: int = 6_000) -> str:
     if starts:
         return text[min(starts) : min(starts) + max_chars]
     return text[-max_chars:]
+
+
+def _prioritized_harness_failure_excerpt(
+    text: str,
+    instance_report: dict[str, Any],
+    *,
+    changed_files: list[str] | tuple[str, ...],
+    max_chars: int,
+) -> str:
+    """按目标失败、相关回归、环境摘要的顺序选择真实测试段落。"""
+
+    target_names = _failed_harness_test_names(instance_report, "FAIL_TO_PASS")
+    regression_names = _failed_harness_test_names(instance_report, "PASS_TO_PASS")
+    if not target_names and not regression_names:
+        return ""
+    blocks = _harness_failure_blocks(text)
+    target_blocks = _match_failure_blocks(target_names, blocks, text)
+    regression_blocks = _match_failure_blocks(regression_names, blocks, text)
+    changed_paths = [path.replace("\\", "/").lstrip("./") for path in changed_files]
+    regression_blocks.sort(
+        key=lambda item: _regression_failure_score(item[1], changed_paths),
+        reverse=True,
+    )
+
+    sections: list[str] = []
+    used_blocks: set[str] = set()
+    for name, block in target_blocks[:3]:
+        if block in used_blocks:
+            continue
+        used_blocks.add(block)
+        sections.append(
+            f"## TARGET FAILURE: {name}\n{_clip_failure_block(block, 4_000)}"
+        )
+    regression_count = 0
+    for name, block in regression_blocks:
+        if block in used_blocks or _regression_failure_score(block, changed_paths) <= 0:
+            continue
+        used_blocks.add(block)
+        sections.append(
+            f"## REGRESSION FAILURE: {name}\n{_clip_failure_block(block, 2_500)}"
+        )
+        regression_count += 1
+        if regression_count >= 2 or sum(len(section) for section in sections) >= max_chars - 1_500:
+            break
+
+    selected = "\n\n".join(sections)
+    if len(selected) < max_chars - 500:
+        noise = _environment_failure_summary(
+            [block for _, block in regression_blocks if block not in used_blocks]
+        )
+        if noise:
+            selected = f"{selected}\n\n## OTHER FAILURE SUMMARY\n{noise}" if selected else noise
+    return _clip_failure_block(selected, max_chars) if selected else ""
+
+
+def _failed_harness_test_names(
+    instance_report: dict[str, Any],
+    group: str,
+) -> list[str]:
+    tests_status = instance_report.get("tests_status") if isinstance(instance_report, dict) else {}
+    tests_status = tests_status if isinstance(tests_status, dict) else {}
+    values = (tests_status.get(group) or tests_status.get(group.lower()) or {}).get("failure") or []
+    return [str(value) for value in values if str(value).strip()]
+
+
+def _harness_failure_blocks(text: str) -> list[tuple[str, str]]:
+    header = re.compile(
+        r"(?m)^(?P<header>(?:_{3,}\s*[^_\n].*?\s*_{3,}|(?:ERROR|FAIL):\s+.+))\s*$"
+    )
+    matches = list(header.finditer(text))
+    terminal_positions = [
+        match.start()
+        for match in re.finditer(
+            r"(?m)^(?:=+\s*(?:PASSES|short test summary info)\s*=+|Ran \d+ tests?.*)$",
+            text,
+        )
+    ]
+    blocks: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        ends = [
+            position
+            for position in terminal_positions
+            if position > match.start()
+        ]
+        if index + 1 < len(matches):
+            ends.append(matches[index + 1].start())
+        end = min(ends) if ends else len(text)
+        block = text[match.start() : end].strip()
+        if block:
+            blocks.append((match.group("header").strip("_ "), block))
+    return blocks
+
+
+def _match_failure_blocks(
+    names: list[str],
+    blocks: list[tuple[str, str]],
+    text: str,
+) -> list[tuple[str, str]]:
+    selected: list[tuple[str, str]] = []
+    for name in names:
+        keys = _test_name_match_keys(name)
+        match = next(
+            (
+                block
+                for title, block in blocks
+                if any(key.lower() in f"{title}\n{block}".lower() for key in keys)
+            ),
+            "",
+        )
+        if not match:
+            match = _failure_context_for_test(text, keys)
+        if match:
+            selected.append((name, match))
+    return selected
+
+
+def _test_name_match_keys(name: str) -> list[str]:
+    leaf = name.rsplit("::", 1)[-1].strip()
+    method = leaf.split(" (", 1)[0].strip()
+    base_method = method.split("[", 1)[0].strip()
+    return list(dict.fromkeys(value for value in [name, leaf, method, base_method] if len(value) >= 4))
+
+
+def _failure_context_for_test(text: str, keys: list[str]) -> str:
+    positions = [
+        position
+        for key in keys
+        if (position := text.lower().find(key.lower())) >= 0
+    ]
+    if not positions:
+        return ""
+    position = min(positions)
+    start = max(0, text.rfind("\n", 0, max(0, position - 500)))
+    return text[start : min(len(text), position + 3_500)].strip()
+
+
+def _regression_failure_score(block: str, changed_paths: list[str]) -> int:
+    normalized = block.replace("\\", "/")
+    score = 0
+    if any(path and path in normalized for path in changed_paths):
+        score += 5
+    if re.search(r"AssertionError|TypeError|ValueError|expected|actual|\bassert\b", block, re.I):
+        score += 3
+    if re.search(r"site-packages/.+(?:DeprecationWarning|ModuleNotFoundError)", block, re.I):
+        score -= 4
+    return score
+
+
+def _environment_failure_summary(blocks: list[str], max_lines: int = 8) -> str:
+    lines: list[str] = []
+    for block in blocks:
+        for line in block.splitlines():
+            stripped = line.strip()
+            if not stripped or not re.search(
+                r"(?:DeprecationWarning|ModuleNotFoundError|ImportError|Timeout|ConnectionError)",
+                stripped,
+            ):
+                continue
+            compact = " ".join(stripped.split())[:500]
+            if compact not in lines:
+                lines.append(compact)
+            if len(lines) >= max_lines:
+                return "\n".join(f"- {value}" for value in lines)
+    return "\n".join(f"- {value}" for value in lines)
+
+
+def _clip_failure_block(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    head = max(1, int(limit * 0.7))
+    tail = max(1, limit - head - 40)
+    return f"{text[:head]}\n... [middle clipped] ...\n{text[-tail:]}"
 
 
 def extract_failure_facts(text: str) -> dict[str, Any]:
@@ -1615,7 +3203,11 @@ def read_json_file(path: Path) -> dict[str, Any]:
 
 
 def finalize_stage_attribution(pass_summary: dict[str, Any]) -> dict[str, Any]:
-    """把 Agent 内部阶段记录与 harness 结果合并，给出单一失败归因。"""
+    """把 Agent 阶段记录与 harness 结果合并成互斥的首要失败归因。
+
+    归因不是修改结果，而是回答“最早在哪个阶段失去成功可能”，便于区分
+    空 patch、环境错误、目标语义未修复和回归，从而避免只盯 resolved 调 prompt。
+    """
     attribution = json.loads(json.dumps(pass_summary.get("stage_attribution") or {}))
     attribution.setdefault("schema_version", 1)
     attribution.setdefault("pipeline", "simplified_pass1")
@@ -1627,6 +3219,8 @@ def finalize_stage_attribution(pass_summary: dict[str, Any]) -> dict[str, Any]:
         primary = "agent_runtime"
     elif harness.get("error"):
         primary = "harness_environment"
+    elif (harness.get("environment_contamination") or {}).get("contaminated"):
+        primary = "harness_dependency_contamination"
     elif not int(pass_summary.get("patch_chars") or 0):
         primary = "implementation_delivery"
     elif patch_validation.get("invalid"):

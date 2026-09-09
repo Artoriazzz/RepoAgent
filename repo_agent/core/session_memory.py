@@ -13,7 +13,11 @@ MAX_SUMMARY_CHARS = 1_200
 
 @dataclass
 class ShortTermMemory:
-    """当前 run 内的具体工作记忆。"""
+    """当前 run 内由事件确定性提取的工作记忆。
+
+    它不是完整聊天记录，也不是跨会话知识库。它只保存继续任务所需的目标、证据、
+    修改、验证、风险和下一步，并在原始 messages 被压缩时充当恢复检查点。
+    """
 
     user_goal: str = ""
     current_plan: list[str] = field(default_factory=list)

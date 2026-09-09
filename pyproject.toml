@@ -3,15 +3,39 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "repo-agent-plain"
-version = "0.1.0"
-description = "A lightweight repository agent without high-level agent SDKs."
+name = "repo-agent"
+version = "0.2.0"
+description = "A framework-independent multi-agent system for repository maintenance and program repair."
 readme = "README.md"
 requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Artoriazzz" },
+]
+keywords = [
+    "agent",
+    "github",
+    "program-repair",
+    "swe-bench",
+    "multi-agent",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = [
     "openai>=1.0.0,<3.0.0",
     "pydantic>=2.0.0,<3.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Artoriazzz/RepoAgent"
+Repository = "https://github.com/Artoriazzz/RepoAgent.git"
+Issues = "https://github.com/Artoriazzz/RepoAgent/issues"
 
 [project.optional-dependencies]
 dev = ["pytest"]

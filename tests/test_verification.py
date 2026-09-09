@@ -1,11 +1,14 @@
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from repo_agent.core.verification import (
     assess_verification_result,
+    behavior_failure_evidence_reason,
     classify_verification_command,
     prepare_verification_command,
+    public_assertion_contract_reason,
     verification_command_safety_reason,
 )
 
@@ -59,6 +62,63 @@ def test_assert_bearing_inline_script_is_behavior_check():
     assert classify_verification_command("python3 -c \"from app import f; assert f(1) == 2\"") == "behavior"
 
 
+def test_public_assertion_contract_rejects_weak_or_old_behavior_checks():
+    assert public_assertion_contract_reason(
+        'python -c "assert result != 0"',
+        "result must equal 0.75",
+    )
+    assert public_assertion_contract_reason(
+        'python -c "old = result(); assert old == 32"',
+        "return 9 instead of 32",
+    )
+    assert public_assertion_contract_reason(
+        'python -c "assert result() == 32"',
+        "return 9 instead of 32",
+    )
+    assert (
+        public_assertion_contract_reason(
+            'python -c "assert result() == 9"',
+            "return 9 instead of 32",
+        )
+        is None
+    )
+
+
+def test_public_assertion_contract_parses_multiline_python_source():
+    command = """python -c "
+from app import result
+actual = result()
+assert actual == 9, f'case=primary expected=9 actual={actual!r}'
+witness = result('old')
+assert witness == 4, f'case=witness expected=4 actual={witness!r}'
+" """
+
+    assert public_assertion_contract_reason(command, "return exactly 9") is None
+
+
+def test_public_assertion_contract_reports_multiline_python_syntax_error():
+    reason = public_assertion_contract_reason(
+        'python -c "value = 1\\nassert value =="',
+        "return exactly 1",
+    )
+
+    assert reason is not None
+    assert "invalid syntax" in reason
+
+
+def test_inline_behavior_failure_must_reach_the_assertion():
+    command = 'python -c "value = broken(); assert value == 9"'
+
+    assert behavior_failure_evidence_reason(command, "AssertionError", 1) is None
+    reason = behavior_failure_evidence_reason(
+        command,
+        "AttributeError: 'int' object has no attribute 'abs'",
+        1,
+    )
+    assert reason is not None
+    assert "before its public assertion" in reason
+
+
 def test_assert_bearing_inline_script_with_python_warning_flags_is_behavior_check():
     command = 'python -W ignore -c "from app import f; assert f(1) == 2"'
 
@@ -79,7 +139,7 @@ def test_verification_rejects_exit_status_masking_shell_control():
     assert verification_command_safety_reason("python -m pytest tests/test_api.py | head -80")
     assert verification_command_safety_reason("python -m pytest tests/test_api.py || true")
     assert verification_command_safety_reason("python -m pytest tests/test_api.py; echo done")
-    assert verification_command_safety_reason("cd repo && python -m pytest tests/test_api.py") is None
+    assert verification_command_safety_reason("cd repo && python -m pytest tests/test_api.py")
     assert verification_command_safety_reason("python -c \"assert 'a|b' == 'a|b'\"") is None
     assert verification_command_safety_reason("cat > /tmp/check.py << 'EOF'\nassert True\nEOF")
 
@@ -102,20 +162,76 @@ def test_masked_behavior_exit_code_is_not_submission_ready():
 def test_prepare_verification_command_uses_swebench_image_and_testbed_path(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE)
 
     prepared, runtime = prepare_verification_command(
-        f"cd {repo} && python -c 'assert True'",
+        "python -c 'assert True'",
         repo,
         docker_image="sweb.eval.x86_64.project__repo-1:latest",
     )
 
     assert runtime == "swebench_docker"
     assert f"-v {repo}:/repo-agent-host:ro" in prepared
-    assert "git -c safe.directory=/repo-agent-host" in prepared
-    assert "git apply --whitespace=nowarn" in prepared
-    assert "cd /testbed && python -c" in prepared
+    assert "git apply" not in prepared
+    assert "python -c" in prepared
     assert "--network none" in prepared
     assert str(repo) not in prepared.split("bash -lc", 1)[1]
+
+
+def test_prepare_verification_command_can_skip_dirty_host_patch(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE)
+    (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"],
+        cwd=repo,
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+    (repo / "app.py").write_text("value = 2\n", encoding="utf-8")
+
+    prepared, runtime = prepare_verification_command(
+        "python -c 'print(1)'",
+        repo,
+        docker_image="sweb.eval.x86_64.project__repo-1:latest",
+        apply_host_patch=False,
+    )
+
+    assert runtime == "swebench_docker"
+    assert "git apply" not in prepared
+
+
+def test_prepare_verification_command_applies_nonempty_host_patch(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE)
+    subprocess.run(["git", "config", "user.name", "RepoAgent Test"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "repoagent@example.test"], cwd=repo, check=True)
+    source = repo / "app.py"
+    source.write_text("old\n", encoding="utf-8")
+    subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, stdout=subprocess.PIPE)
+    source.write_text("new\n", encoding="utf-8")
+
+    prepared, _ = prepare_verification_command(
+        "python -c 'assert True'",
+        repo,
+        docker_image="sweb.eval.x86_64.project__repo-1:latest",
+    )
+
+    assert "git -c safe.directory=/repo-agent-host" in prepared
+    assert "git apply --whitespace=nowarn" in prepared
+
+
+def test_verification_command_rejects_directory_changes():
+    reason = verification_command_safety_reason(
+        "cd /tmp/repo && python -c 'assert True'"
+    )
+
+    assert reason is not None
+    assert "directory changes" in reason
 
 
 def test_prepare_verification_command_rejects_unsafe_image(tmp_path):

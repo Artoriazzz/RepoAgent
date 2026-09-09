@@ -1,7 +1,7 @@
 import json
 
 from repo_agent.core.llm import LLMToolResponse, ToolCall
-from repo_agent.core.memory import MemoryStore, MemoryType
+from repo_agent.core.memory import MAX_SEMANTIC_INSIGHTS_PER_ROLE, MemoryStore, MemoryType
 from repo_agent.core.query_engine import QueryEngine
 from repo_agent.core.tool import ToolRegistry
 from repo_agent.tools.memory_tools import build_memory_tools
@@ -135,6 +135,109 @@ def test_memory_tools_save_repair_recipe_and_filter_search(tmp_path):
     )
     assert updated.status == "success"
     assert "rebinding locals" in registry.execute("read_memory", {"filename": filename}).text
+
+
+def test_dual_repair_memory_uses_bm25_role_and_provenance(tmp_path):
+    store = MemoryStore(tmp_path / "memory")
+    episode = store.save_memory(
+        name="nullable dtype conversion",
+        description="normalize nullable numeric containers before label classification",
+        type="repair_episode",
+        content=(
+            "problem_signature: nullable numeric dtype reaches a scalar identity predicate.\n"
+            "feedback: the first patch recognized only one concrete dtype string.\n"
+            "successful_output: reuse the existing conversion predicate before classification."
+        ),
+        role="implement",
+        provenance="swebench-dev",
+    )
+    insight = store.save_memory(
+        name="consumer contract before producer edit",
+        description="localize the first consumer predicate before changing shared producers",
+        type="semantic_insight",
+        content="applicability: shared conversion paths. Rule: prove the consumer contract first.",
+        role="coordinator",
+        provenance="public-issue",
+    )
+
+    recalled_episodes = store.recall_repair_episodes("nullable pandas dtype classification")
+    recalled_insights = store.recall_semantic_insights(
+        "shared producer and consumer conversion",
+        role="coordinator",
+    )
+
+    assert recalled_episodes[0].header.filename == episode
+    assert recalled_episodes[0].header.provenance == "swebench-dev"
+    assert recalled_insights[0].header.filename == insight
+    assert recalled_insights[0].header.role == "coordinator"
+    assert not store.recall_semantic_insights("shared producer", role="review")
+
+
+def test_semantic_memory_limit_and_delete_are_enforced_by_tools(tmp_path):
+    store = MemoryStore(tmp_path / "memory")
+    registry = ToolRegistry()
+    registry.register_many(build_memory_tools(store))
+    for index in range(MAX_SEMANTIC_INSIGHTS_PER_ROLE):
+        store.save_memory(
+            name=f"rule-{index}",
+            description=f"unique semantic guidance token-{index}",
+            type="semantic_insight",
+            content=f"applicability: family-{index}. Rule: preserve invariant-{index}.",
+            role="implement",
+            provenance="unit-test",
+        )
+
+    overflow = registry.execute(
+        "save_memory",
+        {
+            "name": "new unrelated boundary rule",
+            "description": "brandnew sentinel partition guidance",
+            "type": "semantic_insight",
+            "content": "applicability: sentinel parsing. Rule: preserve identity.",
+            "role": "implement",
+            "provenance": "unit-test",
+        },
+    )
+    assert overflow.status == "error"
+    assert overflow.error["code"] == "SEMANTIC_MEMORY_FULL"
+
+    filename = store.list_memories()[0].filename
+    deleted = registry.execute("delete_memory", {"filename": filename})
+    assert deleted.status == "success"
+    assert store.count(MemoryType.SEMANTIC_INSIGHT, role="implement") == (
+        MAX_SEMANTIC_INSIGHTS_PER_ROLE - 1
+    )
+
+
+def test_dual_memory_tools_require_provenance_role_and_compact_content(tmp_path):
+    store = MemoryStore(tmp_path / "memory")
+    registry = ToolRegistry()
+    registry.register_many(build_memory_tools(store))
+
+    missing_provenance = registry.execute(
+        "save_memory",
+        {
+            "name": "predicate identity",
+            "description": "preserve the matched identity across consumers",
+            "type": "semantic_insight",
+            "content": "applicability: alias lookup. Rule: propagate the matched identity.",
+            "role": "implement",
+        },
+    )
+    leaked_patch = registry.execute(
+        "save_memory",
+        {
+            "name": "bad episode",
+            "description": "contains a complete patch",
+            "type": "repair_episode",
+            "content": "diff --git a/pkg/a.py b/pkg/a.py\n+answer",
+            "role": "implement",
+            "provenance": "unit-test",
+        },
+    )
+
+    assert missing_provenance.error["code"] == "REPAIR_MEMORY_POLICY_VIOLATION"
+    assert leaked_patch.error["code"] == "REPAIR_MEMORY_POLICY_VIOLATION"
 
 
 def test_query_engine_injects_recalled_memory_and_saves_short_memory(tmp_path):

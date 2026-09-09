@@ -2,8 +2,47 @@ from __future__ import annotations
 
 import json
 
-from repo_agent.core.memory import MemoryStore, MemoryType
+from repo_agent.core.memory import MAX_SEMANTIC_INSIGHTS_PER_ROLE, MemoryStore, MemoryType
 from repo_agent.core.tool import Tool, ToolParameter, ToolRegistry, ToolResponse, ToolSource, build_tool
+
+
+_SEMANTIC_ROLES = {"coordinator", "implement", "review"}
+_FORBIDDEN_REPAIR_MEMORY_MARKERS = (
+    "diff --git",
+    "fail_to_pass",
+    "pass_to_pass",
+    "gold patch",
+    "hidden test",
+    "instance_id",
+)
+
+
+def _repair_memory_policy_error(
+    memory_type: MemoryType,
+    *,
+    content: str,
+    role: str,
+    provenance: str,
+) -> str:
+    if memory_type not in {MemoryType.REPAIR_EPISODE, MemoryType.SEMANTIC_INSIGHT}:
+        return ""
+    if not provenance.strip():
+        return "repair_episode and semantic_insight require truthful provenance"
+    if memory_type == MemoryType.REPAIR_EPISODE and role != "implement":
+        return "repair_episode role must be implement"
+    if memory_type == MemoryType.SEMANTIC_INSIGHT and role not in _SEMANTIC_ROLES:
+        return "semantic_insight role must be coordinator, implement, or review"
+    max_chars = 6_000 if memory_type == MemoryType.REPAIR_EPISODE else 2_500
+    if len(content) > max_chars:
+        return f"{memory_type.value} must be compact (at most {max_chars} characters)"
+    lowered = content.lower()
+    marker = next(
+        (item for item in _FORBIDDEN_REPAIR_MEMORY_MARKERS if item in lowered),
+        "",
+    )
+    if marker:
+        return f"{memory_type.value} must not contain benchmark answers or full patches: {marker}"
+    return ""
 
 
 def build_memory_tools(store: MemoryStore) -> list[Tool]:
@@ -14,6 +53,8 @@ def build_memory_tools(store: MemoryStore) -> list[Tool]:
                 "name": memory.name,
                 "description": memory.description,
                 "type": memory.type.value,
+                "role": memory.role,
+                "provenance": memory.provenance,
             }
             for memory in store.list_memories()
         ]
@@ -38,6 +79,8 @@ def build_memory_tools(store: MemoryStore) -> list[Tool]:
                 "name": memory.name,
                 "description": memory.description,
                 "type": memory.type.value,
+                "role": memory.role,
+                "provenance": memory.provenance,
             }
             for memory in store.search(
                 query,
@@ -51,8 +94,28 @@ def build_memory_tools(store: MemoryStore) -> list[Tool]:
         memory_type = inp["type"]
         if memory_type not in {item.value for item in MemoryType}:
             return ToolResponse.failure("BAD_MEMORY_TYPE", f"Expected one of: {', '.join(item.value for item in MemoryType)}")
-        if memory_type == MemoryType.REPAIR_RECIPE.value:
-            similar = store.similar_repair_recipes(inp["name"], inp["description"])
+        parsed_type = MemoryType(memory_type)
+        role = str(inp.get("role") or "")
+        provenance = str(inp.get("provenance") or "")
+        policy_error = _repair_memory_policy_error(
+            parsed_type,
+            content=str(inp["content"]),
+            role=role,
+            provenance=provenance,
+        )
+        if policy_error:
+            return ToolResponse.failure("REPAIR_MEMORY_POLICY_VIOLATION", policy_error)
+        if memory_type in {
+            MemoryType.REPAIR_RECIPE.value,
+            MemoryType.REPAIR_EPISODE.value,
+            MemoryType.SEMANTIC_INSIGHT.value,
+        }:
+            similar = store.similar_memories(
+                inp["name"],
+                inp["description"],
+                memory_type=parsed_type,
+                role=role,
+            )
             if similar:
                 candidates = [
                     {
@@ -60,36 +123,84 @@ def build_memory_tools(store: MemoryStore) -> list[Tool]:
                         "name": memory.name,
                         "description": memory.description,
                         "type": memory.type.value,
+                        "role": memory.role,
                     }
                     for memory in similar
                 ]
+                error_code = (
+                    "SIMILAR_REPAIR_RECIPE_EXISTS"
+                    if memory_type == MemoryType.REPAIR_RECIPE.value
+                    else "SIMILAR_REPAIR_MEMORY_EXISTS"
+                )
                 return ToolResponse.failure(
-                    "SIMILAR_REPAIR_RECIPE_EXISTS",
+                    error_code,
                     (
-                        "A similar repair_recipe already exists. Read the closest memory and either call update_memory "
-                        "to improve it, or do nothing if the new case adds no reusable strategy.\n\n"
+                        f"A similar {memory_type} already exists. Read the closest memory and either call "
+                        "update_memory to improve it, or do nothing if the new case adds no reusable knowledge.\n\n"
                         f"Similar memories:\n{json.dumps(candidates, ensure_ascii=False, indent=2)}"
                     ),
                 )
+        if (
+            memory_type == MemoryType.SEMANTIC_INSIGHT.value
+            and store.count(MemoryType.SEMANTIC_INSIGHT, role=role) >= MAX_SEMANTIC_INSIGHTS_PER_ROLE
+        ):
+            return ToolResponse.failure(
+                "SEMANTIC_MEMORY_FULL",
+                (
+                    f"Semantic memory role={role or 'unspecified'} already has "
+                    f"{MAX_SEMANTIC_INSIGHTS_PER_ROLE} insights. REMOVE a contradictory, redundant, outdated, "
+                    "or lower-value insight with delete_memory before ADD."
+                ),
+            )
         filename = store.save_memory(
             name=inp["name"],
             description=inp["description"],
             type=memory_type,
             content=inp["content"],
+            role=role,
+            provenance=provenance,
         )
         return ToolResponse.success(f"Saved memory: {filename}", {"filename": filename})
 
     def update_memory(inp: dict) -> ToolResponse:
+        header = next(
+            (memory for memory in store.list_memories() if memory.filename == inp["filename"]),
+            None,
+        )
+        if header is None:
+            return ToolResponse.failure("MEMORY_NOT_FOUND", f"Memory not found: {inp['filename']}")
+        if inp.get("content") is not None:
+            policy_error = _repair_memory_policy_error(
+                header.type,
+                content=str(inp["content"]),
+                role=str(inp.get("role") if inp.get("role") is not None else header.role),
+                provenance=str(
+                    inp.get("provenance")
+                    if inp.get("provenance") is not None
+                    else header.provenance
+                ),
+            )
+            if policy_error:
+                return ToolResponse.failure("REPAIR_MEMORY_POLICY_VIOLATION", policy_error)
         try:
             filename = store.update_memory(
                 inp["filename"],
                 name=inp.get("name"),
                 description=inp.get("description"),
                 content=inp.get("content"),
+                role=inp.get("role"),
+                provenance=inp.get("provenance"),
             )
         except FileNotFoundError:
             return ToolResponse.failure("MEMORY_NOT_FOUND", f"Memory not found: {inp['filename']}")
         return ToolResponse.success(f"Updated memory: {filename}", {"filename": filename})
+
+    def delete_memory(inp: dict) -> ToolResponse:
+        try:
+            filename = store.delete_memory(inp["filename"])
+        except FileNotFoundError:
+            return ToolResponse.failure("MEMORY_NOT_FOUND", f"Memory not found: {inp['filename']}")
+        return ToolResponse.success(f"Deleted memory: {filename}", {"filename": filename})
 
     return [
         build_tool(
@@ -130,12 +241,28 @@ def build_memory_tools(store: MemoryStore) -> list[Tool]:
                 ToolParameter("name", "string", "Short memory name"),
                 ToolParameter("description", "string", "One-line memory index description"),
                 ToolParameter("type", "string", f"One of: {', '.join(item.value for item in MemoryType)}"),
-                ToolParameter("content", "string", "Memory body. feedback should include Why and How to apply; repair_recipe should be an abstract strategy."),
+                ToolParameter(
+                    "content",
+                    "string",
+                    "Memory body. repair_episode is compact evidence; semantic_insight is one short actionable rule.",
+                ),
+                ToolParameter(
+                    "role",
+                    "string",
+                    "Optional repair role: coordinator, implement, or review.",
+                    required=False,
+                ),
+                ToolParameter(
+                    "provenance",
+                    "string",
+                    "Optional data provenance/split. Never hide benchmark test provenance.",
+                    required=False,
+                ),
             ],
             handler=save_memory,
             prompt=(
                 "只有当用户明确要求记住信息，或给出可复用偏好/反馈/项目决策时才调用 save_memory；"
-                "成功修复后的 repair_recipe 只能保存抽象修复策略、验证契约和反模式；"
+                "repair_episode 只能保存紧凑 demonstration；semantic_insight 只能保存短小角色规则；"
                 "不要保存完整 diff、具体 instance、gold patch、hidden test 或一次性文件路径。"
             ),
             source=ToolSource.BUILTIN,
@@ -148,11 +275,24 @@ def build_memory_tools(store: MemoryStore) -> list[Tool]:
                 ToolParameter("name", "string", "Updated memory name", required=False),
                 ToolParameter("description", "string", "Updated one-line description", required=False),
                 ToolParameter("content", "string", "Updated full memory body", required=False),
+                ToolParameter("role", "string", "Updated role", required=False),
+                ToolParameter("provenance", "string", "Updated provenance", required=False),
             ],
             handler=update_memory,
             prompt=(
                 "如果成功修复案例与已有 repair_recipe 相似，优先 read_memory 后用 update_memory 合并新抽象；"
                 "如果没有新增可复用策略，不要更新也不要新增。"
+            ),
+            source=ToolSource.BUILTIN,
+        ),
+        build_tool(
+            name="delete_memory",
+            description="Delete a contradictory, outdated, redundant, or invalid long-term memory.",
+            parameters=[ToolParameter("filename", "string", "Existing memory filename to delete")],
+            handler=delete_memory,
+            prompt=(
+                "只在 Semantic Memory 的 REMOVE 操作，或记忆已被成功证据明确否定时使用；"
+                "不得为了腾空间随意删除无关但仍有效的经验。"
             ),
             source=ToolSource.BUILTIN,
         ),

@@ -2,11 +2,30 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 
 from repo_agent.core.agent import RepoAgent
 from repo_agent.core.coordinator import CoordinatorEngine
-from repo_agent.core.llm import ChatLLM
+from repo_agent.core.differential_validation import (
+    build_test_expander_prompt,
+    extract_differential_obligations,
+    parse_differential_test_plan,
+    patch_source_context,
+    trusted_oracle_evidence_from_prompt,
+)
+from repo_agent.core.experience import (
+    RepairRunMode,
+    assess_lightweight_validation,
+    augment_implement_with_episodes,
+    augment_task_with_semantic_insights,
+    build_failure_review_prompt,
+    constraints_from_patch,
+    independent_validation_succeeded,
+    parse_failure_feedback,
+    repair_mode_policy,
+)
+from repo_agent.core.llm import DEFAULT_MODEL, ChatLLM
 from repo_agent.core.memory import MemoryStore
 from repo_agent.core.subagent import SubAgentRunner, WorkerConstraints
 from repo_agent.tools import RepoWorkspace, ToolImportContext, assemble_tool_pool
@@ -18,11 +37,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     def add_common(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument("--repo", required=True, type=Path)
-        subparser.add_argument("--model", default=None)
+        subparser.add_argument("--model", default=DEFAULT_MODEL)
         subparser.add_argument(
             "--implement-model",
             default=None,
             help="Optional model override for Implement and corrective Implement Workers.",
+        )
+        subparser.add_argument(
+            "--reasoning-effort",
+            choices=("low", "medium", "high", "max"),
+            default="high",
+            help="Reasoning effort for Coordinator and reasoning-enabled review Workers.",
+        )
+        subparser.add_argument(
+            "--implement-reasoning-effort",
+            choices=("low", "medium", "high", "max"),
+            default="max",
+            help="Reasoning effort for Implement and corrective Implement.",
         )
         subparser.add_argument("--output-dir", type=Path, default=Path(".repo_agent_runs/latest"))
         subparser.add_argument("--max-steps", type=int, default=16)
@@ -46,6 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
             "--forced-scope-file",
             type=Path,
             help="Diagnostic-only JSON scope oracle for Implement Worker. Never use for leaderboard runs.",
+        )
+        subparser.add_argument(
+            "--repair-mode",
+            choices=tuple(mode.value for mode in RepairRunMode),
+            default=RepairRunMode.STANDARD.value,
+            help="Repair workflow policy. benchmark is frozen/read-only; experience-build allows one correction and memory write.",
         )
 
     run = subparsers.add_parser("run", help="Run an arbitrary repository task.")
@@ -78,27 +115,290 @@ def build_parser() -> argparse.ArgumentParser:
     corrective.add_argument("--task-file", required=True, type=Path)
     corrective.add_argument("--constraints-file", required=True, type=Path)
 
+    benchmark = subparsers.add_parser(
+        "benchmark",
+        help="Run one frozen dual-memory, single-patch benchmark inference.",
+    )
+    add_common(benchmark)
+    benchmark.add_argument("--task", required=True)
+    benchmark.set_defaults(
+        coordinator=True,
+        swebench_profile=True,
+        repair_mode=RepairRunMode.BENCHMARK.value,
+    )
+
+    experience_build = subparsers.add_parser(
+        "experience-build",
+        help="Build dual memory from an independently validated repair, with at most one feedback correction.",
+    )
+    add_common(experience_build)
+    experience_build.add_argument("--task", required=True)
+    experience_build.add_argument(
+        "--feedback-command",
+        help="Lightweight public behavior command used for baseline/patch feedback.",
+    )
+    experience_build.add_argument(
+        "--final-eval-command",
+        help="Independent final evaluation command, run exactly once after correction.",
+    )
+    experience_build.add_argument(
+        "--verify-command",
+        help="Deprecated alias for --final-eval-command.",
+    )
+    experience_build.add_argument(
+        "--verification-timeout",
+        type=int,
+        default=300,
+        help="Timeout for each lightweight feedback command.",
+    )
+    experience_build.add_argument(
+        "--final-eval-timeout",
+        type=int,
+        default=1800,
+        help="Timeout for the single independent final evaluation.",
+    )
+    experience_build.add_argument(
+        "--provenance",
+        required=True,
+        help="Truthful source, for example swebench-dev, public-issue, or private-ci. Do not hide test provenance.",
+    )
+    experience_build.set_defaults(
+        coordinator=True,
+        swebench_profile=True,
+        repair_mode=RepairRunMode.EXPERIENCE_BUILD.value,
+    )
+
+    review_failure = subparsers.add_parser(
+        "review-failure",
+        help="Analyze a failed patch and produce structured correction evidence.",
+    )
+    add_common(review_failure)
+    review_failure.add_argument("--task-file", required=True, type=Path)
+    review_failure.add_argument("--patch-file", required=True, type=Path)
+    review_failure.add_argument("--failure-log-file", required=True, type=Path)
+    review_failure.add_argument("--validation-file", type=Path)
+    review_failure.set_defaults(repair_mode=RepairRunMode.EXPERIENCE_BUILD.value)
+
+    design_differential = subparsers.add_parser(
+        "design-differential-tests",
+        help="Design diagnostic differential tests from public repair evidence.",
+    )
+    add_common(design_differential)
+    design_differential.add_argument("--task-file", required=True, type=Path)
+    design_differential.add_argument("--patch-file", required=True, type=Path)
+    design_differential.add_argument("--validation-file", required=True, type=Path)
+    design_differential.set_defaults(repair_mode=RepairRunMode.EXPERIENCE_BUILD.value)
+
+    curate_experience = subparsers.add_parser(
+        "curate-experience",
+        help="Curate an independently validated success into episodic and semantic memory.",
+    )
+    add_common(curate_experience)
+    curate_experience.add_argument("--task-file", required=True, type=Path)
+    curate_experience.add_argument("--successful-patch-file", required=True, type=Path)
+    curate_experience.add_argument("--failed-patch-file", type=Path)
+    curate_experience.add_argument("--feedback-file", type=Path)
+    curate_experience.add_argument("--validation-file", required=True, type=Path)
+    curate_experience.add_argument("--provenance", required=True)
+    curate_experience.set_defaults(repair_mode=RepairRunMode.EXPERIENCE_BUILD.value)
+
     return parser
 
 
+def _build_role_llms(args: argparse.Namespace) -> tuple[ChatLLM, dict[str, ChatLLM]]:
+    coordinator_llm = ChatLLM(
+        model=args.model,
+        reasoning_effort=args.reasoning_effort,
+        enable_thinking=True,
+    )
+    lightweight_llm = ChatLLM(model=args.model, enable_thinking=False)
+    implement_llm = ChatLLM(
+        model=args.implement_model or args.model,
+        reasoning_effort=args.implement_reasoning_effort,
+        enable_thinking=True,
+    )
+    review_llm = ChatLLM(
+        model=args.model,
+        reasoning_effort=args.reasoning_effort,
+        enable_thinking=True,
+    )
+    overrides = {
+        "research": lightweight_llm,
+        "plan": lightweight_llm,
+        "test_expander": lightweight_llm,
+        "verify": lightweight_llm,
+        "general": lightweight_llm,
+        "implement": implement_llm,
+        "reproducer": review_llm,
+        "patch_ranker": review_llm,
+        "patch_review": review_llm,
+        "review": review_llm,
+        "failure_review": review_llm,
+        "memory_curator": lightweight_llm,
+        "case_curator": lightweight_llm,
+        "experience_curator": lightweight_llm,
+    }
+    return coordinator_llm, overrides
+
+
 def main(argv: list[str] | None = None) -> None:
+    """CLI composition root：解析配置、装配依赖，再把任务交给具体运行时。
+
+    这里有很多运行模式分支，但没有模型/工具循环。理解单 Agent Runtime 时，先关注
+    task、workspace、registry、llm 的构造，以及函数末尾的 RepoAgent 路径即可。
+    """
+
     parser = build_parser()
     args = parser.parse_args(argv)
+    fixed_modes = {
+        "benchmark": RepairRunMode.BENCHMARK.value,
+        "experience-build": RepairRunMode.EXPERIENCE_BUILD.value,
+        "review-failure": RepairRunMode.EXPERIENCE_BUILD.value,
+        "design-differential-tests": RepairRunMode.EXPERIENCE_BUILD.value,
+        "curate-experience": RepairRunMode.EXPERIENCE_BUILD.value,
+    }
+    expected_mode = fixed_modes.get(args.command)
+    if expected_mode and args.repair_mode != expected_mode:
+        parser.error(f"{args.command} requires --repair-mode {expected_mode}")
+    if args.command == "experience-build" and not (args.final_eval_command or args.verify_command):
+        parser.error("experience-build requires --final-eval-command")
     task = _build_task(args)
     workspace = RepoWorkspace(repo_path=args.repo, output_dir=args.output_dir)
     memory_store = _build_memory_store(args)
+    repair_policy = repair_mode_policy(args.repair_mode)
     registry = assemble_tool_pool(
         ToolImportContext(
             workspace=workspace,
             memory_root=args.memory_root,
             memory_store=memory_store,
             enable_github=not args.swebench_profile,
-            enable_memory=not args.swebench_profile,
+            enable_memory=not args.swebench_profile or repair_policy.memory_write,
         )
     )
-    llm = ChatLLM(model=args.model)
-    implement_llm = ChatLLM(model=args.implement_model) if args.implement_model else llm
-    worker_llm_overrides = {"implement": implement_llm}
+    llm, worker_llm_overrides = _build_role_llms(args)
+    if args.command == "design-differential-tests":
+        candidate_patch = args.patch_file.read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+        guard_obligations = extract_differential_obligations(candidate_patch)
+        runner = SubAgentRunner(
+            llm=llm,
+            llm_overrides=worker_llm_overrides,
+            base_tools=registry,
+            cwd=args.repo,
+            output_dir=args.output_dir,
+            memory_store=memory_store,
+            semantic_memory_recall=False,
+            excluded_memory_types=set(),
+            swebench_profile=True,
+        )
+        test_expander_prompt = build_test_expander_prompt(
+            task=task,
+            candidate_patch=candidate_patch,
+            initial_validation=_read_json_or_text(args.validation_file) or {},
+            source_context=patch_source_context(args.repo, candidate_patch),
+        )
+        result = runner.run(
+            agent_type="test_expander",
+            description="Design public differential behavior inputs",
+            prompt=test_expander_prompt,
+        )
+        plan = parse_differential_test_plan(
+            result.text,
+            guard_obligations,
+            trusted_oracle_evidence_from_prompt(test_expander_prompt),
+        )
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        payload = plan or {"parse_error": True, "raw": result.text}
+        (args.output_dir / "differential_test_plan.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (args.output_dir / "worker_result.json").write_text(
+            json.dumps(_worker_payload(result), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    if args.command == "review-failure":
+        runner = SubAgentRunner(
+            llm=llm,
+            llm_overrides=worker_llm_overrides,
+            base_tools=registry,
+            cwd=args.repo,
+            output_dir=args.output_dir,
+            memory_store=memory_store,
+            semantic_memory_recall=False,
+            excluded_memory_types=set(),
+            swebench_profile=True,
+        )
+        result = runner.run(
+            agent_type="failure_review",
+            description="Attribute failed repair",
+            prompt=build_failure_review_prompt(
+                task=task,
+                failed_patch=args.patch_file.read_text(encoding="utf-8", errors="replace"),
+                failure_log=args.failure_log_file.read_text(encoding="utf-8", errors="replace"),
+                validation=_read_json_or_text(args.validation_file),
+            ),
+        )
+        feedback = parse_failure_feedback(result.text)
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        payload = feedback.to_dict() if feedback else {"parse_error": True, "raw": result.text}
+        (args.output_dir / "failure_feedback.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    if args.command == "curate-experience":
+        validation = _read_json_or_text(args.validation_file)
+        if not independent_validation_succeeded(validation):
+            parser.error("curate-experience requires independently validated success")
+        coordinator = CoordinatorEngine(
+            llm=llm,
+            worker_llm_overrides=worker_llm_overrides,
+            worker_tools=registry,
+            max_steps=args.max_steps,
+            output_dir=args.output_dir,
+            cwd=args.repo,
+            memory_store=memory_store,
+            semantic_memory_recall=False,
+            repair_memory_recall=True,
+            swebench_profile=True,
+            candidate_mode="off",
+            repair_mode=RepairRunMode.EXPERIENCE_BUILD.value,
+        )
+        feedback_payload = _read_json_or_text(args.feedback_file)
+        feedback = (
+            parse_failure_feedback(json.dumps(feedback_payload, ensure_ascii=False))
+            if isinstance(feedback_payload, dict)
+            else None
+        )
+        result = coordinator.curate_repair_experience(
+            task=task,
+            successful_patch=args.successful_patch_file.read_text(encoding="utf-8", errors="replace"),
+            validation=validation,
+            provenance=args.provenance,
+            failed_patch=_read_text(args.failed_patch_file),
+            feedback=feedback,
+        )
+        print(result.text)
+        return
+    if args.command == "experience-build":
+        if _git_diff(args.repo).strip():
+            parser.error("experience-build requires a clean tracked worktree so failed patches can be reversed safely")
+        report = _run_experience_build(
+            args=args,
+            task=task,
+            llm=llm,
+            worker_llm_overrides=worker_llm_overrides,
+            registry=registry,
+            memory_store=memory_store,
+        )
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return
     if args.command == "corrective-implement":
         constraints_data = json.loads(args.constraints_file.read_text(encoding="utf-8"))
         constraints = WorkerConstraints.from_tool_input(constraints_data)
@@ -114,11 +414,27 @@ def main(argv: list[str] | None = None) -> None:
             semantic_memory_recall=False,
             excluded_memory_types=set(),
             swebench_profile=True,
+            implement_phase="experience_corrective",
         )
+        corrective_prompt = task
+        recalled_semantic_insights = ()
+        recalled_episodes = ()
+        if repair_policy.semantic_recall and not args.no_repair_memory:
+            corrective_prompt, recalled_semantic_insights = augment_task_with_semantic_insights(
+                task=corrective_prompt,
+                memory_store=memory_store,
+                role="implement",
+            )
+        if repair_policy.episodic_recall and not args.no_repair_memory:
+            corrective_prompt, recalled_episodes = augment_implement_with_episodes(
+                prompt=corrective_prompt,
+                memory_store=memory_store,
+                limit=1,
+            )
         result = runner.run(
             agent_type="implement",
             description="Diagnostic corrective implement",
-            prompt=task,
+            prompt=corrective_prompt,
             constraints=constraints,
         )
         payload = {
@@ -134,6 +450,12 @@ def main(argv: list[str] | None = None) -> None:
             "completion_tokens": result.completion_tokens,
             "total_tokens": result.total_tokens,
             "changed_files": list(result.changed_files),
+            "recalled_repair_episodes": [
+                memory.header.filename for memory in recalled_episodes
+            ],
+            "recalled_semantic_insights": [
+                memory.header.filename for memory in recalled_semantic_insights
+            ],
         }
         args.output_dir.mkdir(parents=True, exist_ok=True)
         (args.output_dir / "worker_result.json").write_text(
@@ -155,6 +477,7 @@ def main(argv: list[str] | None = None) -> None:
             repair_memory_recall=False,
             swebench_profile=args.swebench_profile,
             candidate_mode=args.candidate_mode,
+            repair_mode=args.repair_mode,
         )
         result = coordinator.curate_successful_repair(
             task=task,
@@ -166,6 +489,8 @@ def main(argv: list[str] | None = None) -> None:
         print(result.text)
         return
     if args.coordinator:
+        # Coordinator 使用同一个底层 QueryEngine，但额外拥有可派发的 Worker。
+        # 第一周只需知道这是多 Agent 分支，不必展开其状态机。
         forced_scope = _read_json_or_text(args.forced_scope_file) or {}
         if forced_scope and not isinstance(forced_scope, dict):
             parser.error("--forced-scope-file must contain a JSON object")
@@ -182,9 +507,11 @@ def main(argv: list[str] | None = None) -> None:
             swebench_profile=args.swebench_profile,
             candidate_mode=args.candidate_mode,
             forced_implement_scope=forced_scope,
+            repair_mode=args.repair_mode,
         )
         print(coordinator.run(task))
         return
+    # 不启用 Coordinator 时，CLI 进入最短主链：RepoAgent -> QueryEngine -> query_loop。
     agent = RepoAgent(
         llm=llm,
         tools=registry,
@@ -199,14 +526,224 @@ def main(argv: list[str] | None = None) -> None:
     print(agent.run(task))
 
 
+def _run_experience_build(
+    *,
+    args: argparse.Namespace,
+    task: str,
+    llm: ChatLLM,
+    worker_llm_overrides: dict[str, ChatLLM],
+    registry,
+    memory_store: MemoryStore,
+) -> dict:
+    feedback_command = str(args.feedback_command or "").strip()
+    final_eval_command = str(args.final_eval_command or args.verify_command or "").strip()
+    baseline_feedback = (
+        _run_validation(registry, feedback_command, timeout=args.verification_timeout)
+        if feedback_command
+        else {}
+    )
+    coordinator = CoordinatorEngine(
+        llm=llm,
+        worker_llm_overrides=worker_llm_overrides,
+        worker_tools=registry,
+        max_steps=args.max_steps,
+        output_dir=args.output_dir / "initial",
+        cwd=args.repo,
+        memory_store=memory_store,
+        semantic_memory_recall=args.semantic_memory,
+        repair_memory_recall=not args.no_repair_memory,
+        swebench_profile=True,
+        candidate_mode="off",
+        repair_mode=RepairRunMode.EXPERIENCE_BUILD.value,
+    )
+    initial_answer = coordinator.run(task)
+    failed_patch = _git_diff(args.repo)
+    initial_feedback = (
+        _run_validation(registry, feedback_command, timeout=args.verification_timeout)
+        if feedback_command and failed_patch.strip()
+        else {}
+    )
+    lightweight = assess_lightweight_validation(baseline_feedback, initial_feedback)
+    report: dict = {
+        "mode": RepairRunMode.EXPERIENCE_BUILD.value,
+        "provenance": args.provenance,
+        "validation_policy": {
+            "feedback_command": feedback_command,
+            "final_eval_command": final_eval_command,
+            "max_corrections": 1,
+            "max_full_evaluations": 1,
+        },
+        "initial": {
+            "answer": initial_answer,
+            "patch_chars": len(failed_patch),
+            "lightweight_validation": lightweight.to_dict(),
+        },
+        "correction": None,
+        "final_validation": None,
+        "memory": None,
+    }
+
+    feedback = None
+    successful_patch = failed_patch
+    if lightweight.feedback_eligible and failed_patch.strip():
+        feedback_result = coordinator.runner.run(
+            agent_type="failure_review",
+            description="Attribute failed repair",
+            prompt=build_failure_review_prompt(
+                task=task,
+                failed_patch=failed_patch,
+                failure_log=str(initial_feedback.get("output") or ""),
+                validation=lightweight.to_dict(),
+            ),
+        )
+        feedback = parse_failure_feedback(feedback_result.text)
+        feedback_payload = feedback.to_dict() if feedback else None
+        correction_report: dict = {
+            "feedback": feedback_payload,
+            "feedback_worker": _worker_payload(feedback_result),
+            "route": "none",
+            "attempted": False,
+        }
+        if feedback and feedback.correction_route == "corrective_implement":
+            correction_report["route"] = "corrective_implement"
+            constraints = constraints_from_patch(failed_patch, args.repo)
+            correction_prompt = (
+                f"## Public Task\n{task}\n\n"
+                f"## FailureFeedback\n{json.dumps(feedback.to_dict(), ensure_ascii=False)}\n\n"
+                "Correct the current patch in place exactly once. Use only direct correction evidence, preserve "
+                "regression_guards, do not search, and do not expand the enforced file/range scope."
+            )
+            # Experience-build 的 corrective pass 只消费本次公开失败证据；
+            # 历史记忆留给冻结的 benchmark 模式使用。
+            recalled_semantic = ()
+            recalled_episodes = ()
+            if constraints.has_scope:
+                correction_report["attempted"] = True
+                correction_result = coordinator.runner.run(
+                    agent_type="implement",
+                    description="Correct failed repair",
+                    prompt=correction_prompt,
+                    constraints=constraints,
+                )
+                correction_report["worker"] = _worker_payload(correction_result)
+                correction_report["recalled_episodes"] = [
+                    memory.header.filename for memory in recalled_episodes
+                ]
+                correction_report["recalled_semantic_insights"] = [
+                    memory.header.filename for memory in recalled_semantic
+                ]
+            else:
+                correction_report["error"] = "failed patch did not provide a safe corrective scope"
+        elif feedback and feedback.correction_route == "coordinator_replan":
+            correction_report["route"] = "deferred_replan"
+            correction_report["error"] = (
+                "A full Coordinator restart is intentionally skipped in the compact experience loop."
+            )
+
+        corrected_patch = _git_diff(args.repo)
+        corrected_feedback = (
+            _run_validation(
+                registry,
+                feedback_command,
+                timeout=args.verification_timeout,
+            )
+            if correction_report["attempted"] and feedback_command
+            else initial_feedback
+        )
+        corrected_lightweight = assess_lightweight_validation(baseline_feedback, corrected_feedback)
+        correction_report["patch_chars"] = len(corrected_patch)
+        correction_report["lightweight_validation"] = corrected_lightweight.to_dict()
+        report["correction"] = correction_report
+        successful_patch = corrected_patch
+
+    final_validation = (
+        _run_validation(registry, final_eval_command, timeout=args.final_eval_timeout)
+        if successful_patch.strip()
+        else {
+            "status": "skipped",
+            "command": final_eval_command,
+            "exit_code": None,
+            "output": "final evaluation skipped because the patch is empty",
+        }
+    )
+    report["final_validation"] = final_validation
+    if _validation_passed(final_validation) and successful_patch.strip():
+        correction_attempted = bool((report.get("correction") or {}).get("attempted"))
+        curator_result = coordinator.curate_repair_experience(
+            task=task,
+            successful_patch=successful_patch,
+            validation=final_validation,
+            provenance=args.provenance,
+            failed_patch=failed_patch if correction_attempted else "",
+            feedback=feedback if correction_attempted else None,
+        )
+        report["memory"] = _worker_payload(curator_result)
+        report["status"] = "experience_saved_or_updated"
+    else:
+        report["status"] = "not_learned_without_success"
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    (args.output_dir / "experience_build.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return report
+
+
+def _run_validation(registry, command: str, *, timeout: int) -> dict:
+    response = registry.execute("run_command", {"command": command, "timeout": timeout})
+    return {
+        "status": response.status.value,
+        "command": command,
+        "exit_code": response.data.get("exit_code"),
+        "output": response.text[-10_000:],
+    }
+
+
+def _validation_passed(validation: dict) -> bool:
+    return validation.get("exit_code") == 0 and validation.get("status") == "success"
+
+
+def _worker_payload(result) -> dict:
+    return {
+        "type": result.type,
+        "model": result.model,
+        "completed": result.completed,
+        "stop_reason": result.stop_reason,
+        "changed_files": list(result.changed_files),
+        "prompt_tokens": result.prompt_tokens,
+        "completion_tokens": result.completion_tokens,
+        "total_tokens": result.total_tokens,
+        "text": result.text,
+    }
+
+
+def _git_diff(repo: Path) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), "diff", "--binary", "--", ".", ":!.env*"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+        timeout=30,
+    )
+    return result.stdout if result.returncode in {0, 1} else ""
+
+
 def _build_task(args: argparse.Namespace) -> str:
-    if args.command == "run":
+    if args.command in {"run", "benchmark", "experience-build"}:
         return args.task
     if args.command == "curate-repair":
         if args.task_file:
             return args.task_file.read_text(encoding="utf-8", errors="replace")
         return args.task
     if args.command == "corrective-implement":
+        return args.task_file.read_text(encoding="utf-8", errors="replace")
+    if args.command in {
+        "review-failure",
+        "design-differential-tests",
+        "curate-experience",
+    }:
         return args.task_file.read_text(encoding="utf-8", errors="replace")
     if args.command == "fix-issue":
         return (

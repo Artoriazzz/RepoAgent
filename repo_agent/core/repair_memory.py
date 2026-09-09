@@ -8,7 +8,7 @@ from typing import Any
 from repo_agent.core.memory import MemoryStore, RecalledMemory, SideQueryFn
 
 
-MAX_REPAIR_RECIPE_CHARS = 6_000
+MAX_REPAIR_RECIPE_CHARS = 3_000
 MAX_CASE_FIELD_CHARS = 8_000
 
 
@@ -46,8 +46,13 @@ def augment_task_with_repair_recipes(
     task: str,
     memory_store: MemoryStore,
     side_query: SideQueryFn | None = None,
-    limit: int = 3,
+    limit: int = 1,
 ) -> RepairRecipeRecall:
+    """检索 recipe，经适用性门禁后才把它注入任务。
+
+    这里刻意把 retrieval 与 application 分开：高检索分只表示文本相似，
+    只有当前任务命中 recipe 的识别条件时，历史经验才有资格影响本轮修复。
+    """
     query = repair_recipe_query_from_task(task)
     memories = tuple(memory_store.recall_repair_recipes(query, limit=limit, side_query=side_query))
     if not memories:
@@ -73,6 +78,7 @@ def evaluate_repair_recipe_applicability(
     task: str,
     memories: tuple[RecalledMemory, ...],
 ) -> tuple[RepairRecipeApplicability, ...]:
+    """用任务签名检查 recipe 的前提，而不是把召回结果直接升级成硬约束。"""
     task_terms = _signature_terms(repair_recipe_query_from_task(task))
     results: list[RepairRecipeApplicability] = []
     for memory in memories:

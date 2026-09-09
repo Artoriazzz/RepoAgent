@@ -26,6 +26,12 @@ class ContextConfig:
 
 
 class ConversationContextManager:
+    """对消息历史执行确定性的分层上下文治理。
+
+    顺序从低损失到高损失：限制单条结果、移除重复旧 observation、空闲期清理，最后
+    才用 ShortTermMemory 重建会话摘要。这里不调用 LLM 总结，行为可预测且没有额外费用。
+    """
+
     def __init__(self, output_dir: Path | str, config: ContextConfig | None = None):
         self.output_dir = Path(output_dir)
         self.config = config or ContextConfig()
@@ -34,6 +40,8 @@ class ConversationContextManager:
         self.compaction_failures = 0
 
     def before_model_call(self, messages: list[dict[str, Any]]) -> None:
+        # 使用上一次模型调用报告的输入 token 估计当前压力，因此这是近似预算而非精确
+        # tokenizer 预计算。每次请求前按从轻到重的顺序处理历史工具结果。
         self._budget_tool_results(messages)
         self._snip_stale_results(messages)
         self._microcompact(messages)
@@ -51,6 +59,8 @@ class ConversationContextManager:
             return
 
         try:
+            # system prompt 保留长期规则，短期记忆保留任务状态，末尾消息保留最近交互。
+            # 压缩会损失原始细节，所以只有窗口利用率超过 85% 时才触发。
             system_message = messages[0]
             trailing = messages[-2:]
             summary = short_memory.compact_summary()
@@ -65,6 +75,8 @@ class ConversationContextManager:
             self.compaction_failures += 1
 
     def process_tool_response(self, tool_name: str, response: ToolResponse) -> ToolResponse:
+        # 完整结果先落盘，再把可定位的路径和预览送回模型。这样既保留可追溯证据，
+        # 又避免一次日志/搜索结果占满后续所有上下文。
         text = response.text
         if len(text.encode("utf-8")) > PERSIST_LARGE_RESULT_BYTES:
             response = self._persist_large_result(tool_name, response)

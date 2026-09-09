@@ -1,5 +1,6 @@
 from repo_agent.core.semantic_evidence import (
     blocking_patch_semantic_issues,
+    build_repair_brief,
     build_verification_plan,
     extract_json_object,
     implementation_semantic_issues,
@@ -70,6 +71,21 @@ def _pandas_evidence():
             }
         ],
     }
+
+
+def test_repair_brief_compacts_public_evidence_and_routes_candidates():
+    brief = build_repair_brief(
+        _pandas_evidence(),
+        "Fix pandas nullable dtype classification.",
+    )
+
+    assert brief.problem_contract["trigger"] == ["nullable pandas labels"]
+    assert {case["id"] for case in brief.semantic_cases} == {
+        "nullable_series_1d",
+        "nullable_dataframe_2d",
+    }
+    assert brief.verification_plan["command"] == 'python -c "assert True"'
+    assert brief.candidate_policy in {"single", "eligible"}
 
 
 def test_nullable_semantic_evidence_requires_series_dataframe_and_missing_behavior():

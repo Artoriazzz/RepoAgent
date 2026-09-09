@@ -25,6 +25,12 @@ class ToolSource(str, Enum):
 
 @dataclass
 class ToolResponse:
+    """所有工具共用的结构化 observation。
+
+    PARTIAL 表示“调用完成但结果不完整或命令未成功”，不是 Python 异常。统一响应让
+    Agent 可以把失败当作新证据继续决策，也让 QueryEngine 无需了解每个工具的异常类型。
+    """
+
     status: ToolStatus
     text: str
     data: dict[str, Any] = field(default_factory=dict)
@@ -84,6 +90,8 @@ ToolHandler = Callable[[dict[str, Any]], ToolResponse | str]
 
 
 class Tool:
+    """工具契约基类：schema、权限元数据、校验和执行生命周期。"""
+
     name: str
     description: str
     aliases: tuple[str, ...] = ()
@@ -114,6 +122,8 @@ class Tool:
         return PermissionResult.allow(parameters)
 
     def validate(self, parameters: dict[str, Any]) -> ToolResponse | None:
+        # schema 会帮助模型生成参数，但模型输出始终是不可信输入，因此执行前必须再次
+        # 做服务端校验。这里是浅层 JSON 类型校验，复杂业务约束应放进 permission/handler。
         if not isinstance(parameters, dict):
             return ToolResponse.failure("BAD_ARGUMENTS", "Tool arguments must be a JSON object.")
         for parameter in self.parameters():
@@ -130,6 +140,8 @@ class Tool:
         return None
 
     def run_with_timing(self, parameters: dict[str, Any], truncate: bool = True) -> ToolResponse:
+        """按 validate -> permission -> handler -> normalize 的固定管道执行工具。"""
+
         started = time.time()
         try:
             validation_error = self.validate(parameters)
@@ -149,6 +161,8 @@ class Tool:
         return response
 
     def to_openai_schema(self) -> dict[str, Any]:
+        # schema 是给模型看的能力说明，不是授权凭证。即使模型能生成某个调用，最终仍要
+        # 通过 check_permissions 和 handler 内部的路径/命令安全检查。
         properties: dict[str, Any] = {}
         required: list[str] = []
         for parameter in self.parameters():
@@ -318,6 +332,12 @@ def build_tool(
 
 
 class ToolRegistry:
+    """工具名称空间与唯一执行入口。
+
+    Worker 通过 subset/excluding 获得最小工具集；这比只在 prompt 中要求“不要调用”
+    更可靠，因为被移除的工具不会出现在 schema 中，也无法通过该 Registry 执行。
+    """
+
     def __init__(self):
         self._tools: dict[str, Tool] = {}
         self._aliases: dict[str, str] = {}
@@ -381,6 +401,8 @@ class ToolRegistry:
                 self._activated_deferred.add(name)
 
     def execute(self, name: str, arguments: str | dict[str, Any], truncate: bool = True) -> ToolResponse:
+        """解析模型参数并进入工具的统一安全执行管道。"""
+
         tool = self.get(name)
         if tool is None:
             return ToolResponse.failure("TOOL_NOT_FOUND", f"Unknown tool: {name}")

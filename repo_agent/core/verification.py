@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import ast
 import os
 import re
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -49,6 +51,7 @@ def prepare_verification_command(
     *,
     docker_image: str | None = None,
     interpreter: str | None = None,
+    apply_host_patch: bool = True,
 ) -> tuple[str, str]:
     """为验证命令选择确定运行时，返回执行命令和运行时类型。"""
 
@@ -60,11 +63,26 @@ def prepare_verification_command(
         # 保留镜像中已构建的 /testbed，只把 host diff 应用到容器临时层；直接覆盖
         # /testbed 会遮住 C 扩展等未被 git 跟踪的构建产物。
         inner_command = command.replace(repo, "/testbed")
-        apply_host_patch = (
-            "git -c safe.directory=/repo-agent-host -C /repo-agent-host "
-            "diff --binary -- . ':!.env*' | git apply --whitespace=nowarn -"
+        host_diff = (
+            subprocess.run(
+                ["git", "diff", "--binary", "--", ".", ":!.env*"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if apply_host_patch
+            else None
         )
-        container_command = f"{apply_host_patch} && {inner_command}"
+        if host_diff is not None and host_diff.returncode == 0 and host_diff.stdout.strip():
+            apply_host_patch = (
+                "git -c safe.directory=/repo-agent-host -C /repo-agent-host "
+                "diff --binary -- . ':!.env*' | git apply --whitespace=nowarn -"
+            )
+            container_command = f"{apply_host_patch} && {inner_command}"
+        else:
+            # 干净基线没有 patch；对空输入运行 git apply 会返回 128，误报环境失败。
+            container_command = inner_command
         prepared = " ".join(
             (
                 "docker run --rm --network none",
@@ -124,6 +142,8 @@ def verification_command_safety_reason(command: str) -> str | None:
         return "shell pipelines are forbidden because the last process can hide the test command exit code"
     if "||" in tokens:
         return "'||' fallback commands are forbidden because they can turn a failed verification into exit code 0"
+    if "cd" in tokens:
+        return "directory changes are forbidden; verification already runs from the repository root"
     normalized = command.strip().lower()
     if re.match(r"^(?:cat|tee)\b", normalized) and (">" in command or "<<" in command):
         return "the verification command only creates a file instead of executing a behavior check"
@@ -135,6 +155,127 @@ def verification_command_safety_reason(command: str) -> str | None:
         after = " ".join(tokens[separator + 1 :])
         if classify_verification_command(before) == "behavior" and after:
             return "commands after a behavior check are forbidden because their exit code can hide the test failure"
+    return None
+
+
+def public_assertion_contract_reason(command: str, expected_behavior: str) -> str | None:
+    """检查内联断言是否直接表达新行为，而不是旧值或宽松替代条件。"""
+
+    expected = expected_behavior.strip().lower()
+    if not expected:
+        return "expected_behavior must state the exact public result or exception"
+    normalized = command.strip().lower()
+    if re.search(r"\bpython(?:3)?\b", normalized) and "-c" in normalized:
+        source, source_error = _inline_python_source(command)
+        if source_error:
+            return source_error
+        try:
+            tree = ast.parse(source)
+        except SyntaxError as exc:
+            return f"the inline Python verification has invalid syntax: {exc.msg}"
+        assertions = [node for node in ast.walk(tree) if isinstance(node, ast.Assert)]
+        if not assertions:
+            return "an inline public verification must contain an explicit assert"
+        old_value = re.search(
+            r"\binstead\s+of\s+([+-]?\d+(?:\.\d+)?|true|false|none|['\"][^'\"]+['\"])",
+            expected,
+        )
+        for assertion in assertions:
+            expression = ast.unparse(assertion.test).lower()
+            if re.search(r"\b(?:old|baseline|before|previous)(?:_[a-z0-9]+)?\b", expression):
+                return "the assertion compares the old/baseline behavior instead of the requested new behavior"
+            if isinstance(assertion.test, ast.Compare) and any(
+                isinstance(operator, ast.NotEq) for operator in assertion.test.ops
+            ) and not re.search(
+                r"\b(?:not equal|must not|should not|nonzero|non-zero|different from)\b",
+                expected,
+            ):
+                return "a weak '!=' assertion does not prove the exact requested public behavior"
+            if old_value and re.search(
+                rf"==\s*{re.escape(old_value.group(1))}(?:\D|$)",
+                expression,
+            ):
+                return "the assertion checks the explicitly superseded old value"
+    return None
+
+
+def _inline_python_source(command: str) -> tuple[str, str | None]:
+    """从 shell 命令中提取 `python -c` 的源码参数。"""
+
+    try:
+        tokens = shlex.split(command)
+    except ValueError as exc:
+        return "", f"the inline Python verification has invalid shell quoting: {exc}"
+    try:
+        command_index = tokens.index("-c")
+    except ValueError:
+        return "", "the inline Python verification is missing the -c source argument"
+    if command_index + 1 >= len(tokens):
+        return "", "the inline Python verification is missing source code after -c"
+    return tokens[command_index + 1], None
+
+
+def behavior_failure_evidence_reason(
+    command: str,
+    evidence: str,
+    exit_code: int | None,
+    expected_behavior: str = "",
+    public_problem: str = "",
+) -> str | None:
+    """确认非零退出来自公开行为，而不是脚本构造、导入或环境异常。"""
+
+    if not isinstance(exit_code, int) or exit_code == 0:
+        return "the clean baseline did not exit with a behavioral failure"
+    normalized = command.strip().lower()
+    output = evidence.lower()
+    if re.search(r"\bpython(?:3)?\b", normalized) and "-c" in normalized:
+        if "assertionerror" in output:
+            return None
+        # Public reproducers can intentionally trigger the exception named in
+        # the issue before reaching a later assertion (for example an
+        # IndexError during widget construction or a ValueError from a norm).
+        # Accept that only when the expected contract names the same type.
+        exception_names = {
+            name.lower()
+            for name in re.findall(r"(?m)^\s*([A-Z][A-Za-z0-9_.]*Error):", evidence)
+        }
+        expected_names = {
+            name.lower()
+            for name in re.findall(
+                r"\b([A-Z][A-Za-z0-9_.]*Error)\b",
+                f"{expected_behavior}\n{public_problem}",
+            )
+        }
+        if exception_names & expected_names:
+            return None
+        if not expected_names and exception_names & {"indexerror", "valueerror", "typeerror"}:
+            return (
+                "the inline command raised a runtime exception before its assertion; "
+                "state that exact public exception in expected_behavior before registering it"
+            )
+        if exception_names:
+            return (
+                "the inline command raised an exception before its public assertion and it was not named by "
+                "expected_behavior; "
+                "fix the command input/API instead of treating the traceback as reproduction"
+            )
+        return (
+            "the inline command exited before its public assertion failed; "
+            "fix the command input/API instead of treating the traceback as reproduction"
+        )
+    if re.search(r"\b(?:pytest|unittest|tox|nox)\b", normalized):
+        if any(
+            marker in output
+            for marker in (
+                "error collecting",
+                "collection errors",
+                "modulenotfounderror",
+                "importerror while importing",
+            )
+        ):
+            return "the test command failed during collection/import rather than at a public behavior assertion"
+        if not any(marker in output for marker in (" failed", "failed ", "failure", "assertionerror")):
+            return "the test output does not contain a failed public behavior assertion"
     return None
 
 
