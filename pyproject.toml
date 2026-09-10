@@ -39,9 +39,11 @@ Issues = "https://github.com/Artoriazzz/RepoAgent/issues"
 
 [project.optional-dependencies]
 dev = ["pytest"]
+worker = ["pika>=1.3,<2.0"]
 
 [project.scripts]
 repo-agent = "repo_agent.cli:main"
+repo-agent-worker = "repo_agent.worker.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

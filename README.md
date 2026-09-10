@@ -99,6 +99,29 @@ repo-agent repair-ci \
   --coordinator
 ```
 
+## 后端 Worker
+
+`repo-agent-worker` 将 Java 后端的 RabbitMQ 任务接入现有 Coordinator，不替代 Agent loop。它读取后端任务上下文，在预同步的本地仓库镜像中创建独立 worktree，运行 `repo-agent run --coordinator`，保存 `model.patch` 并将状态回传为 `PATCH_READY`。
+
+安装 Worker 依赖：
+
+```bash
+python -m pip install -e ".[dev,worker]"
+```
+
+配置并启动：
+
+```bash
+export REPO_AGENT_RABBITMQ_URL='amqp://repoagent:repoagent@localhost:5672/%2F'
+export REPO_AGENT_BACKEND_URL='http://localhost:8080'
+export REPO_AGENT_WORKER_TOKEN='same-as-REPAIR_WORKER_TOKEN'
+export REPO_AGENT_WORK_ROOT='/var/lib/repo-agent'
+export REPO_AGENT_MODEL='deepseek-v4-flash'
+repo-agent-worker
+```
+
+后端会按 `<repository-id>` 查找 `${REPO_AGENT_WORK_ROOT}/mirrors/<repository-id>` 作为 Git mirror 或普通 clone。Worker 创建 `${REPO_AGENT_WORK_ROOT}/worktrees/<task-id>`，并将运行产物写到 `${REPO_AGENT_WORK_ROOT}/runs/<task-id>`。当前没有 GitHub App installation token 时，Worker 不 clone 私有仓库、不推送分支、不创建 PR；产出非空 patch 后停在 `PATCH_READY`，等待后续发布阶段。
+
 ## 两种修复模式
 
 ### Benchmark：冻结推理
@@ -204,7 +227,7 @@ repo_agent/
 
 ## 工程质量
 
-- 307 个单元与集成测试，覆盖 Agent Loop、工具权限、Coordinator、记忆、语义证据和 SWE-bench 批处理。
+- 309 个单元与集成测试，覆盖 Agent Loop、工具权限、Coordinator、记忆、语义证据、SWE-bench 批处理和后端 Worker 编排。
 - CI 在 Python 3.11 和 3.12 上运行完整测试。
 - 不保存 API Key；`.env`、运行轨迹和 benchmark 工作目录默认被忽略。
 - 批处理会记录代码版本、模式、模型、评测资格与实例级阶段归因。
