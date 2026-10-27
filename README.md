@@ -6,7 +6,7 @@
 
 **定位有依据 · 修改有边界 · 失败有反馈 · 成功有经验**
 
-[快速开始](#快速开始) · [认识修复小队](#认识修复小队) · [运行流程](#运行流程) · [经验与检索](#经验与检索) · [深入代码](#深入代码)
+[快速开始](#快速开始) · [认识修复小队](#认识修复小队) · [运行流程](#运行流程) · [经验与检索](#经验与检索) · [全栈启动](#全栈集成分支) · [深入代码](#深入代码)
 
 </div>
 
@@ -18,7 +18,7 @@ RepoAgent 是面向软件仓库的多 Agent 程序修复系统。它把公开 Is
 
 项目直接使用 OpenAI-compatible Chat Completions 的 `tools/tool_calls` 协议，自行实现 Agent Loop、工具权限、上下文管理和角色调度，**不依赖 LangGraph 或高层 Agent SDK**。这里使用的 `openai` 包仅是模型接口客户端。
 
-> 当前仓库包含 CLI、Python 后端 Worker 和 SWE-bench 研究工具。Java/Spring Boot 平台位于独立的 [backend 仓库](https://github.com/Artoriazzz/backend)。
+> 当前为 `codex/full-stack-integration` 集成分支，包含 Python Agent、Spring Boot 业务后端和 Vue 监控前端。原独立后端仓库保留，集成开发在此分支进行。
 
 ## 为什么是多 Agent
 
@@ -265,7 +265,41 @@ repo-agent-worker
 
 启动前需要运行配套后端与 RabbitMQ，并按后端仓库说明同步仓库镜像。后端 Worker 通过 `REPO_AGENT_MEMORY_MODE` 配置 `off`、`recall`、`learn`、`evolve`；CLI 则通过 `--repair-mode` 选择修复策略，两者分别控制各自入口。
 
-详细部署与业务设计见 [后端仓库](https://github.com/Artoriazzz/backend) 和 [平台设计](docs/defect-repair-platform-design.md)。
+详细接口与业务设计见 [backend/README.md](backend/README.md) 和 [平台设计](docs/defect-repair-platform-design.md)。
+
+### 全栈集成分支
+
+构建、测试和运行统一在 WSL 执行；本机用于编辑代码和 Git 操作。
+
+```text
+仓库根目录/
+├── repo_agent/           Python Agent、工具与消息队列 Worker
+├── backend/             Spring Boot、MySQL、Redis、RabbitMQ、Qdrant 接入
+│   ├── src/             业务接口、任务流水线、经验与数据库迁移
+│   ├── frontend/        Vue 3 + TypeScript 监控前端
+│   └── compose.yaml     本地基础设施
+└── Makefile             统一开发入口
+```
+
+安装 Python 开发环境后，在根目录执行：
+
+```bash
+make install
+make frontend-install
+cp .env.example .env
+# 填写模型配置，并将 REPAIR_WORKER_TOKEN 改成随机密钥。
+set -a
+source .env
+set +a
+make infra
+```
+
+随后在三个终端中分别加载根目录 `.env`，运行 `make backend`、`make worker`、
+`make frontend`。后端默认 8080，前端默认 5173；开发接口使用 `X-User-Id`。
+实际修复前还需创建用户/仓库/Issue，并为 Worker 准备仓库 mirror。
+
+完整环境要求、镜像准备、RAG 开关和验证方法见 [全栈开发指南](docs/full-stack-development.md)。
+`make test` 执行 Python 测试、Java 测试与前端构建；`make infra-down` 停止依赖并保留数据卷。
 
 ## 每次修复，都留下可检查的现场
 

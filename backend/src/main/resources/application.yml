@@ -1,0 +1,126 @@
+spring:
+  application:
+    name: repoagent-backend
+  datasource:
+    url: "${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/repoagent?serverTimezone=UTC&useUnicode=true&characterEncoding=UTF-8}"
+    username: ${SPRING_DATASOURCE_USERNAME:repoagent}
+    password: ${SPRING_DATASOURCE_PASSWORD:repoagent}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        type:
+          preferred_uuid_jdbc_type: CHAR
+    open-in-view: false
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:repoagent}
+    password: ${SPRING_RABBITMQ_PASSWORD:repoagent}
+    publisher-confirm-type: correlated
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+app:
+  cache:
+    prefix: ${APP_CACHE_PREFIX:repoagent:v1}
+    monitoring-overview-ttl-millis: ${MONITORING_CACHE_TTL_MILLIS:3000}
+    monitoring-overview-stale-ttl-millis: ${MONITORING_CACHE_STALE_TTL_MILLIS:30000}
+    monitoring-overview-rebuild-lock-ttl-millis: ${MONITORING_CACHE_REBUILD_LOCK_TTL_MILLIS:5000}
+    monitoring-overview-rebuild-wait-millis: ${MONITORING_CACHE_REBUILD_WAIT_MILLIS:120}
+    monitoring-overview-ttl-jitter-percent: ${MONITORING_CACHE_TTL_JITTER_PERCENT:20}
+    monitoring-overview-fallback-max-concurrency: ${MONITORING_CACHE_FALLBACK_MAX_CONCURRENCY:4}
+    admission-status-ttl-millis: ${ADMISSION_STATUS_CACHE_TTL_MILLIS:2000}
+  github:
+    webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+  repair:
+    exchange: repoagent.repair
+    simulator-enabled: ${APP_REPAIR_SIMULATOR_ENABLED:false}
+    worker-token: ${REPAIR_WORKER_TOKEN:}
+    artifact-root: ${REPAIR_ARTIFACT_ROOT:/var/lib/repo-agent/runs}
+    outbox:
+      poll-interval-millis: ${REPAIR_OUTBOX_POLL_INTERVAL_MILLIS:1000}
+      batch-size: ${REPAIR_OUTBOX_BATCH_SIZE:20}
+      max-attempts: ${REPAIR_OUTBOX_MAX_ATTEMPTS:12}
+      confirm-timeout-millis: ${REPAIR_OUTBOX_CONFIRM_TIMEOUT_MILLIS:5000}
+    recovery:
+      poll-interval-millis: ${REPAIR_RECOVERY_POLL_INTERVAL_MILLIS:15000}
+      batch-size: ${REPAIR_RECOVERY_BATCH_SIZE:20}
+    admission:
+      default-max-active-workflows: ${REPAIR_DEFAULT_MAX_ACTIVE_WORKFLOWS:3}
+      default-daily-task-limit: ${REPAIR_DEFAULT_DAILY_TASK_LIMIT:20}
+      global-max-inflight: ${REPAIR_GLOBAL_MAX_INFLIGHT:100}
+      global-max-waiting-stages: ${REPAIR_GLOBAL_MAX_WAITING_STAGES:200}
+      outbox-backlog-limit: ${REPAIR_OUTBOX_BACKLOG_LIMIT:500}
+      requests-per-minute: ${REPAIR_SUBMISSIONS_PER_MINUTE:30}
+    event-stream-timeout-millis: ${REPAIR_EVENT_STREAM_TIMEOUT_MILLIS:1800000}
+  monitoring:
+    worker-offline-after-seconds: ${MONITORING_WORKER_OFFLINE_AFTER_SECONDS:45}
+    worker-presence-ttl-seconds: ${MONITORING_WORKER_PRESENCE_TTL_SECONDS:45}
+  memory:
+    legacy-import:
+      # 仅用于一次性迁移旧版 ~/.repoagent 的已验证 SWE-bench 经验，默认关闭。
+      enabled: ${MEMORY_LEGACY_IMPORT_ENABLED:false}
+      source-root: ${MEMORY_LEGACY_IMPORT_ROOT:}
+    rag-cache:
+      enabled: ${MEMORY_RAG_CACHE_ENABLED:true}
+      index-ttl-seconds: ${MEMORY_RAG_CACHE_INDEX_TTL_SECONDS:20}
+      vector-ttl-seconds: ${MEMORY_RAG_CACHE_VECTOR_TTL_SECONDS:86400}
+      content-ttl-seconds: ${MEMORY_RAG_CACHE_CONTENT_TTL_SECONDS:86400}
+      # Redis 仅作为未启用 Qdrant 时的回退索引。缓存重建通过短租约锁收敛回源，
+      # TTL 加少量抖动，避免热点 key 同时失效。
+      rebuild-lock-ttl-millis: ${MEMORY_RAG_CACHE_REBUILD_LOCK_TTL_MILLIS:3000}
+      rebuild-wait-millis: ${MEMORY_RAG_CACHE_REBUILD_WAIT_MILLIS:120}
+    retrieval:
+      # 默认限制单个作用域的候选池，避免高并发时向量计算无界增长。
+      max-candidates: ${MEMORY_RETRIEVAL_MAX_CANDIDATES:200}
+    qdrant:
+      # 默认关闭，保留 Redis 三级缓存路径，便于和 Qdrant 进行相同数据集的对比实验。
+      enabled: ${MEMORY_QDRANT_ENABLED:false}
+      base-url: ${MEMORY_QDRANT_BASE_URL:http://127.0.0.1:6333}
+      collection: ${MEMORY_QDRANT_COLLECTION:repoagent_memory_v1}
+      timeout-millis: ${MEMORY_QDRANT_TIMEOUT_MILLIS:3000}
+      candidate-multiplier: ${MEMORY_QDRANT_CANDIDATE_MULTIPLIER:4}
+      # Qdrant 不可用时快速降级为空记忆结果，不回源扫描 MySQL 全候选池。
+      circuit-failure-threshold: ${MEMORY_QDRANT_CIRCUIT_FAILURE_THRESHOLD:3}
+      circuit-cooldown-millis: ${MEMORY_QDRANT_CIRCUIT_COOLDOWN_MILLIS:10000}
+      max-concurrent-queries: ${MEMORY_QDRANT_MAX_CONCURRENT_QUERIES:32}
+      # 仅首次部署时打开；会复用 MySQL 中已有 embedding，不会再次请求模型。
+      bootstrap-on-startup: ${MEMORY_QDRANT_BOOTSTRAP_ON_STARTUP:false}
+      bootstrap-batch-size: ${MEMORY_QDRANT_BOOTSTRAP_BATCH_SIZE:64}
+      # 低频对账会把 MySQL 当前版本重新写入 Qdrant，并清理旧版本 point。
+      reconcile-enabled: ${MEMORY_QDRANT_RECONCILE_ENABLED:true}
+      reconcile-interval-millis: ${MEMORY_QDRANT_RECONCILE_INTERVAL_MILLIS:900000}
+      reconcile-batch-size: ${MEMORY_QDRANT_RECONCILE_BATCH_SIZE:64}
+    merge:
+      # 成功修复先写 proposal；独立 Memory Agent 领取同一正式版本上的小批量提案。
+      max-proposals-per-batch: ${MEMORY_MERGE_MAX_PROPOSALS_PER_BATCH:12}
+      claim-scan-size: ${MEMORY_MERGE_CLAIM_SCAN_SIZE:24}
+      recovery-batch-size: ${MEMORY_MERGE_RECOVERY_BATCH_SIZE:50}
+      recovery-interval-millis: ${MEMORY_MERGE_RECOVERY_INTERVAL_MILLIS:30000}
+      proposal-hold-seconds: ${MEMORY_MERGE_PROPOSAL_HOLD_SECONDS:60}
+    benchmark:
+      # 受 Worker Token 保护的开发基准入口，生产环境默认不暴露。
+      enabled: ${MEMORY_RETRIEVAL_BENCHMARK_ENABLED:false}
+    embedding:
+      enabled: ${MEMORY_EMBEDDING_ENABLED:false}
+      base-url: ${MEMORY_EMBEDDING_BASE_URL:https://api.openai.com/v1}
+      api-key: ${MEMORY_EMBEDDING_API_KEY:}
+      model: ${MEMORY_EMBEDDING_MODEL:text-embedding-3-small}
+      profile: ${MEMORY_EMBEDDING_PROFILE:memory-retrieval-v1}
+      timeout-millis: ${MEMORY_EMBEDDING_TIMEOUT_MILLIS:15000}
+      poll-interval-millis: ${MEMORY_EMBEDDING_POLL_INTERVAL_MILLIS:2000}
+      batch-size: ${MEMORY_EMBEDDING_BATCH_SIZE:10}
+      max-attempts: ${MEMORY_EMBEDDING_MAX_ATTEMPTS:8}
+      claim-timeout-seconds: ${MEMORY_EMBEDDING_CLAIM_TIMEOUT_SECONDS:60}
