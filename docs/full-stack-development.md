@@ -1,6 +1,6 @@
 # 全栈集成分支开发指南
 
-分支：`codex/full-stack-integration`。Python 包、CLI 和 Worker 保留在仓库根目录，
+分支：`full-stack-integration`。Python 包、CLI 和 Worker 保留在仓库根目录，
 Spring Boot 放在 `backend/`，Vue 前端放在 `backend/frontend/`。
 
 ## 导入来源
@@ -21,7 +21,7 @@ Docker 依赖会使用 3306、6379、5672、15672、6333、6334；业务服务�
 请先确认端口空闲，并准备独立的开发数据库；已有数据库请先备份。
 
 ```bash
-git switch codex/full-stack-integration
+git switch full-stack-integration
 python -m venv .venv
 make install
 make frontend-install

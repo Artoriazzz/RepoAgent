@@ -8,7 +8,7 @@
 Node.js 22、Docker Compose 和 make，配置方法见 [部署指南](full-stack-development.md)。
 
 ```bash
-git clone --branch codex/full-stack-integration https://github.com/Artoriazzz/RepoAgent.git
+git clone --branch full-stack-integration https://github.com/Artoriazzz/RepoAgent.git
 cd RepoAgent
 python -m venv .venv
 source .venv/bin/activate
