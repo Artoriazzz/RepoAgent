@@ -6,7 +6,7 @@ SWEBENCH_ROOT=${SWEBENCH_ROOT:-/home/artoria/workspace/SWE-bench}
 WORK_DIR=${WORK_DIR:-$SWEBENCH_ROOT/agent_work}
 RUN_NAME=${RUN_NAME:-INVALID-experience-build-four-prioritized-harness-v46-20260807}
 OUTPUT_DIR=${OUTPUT_DIR:-$WORK_DIR/runs/$RUN_NAME}
-PROXY=${PROXY:-http://127.0.0.1:7897}
+PROXY=${PROXY:-}
 MIRROR_BASE=${MIRROR_BASE:-http://172.17.0.1:18080}
 MEMORY_PROVENANCE=${MEMORY_PROVENANCE:-swebench-lite-prioritized-harness-v46}
 NAMESPACE=${NAMESPACE:-swebench}
@@ -17,6 +17,10 @@ INSTANCE_ARGS=()
 for instance_id in "${INSTANCE_ID_LIST[@]}"; do
   INSTANCE_ARGS+=(--instance-id "$instance_id")
 done
+PROXY_ARGS=()
+if [[ -n "$PROXY" ]]; then
+  PROXY_ARGS+=(--proxy "$PROXY")
+fi
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -33,7 +37,7 @@ exec "$REPO_AGENT_ROOT/.venv/bin/python" \
   --work-dir "$WORK_DIR" \
   --output-dir "$OUTPUT_DIR" \
   --env-file "$REPO_AGENT_ROOT/.env" \
-  --proxy "$PROXY" \
+  "${PROXY_ARGS[@]}" \
   --offline-cache \
   "${INSTANCE_ARGS[@]}" \
   --max-steps 12 \

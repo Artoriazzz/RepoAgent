@@ -38,6 +38,31 @@ def test_memory_store_saves_index_and_recalls(tmp_path):
     assert "默认中文回答" in recalled[0].content
 
 
+def test_global_and_repository_experience_use_separate_scopes(tmp_path):
+    store = MemoryStore.for_scope("repo:owner/project", root=tmp_path)
+    global_filename = store.save_memory(
+        name="consumer contract",
+        description="shared consumer contract failure",
+        type="global_experience",
+        content="mechanism: validate the first consumer predicate before editing",
+    )
+    repository_filename = store.save_memory(
+        name="parser helper",
+        description="repository parser helper contract",
+        type="repository_experience",
+        content="modules: parser API; reusable helper: normalize_token",
+    )
+
+    assert (tmp_path / "global" / "memory" / global_filename).is_file()
+    assert (store.memory_dir / repository_filename).is_file()
+    assert store.recall_experiences(
+        "consumer predicate", memory_type=MemoryType.GLOBAL_EXPERIENCE
+    )
+    assert store.recall_experiences(
+        "parser normalize_token", memory_type=MemoryType.REPOSITORY_EXPERIENCE
+    )
+
+
 def test_repair_recipe_memory_uses_shared_scope_and_type_filter(tmp_path):
     store = MemoryStore.for_scope("repo:owner/project", root=tmp_path)
     filename = store.save_memory(

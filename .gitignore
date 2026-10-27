@@ -17,3 +17,9 @@ build/
 .repo_agent_runs/
 tool-results/
 subagents/
+benchmark-results/
+
+# Local archives are not part of the distributable source.
+/backups/
+/docs/diagnostics/
+/docs/AGENT_HANDOFF.md

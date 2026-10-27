@@ -3,6 +3,7 @@ import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+import pytest
 
 
 def load_batch_module():
@@ -12,6 +13,35 @@ def load_batch_module():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def test_api_failure_is_not_an_invalid_patch(tmp_path):
+    batch = load_batch_module()
+    stdout = "Traceback (most recent call last):\nopenai.APITimeoutError: Request timed out.\n"
+    result = subprocess.CompletedProcess([], 1, stdout=stdout)
+    assert batch.agent_process_status(result) == "api_error"
+    assert batch.agent_process_status(subprocess.CompletedProcess([], 1, stdout="AssertionError: failed")) == "agent_error"
+    assert batch.agent_process_status(subprocess.CompletedProcess([], 0, stdout=stdout)) == "agent_ok"
+    assert batch.api_error_type("The task mentions openai.APITimeoutError: as an example") is None
+    stage = tmp_path / "pass-1" / "experience-correction" / "corrective-implement"
+    stage.mkdir(parents=True)
+    (stage / "agent_stdout.txt").write_text(stdout)
+    errors = batch.collect_api_errors(tmp_path)
+    assert errors == [{"type": "APITimeoutError", "log_path": str(stage / "agent_stdout.txt"),
+                       "stage": "pass-1/experience-correction/corrective-implement"}]
+
+
+@pytest.mark.parametrize("line", [
+    "RuntimeError: Incomplete LLM stream: finish_reason=network_error",
+    "repo_agent.core.llm.LLMStreamInterruptedError: Incomplete LLM stream: finish_reason=network_error",
+])
+def test_failed_review_stream_is_counted_as_api_error(tmp_path, line):
+    batch = load_batch_module()
+    stage = tmp_path / "experience-correction/failure-review"
+    stage.mkdir(parents=True)
+    (stage / "review_stdout.txt").write_text("Traceback (most recent call last):\n" + line + "\n")
+    assert batch.collect_api_errors(tmp_path)[0]["type"] == "LLMStreamInterruptedError"
+    assert batch.api_error_type("The task mentions " + line) is None
 
 
 def test_find_report_path_resolves_relative_path(tmp_path):
@@ -31,6 +61,56 @@ def test_read_failure_excerpt_prefers_failure_section(tmp_path):
 
     assert "important failure" in excerpt
     assert "noise" not in excerpt
+
+
+@pytest.mark.parametrize("status,risk,completed,accepted", [
+    ("completed", False, True, True), ("partial", False, True, False),
+    ("blocked", False, True, False), ("completed", True, True, True),
+    ("completed", False, False, False),
+])
+def test_corrective_delivery_rejects_partial_patch(tmp_path, monkeypatch, status, risk, completed, accepted):
+    batch = load_batch_module()
+    scope = {"allowed_files": ["module.py"], "allowed_ranges": {"module.py": [[1, 20]]}}
+    monkeypatch.setattr(batch, "corrective_constraints_from_patch", lambda *a, **k: scope)
+    monkeypatch.setattr(batch, "add_reasoning_cli_args", lambda *a: None)
+    monkeypatch.setattr(batch, "add_memory_cli_args", lambda *a: None)
+    monkeypatch.setattr(batch, "git_diff", lambda *a: "partial-or-final-patch")
+    restored = []
+    monkeypatch.setattr(batch, "restore_worktree_patch", lambda repo, patch: restored.append(patch))
+    out = tmp_path / "corrective"
+    def run(command, **kwargs):
+        report = {"status": status, "remaining_changes": [] if status == "completed" else ["caller"],
+                  "block_reason": "" if status == "completed" else "scope",
+                  "known_risks": [{"overlaps_changed_contract": risk}]}
+        (out / "worker_result.json").write_text(json.dumps({"completed": completed, "text": json.dumps(report)}))
+        return subprocess.CompletedProcess(command, 0, stdout="done")
+    monkeypatch.setattr(batch.subprocess, "run", run)
+    result = batch.run_inline_experience_corrective({}, tmp_path, out, "task", "old-patch", {},
+        SimpleNamespace(repo_agent_bin="agent", model="test", implement_model=None, timeout=10), {})
+    assert result["model_patch"] == ("partial-or-final-patch" if accepted else "old-patch")
+    assert result["status"] == ("agent_ok" if accepted else "corrective_incomplete")
+    assert restored == ([] if accepted else ["old-patch"])
+    assert (out / "model.patch").read_text() == "partial-or-final-patch"
+
+
+def test_corrective_routes_same_file_missing_range_before_edit(tmp_path, monkeypatch):
+    batch = load_batch_module()
+    monkeypatch.setattr(batch, "corrective_constraints_from_patch", lambda *a, **k: {
+        "allowed_files": ["module.py"], "allowed_ranges": {"module.py": [[198, 444]]}})
+    monkeypatch.setattr(batch, "add_reasoning_cli_args", lambda *a: None)
+    commands = []
+    def run(command, **kwargs):
+        commands.append(command)
+        replan = Path(command[command.index("--output-dir") + 1])
+        (replan / "replan.json").write_text(json.dumps({"status": "blocked"}))
+        return subprocess.CompletedProcess(command, 0, stdout="blocked")
+    monkeypatch.setattr(batch.subprocess, "run", run)
+    feedback = {"required_edits": [{"path": "module.py", "start_line": 580, "end_line": 585, "change": "caller"}]}
+    result = batch.run_inline_experience_corrective({}, tmp_path, tmp_path / "corrective", "task", "old", feedback,
+        SimpleNamespace(repo_agent_bin="agent", model="test", timeout=10), {})
+    assert commands[0][1] == "coordinator-replan"
+    assert len(commands) == 1
+    assert result["implement_attempted"] is False
 
 
 def test_read_failure_excerpt_prioritizes_target_over_early_environment_noise(tmp_path):
@@ -113,6 +193,55 @@ def test_read_failure_excerpt_keeps_changed_path_regression_after_target(tmp_pat
     assert "unexpected related_name on from_field" in excerpt
 
 
+def test_failure_excerpt_handles_two_underscore_header_and_stops_before_warnings(tmp_path):
+    batch = load_batch_module()
+    name = "NumpyDocstringTest.test_underscore_in_attribute_strip_signature_backslash"
+    failure = (
+        f"__ {name} ___\n"
+        "    self.assertEqual(expected, actual)\n"
+        "E AssertionError: expected arg\\_, actual arg_\n"
+        "tests/test_ext_napoleon_docstring.py:1431: AssertionError\n"
+    )
+    output = tmp_path / "test_output.txt"
+    output.write_text(
+        "=================================== FAILURES ===================================\n"
+        + failure
+        + "=============================== warnings summary ===============================\n"
+        "/site-packages/pkg_resources/__init__.py: DeprecationWarning: deprecated\n"
+        "==================================== PASSES ====================================\n"
+        "PASSED unrelated_test\n",
+        encoding="utf-8",
+    )
+    report = {"tests_status": {"PASS_TO_PASS": {"failure": [
+        "tests/test_ext_napoleon_docstring.py::" + name.replace(".", "::", 1)
+    ]}}}
+
+    blocks = batch._harness_failure_blocks(output.read_text())
+    assert len(blocks) == 1
+    assert blocks[0][1] == failure.strip()
+    excerpt = batch.read_failure_excerpt(output, instance_report=report)
+    assert excerpt.startswith("## REGRESSION FAILURE:")
+    assert "expected arg\\_, actual arg_" in excerpt
+    assert "DeprecationWarning" not in excerpt
+    assert "PASSED unrelated_test" not in excerpt
+
+
+def test_failure_excerpt_preserves_assertion_with_warning_in_fallback(tmp_path):
+    batch = load_batch_module()
+    output = tmp_path / "test_output.txt"
+    output.write_text(
+        "test_attribute_regression\n"
+        "E AssertionError: expected escaped, actual unescaped\n"
+        "/site-packages/pkg_resources/__init__.py: DeprecationWarning: deprecated\n",
+        encoding="utf-8",
+    )
+    report = {"tests_status": {"PASS_TO_PASS": {"failure": ["test_attribute_regression"]}}}
+
+    excerpt = batch.read_failure_excerpt(output, instance_report=report)
+    assert excerpt.startswith("## REGRESSION FAILURE:")
+    assert "AssertionError: expected escaped, actual unescaped" in excerpt
+
+
 def test_parser_defaults_to_single_pass_official_mode(tmp_path):
     batch = load_batch_module()
 
@@ -172,13 +301,21 @@ def test_batch_validates_cli_normalized_failure_routes():
         ],
         "correction_evidence_ids": ["E1", "E2"],
     }
-    replan = {
-        "correction_route": "coordinator_replan",
-        "correction_readiness": "needs_replan",
-        "next_evidence_source": "public_test",
-    }
-
     assert batch.validated_failure_feedback_route(actionable) == "corrective_implement"
+    replan = {**actionable, "correction_route": "coordinator_replan",
+              "correction_readiness": "needs_replan", "next_evidence_source": "repository_code",
+              "replan_reason": "Read and authorize producer.py outside old scope"}
+    assert batch.validated_failure_feedback_route(replan) == "coordinator_replan"
+    failure_only_replan = {**replan, "failure_observation_quality": "failure_only"}
+    assert batch.validated_failure_feedback_route(failure_only_replan) == "coordinator_replan"
+    assert batch.validated_failure_feedback_route({**failure_only_replan, "replan_reason": ""}) is None
+    assert batch.validated_failure_feedback_route({**failure_only_replan, "next_evidence_source": "none"}) is None
+    assert batch.validated_failure_feedback_route({**failure_only_replan, "scope_expansion": ["New feature"]}) is None
+    assert batch.validated_failure_feedback_route({**failure_only_replan, "failure_observation_quality": "unknown"}) is None
+    assert batch.validated_failure_feedback_route({**failure_only_replan, "correction_evidence_ids": ["E1"]}) is None
+    assert batch.validated_failure_feedback_route({**failure_only_replan, "correction_evidence_ids": ["E2"]}) == "coordinator_replan"
+    assert batch.validated_failure_feedback_route({**actionable, "correction_evidence_ids": ["E2"]}) is None
+    assert batch.validated_failure_feedback_route({**replan, "scope_expansion": ["New feature"]}) is None
     actionable["evidence_ledger"].append(
         {
             "id": "E3",
@@ -192,9 +329,22 @@ def test_batch_validates_cli_normalized_failure_routes():
     actionable["evidence_ledger"][-1]["support"] = "unknown"
     assert batch.validated_failure_feedback_route(actionable) is None
     actionable["evidence_ledger"][-1]["support"] = "inference"
-    assert batch.validated_failure_feedback_route(replan) == "coordinator_replan"
     actionable["failure_observation_quality"] = "failure_only"
     assert batch.validated_failure_feedback_route(actionable) is None
+    actionable["evidence_ledger"].append({"id": "E4", "source": "repository_code",
+        "fact": "producer.py:20 lacks the required conversion", "support": "direct"})
+    actionable["correction_evidence_ids"].append("E4")
+    assert batch.validated_failure_feedback_route(actionable) == "corrective_implement"
+
+
+def test_output_limit_is_not_reported_as_invalid_patch():
+    batch = load_batch_module()
+    error = "repo_agent.core.llm.LLMOutputLimitError: Incomplete LLM stream: finish_reason=length\n"
+    result = subprocess.CompletedProcess([], 1, stdout=error)
+    assert batch.agent_process_status(result) == "output_limit"
+    assert batch.agent_process_status(subprocess.CompletedProcess([], 1, stdout="task mentions LLMOutputLimitError")) == "agent_error"
+    attribution = batch.finalize_stage_attribution({"status": "output_limit", "patch_chars": 0})
+    assert attribution["harness_attribution"]["primary"] == "model_output_limit"
 
 
 def test_batch_extracts_reproducer_before_after_lightweight_validation():
@@ -594,13 +744,15 @@ def test_experience_validation_preserves_failed_patch_for_lightweight_correction
     assert "verification_failed_feedback_eligible:behavior_failed" in result["warnings"]
 
 
-def test_experience_batch_uses_initial_harness_failure_then_evaluates_correction(tmp_path, monkeypatch):
+@pytest.mark.parametrize("second_result", ["resolved", "failed", "error"])
+def test_experience_batch_uses_initial_harness_failure_then_evaluates_correction(tmp_path, monkeypatch, second_result):
     batch = load_batch_module()
     repo = tmp_path / "work" / "repos" / "owner__repo-1"
     output = tmp_path / "out"
     output.mkdir()
     initial_patch = "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+first\n"
     corrected_patch = initial_patch.replace("+first", "+corrected")
+    final_patch = initial_patch.replace("+first", "+final")
     current = {"patch": initial_patch}
     harness_calls = []
     correction_feedback = []
@@ -639,13 +791,14 @@ def test_experience_batch_uses_initial_harness_failure_then_evaluates_correction
 
     def fake_correction(*args, **kwargs):
         correction_feedback.append(args[5])
-        current["patch"] = corrected_patch
+        selected_patch = corrected_patch if len(correction_feedback) == 1 else final_patch
+        current["patch"] = selected_patch
         feedback_file = output / "pass-1" / "experience-correction" / "feedback.json"
         feedback_file.parent.mkdir(parents=True, exist_ok=True)
         feedback_file.write_text("{}", encoding="utf-8")
         return {
             "attempted": True,
-            "model_patch": corrected_patch,
+            "model_patch": selected_patch,
             "output_dir": str(feedback_file.parent),
             "feedback_file": str(feedback_file),
             "stage_attribution": {},
@@ -653,11 +806,11 @@ def test_experience_batch_uses_initial_harness_failure_then_evaluates_correction
 
     def fake_harness(*args, **kwargs):
         harness_calls.append(args[1])
-        if len(harness_calls) == 1:
+        if len(harness_calls) == 1 or (len(harness_calls) == 2 and second_result in {"failed", "error"}):
             return {
                 "resolved": False,
                 "unresolved": True,
-                "error": False,
+                "error": len(harness_calls) == 2 and second_result == "error",
                 "failure_excerpt": "AssertionError: expected fixed, got first",
                 "failure_facts": {"exception_types": ["AssertionError"]},
                 "instance_report": {
@@ -727,12 +880,13 @@ def test_experience_batch_uses_initial_harness_failure_then_evaluates_correction
         {},
     )
 
-    assert result["model_patch"] == corrected_patch, result
-    assert harness_calls == [initial_patch, corrected_patch]
+    assert result["model_patch"] == (final_patch if second_result == "failed" else corrected_patch), result
+    assert harness_calls == ([initial_patch, corrected_patch, final_patch] if second_result == "failed" else [initial_patch, corrected_patch])
+    assert len(correction_feedback) == (2 if second_result == "failed" else 1)
     assert correction_feedback[0]["validation_kind"] == "swebench_harness_feedback"
     assert correction_feedback[0]["feedback_eligible"] is True
     assert result["passes"][0]["initial_harness"]["unresolved"] is True
-    assert result["passes"][0]["harness"]["resolved"] is True
+    assert result["passes"][0]["harness"]["resolved"] is (second_result != "error")
 
 
 def test_experience_build_requires_evaluation_and_provenance(tmp_path):
@@ -1044,7 +1198,7 @@ def test_static_safe_unverified_patch_is_kept_with_precise_warning():
     assert result["warnings"] == ["verification_not_available"]
 
 
-def test_build_task_contains_compact_benchmark_policy(tmp_path):
+def test_build_task_contains_only_public_task_and_location(tmp_path):
     batch = load_batch_module()
     task = batch.build_task(
         {
@@ -1055,25 +1209,20 @@ def test_build_task_contains_compact_benchmark_policy(tmp_path):
         tmp_path / "repo",
     )
 
-    assert "hints_text" in task
+    assert "hints_text" not in task
     assert "secret hint" not in task
     assert "Hints From Issue Discussion" not in task
-    assert "at most 3 narrow search/read rounds" in task
-    assert "Never install dependencies" in task
-    assert "allowed_ranges" in task
-    assert "Benchmark is strict pass@1" in task
-    assert "Reproducer is optional" in task
-    assert "Historical memory is soft evidence" in task
-    assert "source-confirmed obligations" in task
-    assert "rejected failed attempts" in task
-    assert "FailureReview, at most one Corrective Implement" not in task
-    assert "named algorithm/formula/bound replacement" in task
+    assert task == (
+        "## Instance\nproj__repo-1\n\n"
+        f"## Repository\n{tmp_path / 'repo'}\n\n"
+        "## Problem Statement\nTypeError: Writer.__init__() got an unexpected keyword argument 'header_rows'\n"
+    )
     assert "Nullable pandas dtype constraint" not in task
     assert "mandatory patch_review" not in task
     assert "verdict=accept" not in task
 
 
-def test_build_task_uses_harness_feedback_only_after_initial_experience_patch(tmp_path):
+def test_build_task_does_not_duplicate_system_mode_policy(tmp_path):
     batch = load_batch_module()
     task = batch.build_task(
         {
@@ -1084,12 +1233,11 @@ def test_build_task_uses_harness_feedback_only_after_initial_experience_patch(tm
         repair_mode="experience-build",
     )
 
-    assert "without constructing a public verification command" in task
-    assert "one full harness evaluation" in task
-    assert "unresolved result may be reviewed once and corrected once" in task
-    assert "environment errors are never code feedback" in task
-    assert "Only FailureReview and Corrective Implement" in task
-    assert "Memory is written only after" in task
+    assert "## Instructions" not in task
+    assert "Public example returns the wrong value." in task
+    assert "FailureReview" not in task
+    assert "Corrective Implement" not in task
+    assert "Memory is written only after" not in task
     assert "Benchmark is strict pass@1" not in task
 
 
@@ -1109,7 +1257,7 @@ def test_build_task_leaves_matched_alias_details_to_constraint_router(tmp_path):
     assert "canonical lookup identity separate from rendered identity" not in task
     assert "dict.pop(orig, 'backend', None)" not in task
     assert "mplot3d/art3d.py" not in task
-    assert "Do not spend steps inventing a public verification oracle" in task
+    assert "## Instructions" not in task
 
 
 def test_build_task_leaves_nullable_pandas_details_to_constraint_router(tmp_path):

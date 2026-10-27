@@ -1,14 +1,17 @@
 import json
 import subprocess
 import sys
+from dataclasses import replace
 
 from repo_agent.core.coordinator import (
     COORDINATOR_SYSTEM_PROMPT,
+    SWEBENCH_COORDINATOR_BASE_PROMPT,
     CoordinatorEngine,
     _budgeted_agent_tools,
     _candidate_mode_required_for_task,
     _coordinator_completion_guard,
     _coordinator_read_only_tools,
+    _remaining_coordinator_read_queries,
     _public_verification_registration_tool,
     coordinator_system_prompt,
 )
@@ -23,12 +26,14 @@ from repo_agent.core.repair_memory import (
     repair_recipe_query_from_task,
 )
 from repo_agent.core.subagent import (
+    FAILURE_REVIEW_PROMPT,
     IMPLEMENT_PROMPT,
     PATCH_RANKER_PROMPT,
     PATCH_REVIEW_PROMPT,
     REPRODUCER_PROMPT,
     RESEARCH_PROMPT,
     SWEBENCH_IMPLEMENT_PROMPT,
+    SWEBENCH_IMPLEMENT_OUTPUT_SCHEMA,
     SWEBENCH_REPRODUCER_PROMPT,
     VERIFY_PROMPT,
     SubAgentRunner,
@@ -36,6 +41,7 @@ from repo_agent.core.subagent import (
     WorkerResult,
     _failure_review_completion_guard,
     _reproducer_completion_guard,
+    _worker_prompt,
     get_worker_spec,
 )
 from repo_agent.core.task_constraints import MATCHED_ALIAS_CONTRACT, NULLABLE_PANDAS_CONTRACT
@@ -50,9 +56,11 @@ from repo_agent.tools.agent_tools import (
     _constrain_implement_to_consumer_layer,
     _constrain_nullable_pandas_scope_from_source,
     _constrain_star_alias_scope_from_source,
+    _implementation_report_review_reasons,
     _patch_review_requires_revision,
     _research_like_implement_terms,
     _run_candidate_commands,
+    _unresolved_edit_application_errors,
     build_agent_tools,
 )
 from repo_agent.tools.repo_tools import RepoWorkspace, register_repo_tools
@@ -82,14 +90,36 @@ def test_swebench_coordinator_prompt_is_routed_by_repair_mode():
 
     assert "严格 pass@1" in benchmark
     assert "冻结只读快照" in benchmark
-    assert "历史 semantic/episodic memory" in benchmark
-    assert "Prompt 词面不是安全边界" in benchmark
+    assert "全局经验/仓库经验" in benchmark
+    assert "修改方向仍须由当前题意和源码确认" in benchmark
     assert "外层状态机仅" not in benchmark
     assert "结构、语法和范围检查" in experience
-    assert "初始阶段不派 Reproducer、Verify Worker" in experience
-    assert "真实 unresolved" in experience
-    assert "最多运行一次 Corrective Implement 和一次最终 harness" in experience
-    assert "benchmark 模式不会执行上述反馈闭环" in experience
+    assert "不构造复现或验证命令" in experience
+    assert "本轮不召回任何历史经验" in experience
+    assert "后续工作由调用程序负责" in experience
+    assert "三次 harness" not in experience
+    assert "ExperienceCurator" not in experience
+    assert "不要反复推演同一组假设" in experience
+
+
+def test_model_facing_role_prompts_are_self_contained_and_unbranded():
+    prompts = (
+        COORDINATOR_SYSTEM_PROMPT,
+        RESEARCH_PROMPT,
+        REPRODUCER_PROMPT,
+        IMPLEMENT_PROMPT,
+        SWEBENCH_REPRODUCER_PROMPT,
+        SWEBENCH_IMPLEMENT_PROMPT,
+        PATCH_REVIEW_PROMPT,
+        VERIFY_PROMPT,
+        FAILURE_REVIEW_PROMPT,
+    )
+
+    for prompt in prompts:
+        assert "RepoAgent" not in prompt
+        assert "Worker" not in prompt
+        assert "FailureReview" not in prompt
+        assert "Corrective Implement" not in prompt
 
 
 def test_experience_coordinator_does_not_construct_public_verification_oracle(
@@ -122,8 +152,8 @@ VERIFICATION_RUNTIME_READY=true.
     assert engine._coordinator_budget_state["required_transition"] == ""
     assert engine.repair_memory_recall is False
     assert "register_public_verification" not in engine.engine.tools.names()
-    assert "不构造公开验证命令" in engine.engine.system_prompt
-    assert "真实 unresolved" in engine.engine.system_prompt
+    assert "不构造复现或验证命令" in engine.engine.system_prompt
+    assert "后续工作由调用程序负责" in engine.engine.system_prompt
     disabled_reproducer = engine.engine.tools.execute(
         "agent",
         {
@@ -466,7 +496,10 @@ def _base_tools():
         build_tool(
             name="search_repo",
             description="Search",
-            parameters=[ToolParameter("query", "string", "Query")],
+            parameters=[
+                ToolParameter("query", "string", "Query"),
+                ToolParameter("file_glob", "string", "Glob", required=False),
+            ],
             handler=lambda inp: ToolResponse.success("matches", {"query": inp["query"]}),
             is_read_only=True,
             is_concurrency_safe=True,
@@ -499,6 +532,47 @@ def _base_tools():
         )
     )
     return registry
+
+
+def test_failure_review_can_read_production_source_at_most_five_times(tmp_path):
+    runner = SubAgentRunner(
+        llm=FakeLLM([]),
+        base_tools=_base_tools(),
+        cwd=tmp_path,
+        output_dir=tmp_path / "out",
+        swebench_profile=True,
+    )
+    spec = runner._worker_spec("failure_review")
+    tools = runner._tools_for(spec)
+
+    for index in range(5):
+        result = tools.execute("read_file", {"path": "src/widget.py"})
+        assert result.status == "success"
+        assert result.data["remaining_source_queries"] == 4 - index
+        assert f"剩余源码查询：{4 - index} 次" in result.text
+        assert bool(result.data.get("force_final_output")) == (index == 4)
+
+    blocked = tools.execute("read_file", {"path": "src/widget.py"})
+    assert blocked.status == "error"
+    assert blocked.error["code"] == "FAILURE_REVIEW_READ_BUDGET_EXHAUSTED"
+    assert blocked.data["force_final_output"] is True
+
+
+def test_failure_review_source_tools_reject_tests_and_unscoped_search(tmp_path):
+    runner = SubAgentRunner(
+        llm=FakeLLM([]),
+        base_tools=_base_tools(),
+        cwd=tmp_path,
+        output_dir=tmp_path / "out",
+        swebench_profile=True,
+    )
+    tools = runner._tools_for(runner._worker_spec("failure_review"))
+
+    test_read = tools.execute("read_file", {"path": "tests/test_widget.py"})
+    unscoped_search = tools.execute("search_repo", {"query": "Polygon"})
+
+    assert test_read.error["code"] == "FAILURE_REVIEW_PRODUCTION_SOURCE_REQUIRED"
+    assert unscoped_search.error["code"] == "FAILURE_REVIEW_PRODUCTION_SOURCE_REQUIRED"
 
 
 def _write_rst_fixture(root):
@@ -608,6 +682,7 @@ def test_worker_specs_have_tight_budgets_and_stop_rules():
     assert get_worker_spec("implement").max_steps == 8
     assert get_worker_spec("patch_ranker").max_steps == 3
     assert get_worker_spec("patch_review").max_steps == 6
+    assert get_worker_spec("failure_review").max_steps == 6
     assert "够用即停" in RESEARCH_PROMPT
     assert "best_effort_edit_brief" in RESEARCH_PROMPT
     assert "problem_contract" in RESEARCH_PROMPT
@@ -622,13 +697,16 @@ def test_worker_specs_have_tight_budgets_and_stop_rules():
     assert "精确类型、精确字符串、顺序和格式" in IMPLEMENT_PROMPT
     assert "Sphinx/autodoc/autosummary/napoleon/domain" in IMPLEMENT_PROMPT
     assert "sklearn/sympy" in IMPLEMENT_PROMPT
-    assert "target_behavior" in SWEBENCH_IMPLEMENT_PROMPT
-    assert "changed_decision" in SWEBENCH_IMPLEMENT_PROMPT
-    assert "preserve_cases" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "target_behavior" in SWEBENCH_IMPLEMENT_OUTPUT_SCHEMA
+    assert "changed_decision" in SWEBENCH_IMPLEMENT_OUTPUT_SCHEMA
+    assert "preserve_cases" in SWEBENCH_IMPLEMENT_OUTPUT_SCHEMA
     assert "known_risks" in SWEBENCH_IMPLEMENT_PROMPT
-    assert "当前第一个错误 decision" in SWEBENCH_IMPLEMENT_PROMPT
-    assert "不能用近似字符串、宽 guard、固定 fallback" in SWEBENCH_IMPLEMENT_PROMPT
-    assert "regression-aware patch gate" in PATCH_REVIEW_PROMPT
+    assert "unproven_assumptions" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "overlaps_changed_contract" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "不重新选择修复方案" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "停止相关编辑并报告矛盾" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "破坏缩进、循环、try/except" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "候选 patch 的具体回归风险" in PATCH_REVIEW_PROMPT
     assert "patch_risk" in PATCH_REVIEW_PROMPT
     assert "最多额外调用 3 次 read_file" in PATCH_REVIEW_PROMPT
     assert "不能使用 search_repo" in PATCH_REVIEW_PROMPT
@@ -647,11 +725,25 @@ def test_worker_specs_have_tight_budgets_and_stop_rules():
     assert "differential_cases" in REPRODUCER_PROMPT
     assert "PASS_TO_PASS / FAIL_TO_PASS" in REPRODUCER_PROMPT
     assert "selected_index" in PATCH_RANKER_PROMPT
-    assert "候选 patch 排序" in PATCH_RANKER_PROMPT
+    assert "只读比较一组候选 diff" in PATCH_RANKER_PROMPT
     assert "pass@1" in COORDINATOR_SYSTEM_PROMPT
     assert "不要请求、等待或使用 harness 失败日志做第二轮修改" in COORDINATOR_SYSTEM_PROMPT
-    assert "最多派 1 个 research Worker" in COORDINATOR_SYSTEM_PROMPT
-    assert "最多 5 个只读工具调用" in COORDINATOR_SYSTEM_PROMPT
+    assert "最多派 1 次只读研究" in COORDINATOR_SYSTEM_PROMPT
+    assert "最多 10 个只读工具调用" in COORDINATOR_SYSTEM_PROMPT
+    assert "unproven_assumptions" in COORDINATOR_SYSTEM_PROMPT
+    assert "不得用模型记忆" in COORDINATOR_SYSTEM_PROMPT
+    assert "unproven_assumptions" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "不得丢弃已发现的具体风险" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "observed_facts" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "evidence_ref" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "问题报告中的修法只是候选建议" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "实现者只负责落实方案" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "发现直接反证时应报告，不得擅自换方案" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "blocked_insufficient_edit_scope" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "异常回退、提前结束和递归路径" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "保持合法输入的输出" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "以工具返回的剩余预算为准" in FAILURE_REVIEW_PROMPT
+    assert "repository_code" in FAILURE_REVIEW_PROMPT
     assert "不要安装依赖" in COORDINATOR_SYSTEM_PROMPT
     assert "semantic_cases" in COORDINATOR_SYSTEM_PROMPT
     assert "old_behavior_invariants" in COORDINATOR_SYSTEM_PROMPT
@@ -673,7 +765,7 @@ def test_worker_specs_have_tight_budgets_and_stop_rules():
     assert "最终 Sphinx 构建或公开集成测试" in SWEBENCH_REPRODUCER_PROMPT
     assert "框架会确定性绑定全部 required case ID" in SWEBENCH_REPRODUCER_PROMPT
     assert "最终公开输出写明确 `assert`" in SWEBENCH_REPRODUCER_PROMPT
-    assert "producer 与 consumer identity" in SWEBENCH_IMPLEMENT_PROMPT
+    assert "落实 required_changes" in SWEBENCH_IMPLEMENT_PROMPT
     assert "别名 fallback 是身份解析，不只是值查找" not in SWEBENCH_IMPLEMENT_PROMPT
     assert "augment_descriptions_with_types" not in SWEBENCH_IMPLEMENT_PROMPT
 
@@ -835,6 +927,35 @@ def test_swebench_reproducer_has_focused_tools_and_budget(tmp_path):
     assert runner._tools_for(runner._worker_spec("patch_ranker")).names() == []
 
 
+def test_implement_phase_can_be_overridden_for_corrective_pass(tmp_path):
+    runner = SubAgentRunner(
+        llm=FakeLLM([]),
+        base_tools=_base_tools(),
+        cwd=tmp_path,
+        output_dir=tmp_path / "out",
+        swebench_profile=True,
+        implement_phase="experience_initial",
+    )
+
+    initial = runner._worker_spec("implement")
+    corrective = runner._worker_spec(
+        "implement", implement_phase="experience_corrective"
+    )
+
+    assert "# 初始实现" in initial.system_prompt
+    assert "# 纠正实现" in corrective.system_prompt
+    assert "# 初始实现" not in corrective.system_prompt
+    assert "因果推断可以辅助决定改法" in corrective.system_prompt
+
+
+def test_implement_schema_is_injected_once_in_user_task():
+    task = _worker_prompt("implement", "self-contained task", output_schema=SWEBENCH_IMPLEMENT_OUTPUT_SCHEMA)
+    assert task.count('"target_behavior":') == 1
+    assert '"target_behavior":' not in SWEBENCH_IMPLEMENT_PROMPT
+    assert "Coordinator 分配" not in task
+    assert "主 Agent" not in task
+
+
 def test_candidate_command_uses_current_python_and_preserves_explicit_exit_code():
     captured = {}
     run_tool = build_tool(
@@ -905,12 +1026,61 @@ def test_coordinator_read_budget_blocks_endless_reading_before_worker(tmp_path):
 
     assert blocked.status == "error"
     assert blocked.error["code"] == "COORDINATOR_TRANSITION_REQUIRED"
+    assert "unproven_assumption" in blocked.text
+    assert "model memory" in blocked.text
     assert budget_state["read_calls_before_worker"] == 2
     assert budget_state["required_transition"] == "implement"
 
     budget_state["worker_calls"] = 1
     budget_state["required_transition"] = ""
     assert registry.execute("search_repo", {"query": "after worker"}).status == "success"
+
+
+def test_coordinator_default_read_budget_allows_twelve_queries():
+    budget_state = {}
+    registry = ToolRegistry()
+    registry.register_many(_coordinator_read_only_tools(_base_tools(), budget_state=budget_state))
+
+    for index in range(12):
+        assert registry.execute("search_repo", {"query": str(index)}).status == "success"
+
+    blocked = registry.execute("read_file", {"path": "app.py"})
+    assert blocked.status == "error"
+    assert blocked.error["code"] == "COORDINATOR_TRANSITION_REQUIRED"
+    assert budget_state["read_calls_before_worker"] == 12
+    assert "do not delegate the unresolved repair decision" in blocked.text
+
+
+def test_swebench_coordinator_converges_before_dispatch():
+    assert "不得要求它执行 Python" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "不把假设当作事实" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "优先读取该操作及其直接实现" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "错误结果只能用于提出候选原因" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "不能直接证明某个内部操作出错" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "关键未知仍会改变修法" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "查询预算耗尽仍不能确定修法" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "不为保住旧结果而另建平行 API" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "内部计算正确不代表返回结果正确" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "核对直接的转换和包装" in SWEBENCH_COORDINATOR_BASE_PROMPT
+
+
+def test_repair_prompts_distinguish_original_object_and_generator_resume():
+    assert "副本未变不能证明原对象未变" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "不要默认下一轮循环体一定会执行" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "不把已发现的覆盖缺口写成禁止修改的旧行为约束" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "一个示例正确只能排除该示例走过的路径" in FAILURE_REVIEW_PROMPT
+    assert "不能声称它就是日志未给出的测试输入" in FAILURE_REVIEW_PROMPT
+    assert "环境归因必须有模块加载、依赖或执行故障的直接证据" in FAILURE_REVIEW_PROMPT
+
+
+def test_recovery_query_budget_matches_coordinator_phase():
+    remaining = lambda state: _remaining_coordinator_read_queries(state, swebench_profile=True)
+    assert remaining({}) == 12
+    assert remaining({"read_calls_before_worker": 11}) == 1
+    assert remaining({"required_transition": "implement"}) == 0
+    assert remaining({"research_failed": 1, "post_failed_research_read_calls": 1}) == 1
+    assert remaining({"research_calls": 1, "post_research_read_calls": 2}) == 0
+    assert remaining({"worker_calls": 1, "implement_calls": 1}) is None
 
 
 def test_coordinator_blocks_reads_after_failed_research(tmp_path):
@@ -1161,13 +1331,19 @@ def test_budgeted_agent_tools_allow_patch_review_after_failed_research_and_imple
     assert budget_state["patch_review_calls"] == 1
 
 
-def test_coordinator_injects_recalled_repair_recipe(tmp_path):
+def test_coordinator_injects_global_and_repository_experience(tmp_path):
     store = MemoryStore(tmp_path / "memory")
     store.save_memory(
-        name="header rows roundtrip",
-        description="header_rows table format must update writer reader roundtrip",
-        type="repair_recipe",
-        content="verification_contract: write, read, and round-trip header rows.",
+        name="paired serializer contracts",
+        description="reader writer roundtrip contract",
+        type="global_experience",
+        content="When a format boundary changes, verify writer, reader, and roundtrip behavior.",
+    )
+    store.save_memory(
+        name="table header API",
+        description="header_rows table API and parser helper",
+        type="repository_experience",
+        content="The table reader and writer share the header_rows parser helper.",
     )
     llm = FakeLLM(
         [
@@ -1187,12 +1363,25 @@ def test_coordinator_injects_recalled_repair_recipe(tmp_path):
         memory_store=store,
     )
 
-    assert engine.run("fix header_rows table output") == "done"
+    assert engine.run("fix header_rows reader writer roundtrip output") == "done"
 
-    user_content = llm.messages_by_call[0][1]["content"]
-    assert "Recalled Repair Recipes" in user_content
-    assert "round-trip header rows" in user_content
-    assert engine.last_recalled_repair_recipes == ("repair_recipe_header_rows_roundtrip.md",)
+    # 记忆是后置注入的：动态运行上下文占据第一条 user 消息，召回经验在其之后的 user 消息里。
+    user_content = "\n".join(
+        str(message.get("content") or "")
+        for message in llm.messages_by_call[0]
+        if message.get("role") == "user"
+    )
+    assert "Coordinator Recalled Experience" in user_content
+    assert "全局经验" in user_content
+    assert "仓库经验" in user_content
+    assert "writer, reader, and roundtrip" in user_content
+    assert "header_rows parser helper" in user_content
+    assert engine.last_recalled_global_experiences == (
+        "global_experience_paired_serializer_contracts.md",
+    )
+    assert engine.last_recalled_repository_experiences == (
+        "repository_experience_table_header_api.md",
+    )
 
 
 def test_unmatched_repair_recipe_is_not_injected(tmp_path):
@@ -1219,7 +1408,7 @@ def test_coordinator_can_freeze_repair_memory_recall(tmp_path):
     store.save_memory(
         name="header rows roundtrip",
         description="header_rows table format must update writer reader roundtrip",
-        type="repair_recipe",
+        type="repository_experience",
         content="verification_contract: write, read, and round-trip header rows.",
     )
     llm = FakeLLM(
@@ -1245,7 +1434,7 @@ def test_coordinator_can_freeze_repair_memory_recall(tmp_path):
 
     user_messages = [message["content"] for message in llm.messages_by_call[0] if message["role"] == "user"]
     rendered_user_messages = "\n".join(user_messages)
-    assert "## Recalled Repair Recipes" not in rendered_user_messages
+    assert "## Coordinator Recalled Experience" not in rendered_user_messages
     assert "round-trip header rows" not in rendered_user_messages
     assert engine.last_recalled_repair_recipes == ()
 
@@ -1416,6 +1605,45 @@ def test_swebench_implement_receives_reproducer_contract_and_semantic_proof():
     assert "evidence, not a suggested patch" in prompt
     assert "producer/consumer identity" in prompt
     assert "state lifecycle" in prompt
+
+
+def test_swebench_implement_does_not_receive_empty_contract_without_evidence():
+    prompt = _augment_swebench_semantic_prompt(
+        "Apply the scoped edit.",
+        {
+            "problem_statement": "Fix the reported behavior.",
+            "semantic_evidence": {},
+            "semantic_evidence_issues": [],
+        },
+    )
+
+    assert "Compact public repair contract" not in prompt
+    assert '"trigger":[]' not in prompt
+    assert '"expected_behavior":[]' not in prompt
+
+
+def test_implement_report_routes_only_concrete_contract_risks_to_review():
+    assert _implementation_report_review_reasons({"known_risks": []}) == []
+    assert _implementation_report_review_reasons(
+        {
+            "known_risks": [
+                {
+                    "risk": "The changed state may retain stale geometry.",
+                    "overlaps_changed_contract": True,
+                }
+            ]
+        }
+    ) == ["implement_reported_contract_risk"]
+    assert _implementation_report_review_reasons(
+        {
+            "known_risks": [
+                {
+                    "risk": "An unrelated optional backend was not exercised.",
+                    "overlaps_changed_contract": False,
+                }
+            ]
+        }
+    ) == []
 
 
 def test_swebench_implement_receives_matched_alias_dataflow_constraint():
@@ -1911,6 +2139,109 @@ def _init_git_repo_with_app(tmp_path):
     subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, stdout=subprocess.PIPE)
     return repo
+
+
+def _delivery_retry_fixture(tmp_path, sources):
+    repo = _init_git_repo_with_app(tmp_path)
+    runner = SubAgentRunner(llm=FakeLLM([]), base_tools=_base_tools(), cwd=repo, output_dir=tmp_path / "agents")
+    calls = []
+
+    def run(**kwargs):
+        source = sources[len(calls)]
+        calls.append(kwargs)
+        (repo / "app.py").write_text(source)
+        return WorkerResult(type="implement", description="edit", text='{"known_risks": []}',
+            output_dir=tmp_path / "agents" / str(len(calls)), completed=True, stop_reason="finished",
+            max_steps=3, prompt_tokens=1, completion_tokens=1, total_tokens=2, changed_files=("app.py",))
+
+    runner.run = run
+    state = {}
+    registry = ToolRegistry()
+    registry.register_many(build_agent_tools(runner, require_patch_review=False, conditional_patch_review=True, state=state))
+    request = {"type": "implement", "description": "Apply edit", "prompt": "Apply the decided edit", "allowed_files": ["app.py"],
+               "allowed_ranges": {"app.py": [[1, 8]]}}
+    return registry, state, request, calls, runner
+
+
+def test_syntax_delivery_retry_is_once_and_same_scope(tmp_path):
+    registry, state, request, calls, _ = _delivery_retry_fixture(tmp_path, ["try:\n    x = 1\n", "value = 'fixed'\n"])
+    first = registry.execute("agent", request)
+    assert first.data.get("delivery_retry_required") is True, first.to_dict()
+    assert not first.data.get("terminate_loop")
+    widened = registry.execute("agent", {**request, "allowed_ranges": {"app.py": [[1, 9]]}})
+    assert widened.error["code"] == "DELIVERY_RETRY_SCOPE_DENIED"
+    assert state["delivery_retry_used"] is False
+    second = registry.execute("agent", request)
+    assert second.data["delivery_retry_used"] is True
+    assert second.data["delivery_retry_required"] is False
+    assert not state["static_issues"]
+    assert "只修工具确认的语法" in calls[1]["prompt"]
+    registry.execute("agent", request)
+    assert len(calls) == 2
+
+
+def test_failed_delivery_retry_terminates_instead_of_retrying_again(tmp_path):
+    registry, state, request, calls, _ = _delivery_retry_fixture(tmp_path, ["try:\n", "if True:\n"])
+    registry.execute("agent", request)
+    second = registry.execute("agent", request)
+    assert second.data["terminate_loop"] is True
+    assert second.data["terminal_reason"] == "delivery_retry_failed"
+    registry.execute("agent", request)
+    assert len(calls) == 2
+
+
+def test_edit_retry_requires_real_unresolved_tool_error(tmp_path):
+    path = tmp_path / "trace.jsonl"
+    events = [
+        {"type": "tool_call", "tool": "replace_in_file", "tool_call_id": "1", "arguments": '{"path":"app.py"}'},
+        {"type": "tool_result", "tool": "replace_in_file", "tool_call_id": "1", "response": {
+            "status": "error", "error": {"code": "REPLACE_NOT_FOUND", "message": "old text missing"}}},
+    ]
+    path.write_text("\n".join(json.dumps(e) for e in events))
+    assert _unresolved_edit_application_errors(tmp_path)[0].startswith("REPLACE_NOT_FOUND:app.py")
+    events.extend([
+        {"type": "tool_call", "tool": "replace_in_file", "tool_call_id": "2", "arguments": '{"path":"app.py"}'},
+        {"type": "tool_result", "tool": "replace_in_file", "tool_call_id": "2", "response": {"status": "success"}},
+    ])
+    path.write_text("\n".join(json.dumps(e) for e in events))
+    assert _unresolved_edit_application_errors(tmp_path) == []
+    events[1]["response"]["error"]["code"] = "IMPLEMENT_SCOPE_DENIED"
+    path.write_text("\n".join(json.dumps(e) for e in events[:2]))
+    assert _unresolved_edit_application_errors(tmp_path) == []
+
+
+def test_semantic_risk_does_not_unlock_delivery_retry(tmp_path):
+    registry, state, request, calls, _ = _delivery_retry_fixture(tmp_path, ["value = 'wrong'\n"])
+    registry.execute("agent", request)
+    assert not state["delivery_retry_required"]
+    registry.execute("agent", request)
+    assert len(calls) == 1
+
+
+def test_tool_application_error_unlocks_same_scope_retry_without_patch(tmp_path):
+    registry, state, request, calls, runner = _delivery_retry_fixture(tmp_path, ["value = 'old'\n", "value = 'fixed'\n"])
+    run = runner.run
+
+    def fail_once(**kwargs):
+        result = run(**kwargs)
+        if len(calls) == 1:
+            result = replace(result, changed_files=(), text="No patch could be applied.")
+            result.output_dir.mkdir(parents=True)
+            result.output_dir.joinpath("trace.jsonl").write_text("\n".join(json.dumps(e) for e in [
+                {"type": "tool_call", "tool": "replace_in_file", "tool_call_id": "edit", "arguments": {"path": "app.py"}},
+                {"type": "tool_result", "tool": "replace_in_file", "tool_call_id": "edit", "response": {
+                    "status": "error", "error": {"code": "REPLACE_NOT_FOUND", "message": "old text missing"}}},
+            ]))
+        return result
+
+    runner.run = fail_once
+    first = registry.execute("agent", request)
+    assert first.data.get("delivery_retry_required") is True, first.to_dict()
+    second = registry.execute("agent", request)
+    assert second.data["delivery_retry_used"] is True
+    assert not second.data["delivery_retry_required"]
+    registry.execute("agent", request)
+    assert len(calls) == 2
 
 
 def _replace_response(call_id: str, old: str, new: str) -> LLMToolResponse:
@@ -3815,6 +4146,42 @@ def test_scoped_line_replacements_keep_original_coordinates_after_earlier_expans
         "second-2\n"
         "tail\n"
     )
+
+
+def test_swebench_exact_replacements_preserve_neighbor_after_insertion(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE)
+    original = (
+        "class Printer:\n"
+        "    def render(self, value):\n"
+        "        return str(value)\n\n"
+        "    def symbol(self, value):\n"
+        "        return value.name\n\n"
+        "# end\n"
+    )
+    (repo / "app.py").write_text(original)
+    base_tools = ToolRegistry()
+    register_repo_tools(base_tools, RepoWorkspace(repo, tmp_path / "out"))
+    runner = SubAgentRunner(llm=FakeLLM([]), base_tools=base_tools, cwd=repo,
+                            output_dir=tmp_path / "out", swebench_profile=True)
+    constraints = WorkerConstraints.from_tool_input(
+        {"allowed_files": ["app.py"], "allowed_ranges": {"app.py": [[1, 8]]}}
+    )
+    registry = runner._tools_for(get_worker_spec("implement"), constraints)
+    assert "line_replacements" not in {p.name for p in registry.get("replace_in_file").parameters()}
+    anchor = "    def symbol(self, value):\n        return value.name\n"
+    helper = "    def relation(self, value):\n        return str(value)\n\n"
+    first = registry.execute("replace_in_file", {"path": "app.py", "old": anchor, "new": helper + anchor})
+    assert first.status == "success"
+    assert "+    def relation" in first.data["diff"]
+    read = registry.execute("read_file", {"path": "app.py", "start_line": 1, "end_line": 8})
+    assert read.status == "success"
+    revised = "    def relation(self, value):\n        return value.operator\n\n"
+    second = registry.execute("replace_in_file", {"path": "app.py", "old": helper, "new": revised})
+    assert second.status == "success"
+    assert "-        return str(value)" in second.data["diff"]
+    assert (repo / "app.py").read_text() == original.replace(anchor, revised + anchor)
 
 
 def test_scoped_replace_in_file_rejects_out_of_range_old_text(tmp_path):

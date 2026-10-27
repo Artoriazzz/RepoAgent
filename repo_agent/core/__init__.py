@@ -6,6 +6,13 @@ from typing import Any
 
 _EXPORTS = {
     "ChatLLM": ("repo_agent.core.llm", "ChatLLM"),
+    "AgentRuntime": ("repo_agent.core.runtime_pool", "AgentRuntime"),
+    "AgentRuntimePool": ("repo_agent.core.runtime_pool", "AgentRuntimePool"),
+    "AgentRuntimePoolRegistry": (
+        "repo_agent.core.runtime_pool",
+        "AgentRuntimePoolRegistry",
+    ),
+    "AgentSession": ("repo_agent.core.runtime_pool", "AgentSession"),
     "ContextConfig": ("repo_agent.core.context", "ContextConfig"),
     "ConstraintProfile": ("repo_agent.core.task_constraints", "ConstraintProfile"),
     "ConstraintRouting": ("repo_agent.core.task_constraints", "ConstraintRouting"),

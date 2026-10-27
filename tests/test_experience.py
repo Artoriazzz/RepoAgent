@@ -9,6 +9,7 @@ from repo_agent.core.experience import (
     augment_implement_with_episodes,
     augment_task_with_semantic_insights,
     build_failure_review_prompt,
+    build_experience_curator_prompt,
     compact_failure_validation,
     constraints_from_patch,
     independent_validation_succeeded,
@@ -16,6 +17,7 @@ from repo_agent.core.experience import (
     repair_mode_policy,
 )
 from repo_agent.core.memory import MemoryStore
+from repo_agent.core.subagent import FAILURE_REVIEW_PROMPT, EXPERIENCE_CURATOR_PROMPT
 
 
 def test_repair_mode_policies_separate_learning_and_benchmark():
@@ -26,7 +28,7 @@ def test_repair_mode_policies_separate_learning_and_benchmark():
     assert learning.episodic_recall is False
     assert learning.memory_write is True
     assert learning.feedback_correction is True
-    assert learning.coordinator_replan is False
+    assert learning.coordinator_replan is True
     assert learning.max_corrections == 1
     assert benchmark.semantic_recall is True
     assert benchmark.episodic_recall is True
@@ -43,9 +45,83 @@ def test_failure_review_requires_public_result_and_invalidated_patch_assumption(
         validation={"status": "failed", "exit_code": 1},
     )
 
-    assert "要求的最终公开结果" in prompt
-    assert "哪一项具体假设被观察结果否定" in prompt
-    assert "固定默认值、宽泛异常 fallback" in prompt
+    assert "Return the exact generated field name." in prompt
+    assert "原授权范围内可修：actionable；next_evidence_source=none" in FAILURE_REVIEW_PROMPT
+    assert "有具体源码补查方向" in FAILURE_REVIEW_PROMPT
+    assert "查询预算耗尽或观测仅为 failure_only 时仍可提出此请求" in FAILURE_REVIEW_PROMPT
+    assert "Review Protocol" not in prompt
+    assert prompt.count('"correction_readiness":') == 1
+
+
+def test_failure_review_receives_implementation_risks_as_inference_only():
+    prompt = build_failure_review_prompt(
+        task="Preserve the slider geometry.",
+        failed_patch="-xy[4] = xy[0]",
+        failure_log="expected 0.25, got 0.0",
+        validation={"status": "failed", "exit_code": 1},
+        implementation_report={
+            "changed_decision": "remove the closing vertex update",
+            "preserve_cases": ["closed polygon geometry"],
+            "known_risks": [
+                {
+                    "risk": "a consumer may require five vertices",
+                    "overlaps_changed_contract": True,
+                }
+            ],
+        },
+    )
+
+    assert "Initial Implementation Report" in prompt
+    assert "a consumer may require five vertices" in prompt
+    assert "implementation_report" in prompt
+    assert "implementation_report/inference" in FAILURE_REVIEW_PROMPT
+
+
+def test_curator_rules_live_in_system_and_payload_keeps_provenance_and_schema():
+    prompt = build_experience_curator_prompt(task="public task", successful_patch="successful diff",
+        validation={"status": "success", "exit_code": 0}, provenance="swebench-test-diagnostic")
+    assert "swebench-test-diagnostic" in prompt
+    assert "successful diff" in prompt
+    assert prompt.count('"operations":') == 1
+    assert "Merge Policy" not in prompt
+    assert "Global Experience Policy" not in prompt
+    assert "不能保存未经证实的失败归因" in EXPERIENCE_CURATOR_PROMPT
+    assert "NOOP" in EXPERIENCE_CURATOR_PROMPT
+
+
+def test_implementation_report_evidence_is_never_direct_authorization():
+    feedback = parse_failure_feedback(
+        json.dumps(
+            {
+                "failure_stage": "implementation_semantics",
+                "issue_contract": ["preserve geometry"],
+                "observed_failure": ["lower bound is wrong"],
+                "failure_observation_quality": "expected_actual",
+                "root_cause": "the reported risk occurred",
+                "invalidated_assumption": "closure was unnecessary",
+                "required_correction": "restore canonical geometry",
+                "evidence_ledger": [
+                    {
+                        "id": "E1",
+                        "source": "implementation_report",
+                        "fact": "five vertices may be required",
+                        "support": "direct",
+                    }
+                ],
+                "correction_evidence_ids": ["E1"],
+                "scope_expansion": [],
+                "regression_guards": [],
+                "correction_readiness": "actionable",
+                "next_evidence_source": "none",
+                "confidence": 0.9,
+            }
+        )
+    )
+
+    assert feedback is not None
+    assert feedback.evidence_ledger[0].support == "inference"
+    assert feedback.correction_readiness == "insufficient_evidence"
+    assert feedback.correction_route == "none"
 
 
 def test_independent_validation_success_is_explicit():
@@ -137,7 +213,7 @@ def test_compact_failure_validation_prioritizes_relation_violations():
     ]
 
 
-def test_failure_review_prompt_prioritizes_executed_guard_relations():
+def test_failure_review_prompt_prioritizes_direct_failure_evidence():
     prompt = build_failure_review_prompt(
         task="A compound guard returns zero too broadly.",
         failed_patch="+ value.is_integer",
@@ -156,10 +232,11 @@ def test_failure_review_prompt_prioritizes_executed_guard_relations():
         },
     )
 
-    assert "code-derived validation obligation" in prompt
-    assert "题目未逐字提到该 case" in prompt
-    assert "默认视为 implementation semantics 证据" in prompt
-    assert "同一 changed guard 的 predicate truth table" in prompt
+    assert "expected_actual" in prompt
+    assert "behavior_delta" in prompt
+    assert "direct" in prompt
+    assert "inference" in prompt
+    assert "invalid_test" in prompt
 
 
 def test_specialized_cli_commands_reject_conflicting_mode(tmp_path):
@@ -275,6 +352,40 @@ def test_failure_feedback_allows_inference_only_as_non_authorizing_support():
     feedback = parse_failure_feedback(json.dumps(payload))
     assert feedback is not None
     assert feedback.correction_route != "corrective_implement"
+
+
+def test_failure_feedback_can_authorize_from_direct_failure_and_repository_cause():
+    payload = {
+        "failure_stage": "implementation_semantics",
+        "issue_contract": ["Autoscale must emit one changed notification."],
+        "observed_failure": ["Expected one notification, received four."],
+        "failure_observation_quality": "expected_actual",
+        "root_cause": "Each bound setter notifies before autoscale has finished updating both bounds.",
+        "required_correction": "Block intermediate notifications and notify once after updating.",
+        "required_edits": [{"path": "colors.py", "start_line": 10, "end_line": 15,
+                            "change": "Block callbacks in autoscale and emit one final notification."}],
+        "evidence_ledger": [
+            {"id": "E1", "source": "failure_log", "fact": "Expected 1, actual 4.", "support": "direct"},
+            {"id": "E2", "source": "repository_code", "fact": "Setters notify on each update.", "support": "direct"},
+        ],
+        "correction_evidence_ids": ["E1", "E2"],
+        "scope_expansion": [], "regression_guards": [],
+        "correction_readiness": "actionable", "next_evidence_source": "none", "confidence": 0.8,
+    }
+    feedback = parse_failure_feedback(json.dumps(payload))
+    assert feedback.correction_route == "corrective_implement"
+
+    payload["correction_readiness"] = "needs_replan"
+    payload["replan_reason"] = "The confirmed edit is outside the previous file scope."
+    payload["next_evidence_source"] = "repository_code"
+    assert parse_failure_feedback(json.dumps(payload)).correction_route == "coordinator_replan"
+
+    payload["evidence_ledger"][0]["support"] = "inference"
+    assert parse_failure_feedback(json.dumps(payload)).correction_route == "none"
+
+    payload["evidence_ledger"][0]["support"] = "direct"
+    payload["evidence_ledger"][1]["support"] = "unknown"
+    assert parse_failure_feedback(json.dumps(payload)).correction_route == "none"
 
 
 def test_failure_feedback_accepts_validated_semantic_invariant_as_direct_evidence():
@@ -397,7 +508,7 @@ def test_failure_feedback_can_finish_differential_review_without_correction():
     assert feedback.correction_route == "none"
 
 
-def test_failure_feedback_scope_expansion_forces_coordinator_replan():
+def test_failure_feedback_scope_expansion_prevents_correction():
     feedback = parse_failure_feedback(
         json.dumps(
             {
@@ -435,11 +546,11 @@ def test_failure_feedback_scope_expansion_forces_coordinator_replan():
     )
 
     assert feedback is not None
-    assert feedback.correction_readiness == "needs_replan"
-    assert feedback.correction_route == "coordinator_replan"
+    assert feedback.correction_readiness == "insufficient_evidence"
+    assert feedback.correction_route == "none"
 
 
-def test_failure_feedback_directional_algorithm_advice_requires_replan():
+def test_failure_feedback_directional_algorithm_advice_is_not_actionable():
     feedback = parse_failure_feedback(
         json.dumps(
             {
@@ -475,7 +586,8 @@ def test_failure_feedback_directional_algorithm_advice_requires_replan():
     )
 
     assert feedback is not None
-    assert feedback.correction_route == "coordinator_replan"
+    assert feedback.correction_readiness == "insufficient_evidence"
+    assert feedback.correction_route == "none"
 
 
 def test_failure_only_observation_cannot_route_directly_to_corrective():
@@ -514,11 +626,11 @@ def test_failure_only_observation_cannot_route_directly_to_corrective():
     )
 
     assert feedback is not None
-    assert feedback.correction_readiness == "needs_replan"
-    assert feedback.correction_route == "coordinator_replan"
+    assert feedback.correction_readiness == "insufficient_evidence"
+    assert feedback.correction_route == "none"
 
 
-def test_recoverable_insufficient_evidence_is_normalized_to_replan():
+def test_recoverable_insufficient_evidence_remains_non_actionable():
     feedback = parse_failure_feedback(
         json.dumps(
             {
@@ -548,9 +660,9 @@ def test_recoverable_insufficient_evidence_is_normalized_to_replan():
     )
 
     assert feedback is not None
-    assert feedback.failure_stage == "problem_contract"
-    assert feedback.correction_readiness == "needs_replan"
-    assert feedback.correction_route == "coordinator_replan"
+    assert feedback.failure_stage == "insufficient_evidence"
+    assert feedback.correction_readiness == "insufficient_evidence"
+    assert feedback.correction_route == "none"
 
 
 def test_role_memory_is_injected_into_the_correct_prompt(tmp_path):

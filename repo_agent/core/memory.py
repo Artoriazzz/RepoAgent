@@ -30,6 +30,8 @@ class MemoryType(str, Enum):
     REPAIR_RECIPE = "repair_recipe"
     REPAIR_EPISODE = "repair_episode"
     SEMANTIC_INSIGHT = "semantic_insight"
+    GLOBAL_EXPERIENCE = "global_experience"
+    REPOSITORY_EXPERIENCE = "repository_experience"
 
 
 @dataclass(frozen=True)
@@ -71,15 +73,21 @@ class MemoryStore:
     是否适用于当前任务。可信度由写入前的独立验证保证，适用性由上层 Agent 判断。
     """
 
-    def __init__(self, memory_dir: Path):
+    def __init__(self, memory_dir: Path, global_memory_dir: Path | None = None):
         self.memory_dir = memory_dir
+        # 直接构造 MemoryStore 时保持单目录兼容；按 project/scope 构造时，
+        # global experience 会落到所有仓库共享的目录。
+        self.global_memory_dir = global_memory_dir or memory_dir
 
     @classmethod
     def for_project(cls, cwd: str | Path, root: str | Path | None = None) -> "MemoryStore":
         # 交互式本地仓库使用真实路径隔离，避免不同项目之间互相污染记忆。
         project_hash = hashlib.sha256(str(Path(cwd).resolve()).encode("utf-8")).hexdigest()[:16]
         base = Path(root or os.environ.get("REPOAGENT_HOME", Path.home() / ".repoagent"))
-        return cls(base / "projects" / project_hash / "memory")
+        return cls(
+            base / "projects" / project_hash / "memory",
+            base / "global" / "memory",
+        )
 
     @classmethod
     def for_scope(cls, scope: str, root: str | Path | None = None) -> "MemoryStore":
@@ -91,7 +99,10 @@ class MemoryStore:
         scope_key = _slugify(scope)
         scope_hash = hashlib.sha256(scope.encode("utf-8")).hexdigest()[:8]
         base = Path(root or os.environ.get("REPOAGENT_HOME", Path.home() / ".repoagent"))
-        return cls(base / "scopes" / f"{scope_key}-{scope_hash}" / "memory")
+        return cls(
+            base / "scopes" / f"{scope_key}-{scope_hash}" / "memory",
+            base / "global" / "memory",
+        )
 
     def save_memory(
         self,
@@ -104,9 +115,14 @@ class MemoryStore:
         provenance: str = "",
     ) -> str:
         memory_type = MemoryType(type)
-        self.memory_dir.mkdir(parents=True, exist_ok=True)
+        target_dir = (
+            self.global_memory_dir
+            if memory_type == MemoryType.GLOBAL_EXPERIENCE
+            else self.memory_dir
+        )
+        target_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{memory_type.value}_{_slugify(name)}.md"
-        path = self.memory_dir / filename
+        path = target_dir / filename
         path.write_text(
             format_frontmatter(
                 {
@@ -204,15 +220,16 @@ class MemoryStore:
         )
 
     def list_memories(self) -> list[MemoryHeader]:
-        if not self.memory_dir.is_dir():
-            return []
         memories: list[MemoryHeader] = []
-        for path in sorted(self.memory_dir.glob("*.md")):
-            if path.name == "MEMORY.md":
+        for memory_dir in self._memory_dirs():
+            if not memory_dir.is_dir():
                 continue
-            header = self._read_header(path)
-            if header:
-                memories.append(header)
+            for path in sorted(memory_dir.glob("*.md")):
+                if path.name == "MEMORY.md":
+                    continue
+                header = self._read_header(path)
+                if header:
+                    memories.append(header)
         return memories
 
     def read_memory(self, filename: str) -> str:
@@ -242,14 +259,20 @@ class MemoryStore:
         return "\n".join(lines).rstrip() + "\n"
 
     def update_index(self) -> None:
-        self.memory_dir.mkdir(parents=True, exist_ok=True)
-        lines = ["# Memory Index", ""]
-        for memory in self.list_memories():
-            role = f", role={memory.role}" if memory.role else ""
-            lines.append(
-                f"- **[{memory.name}]({memory.filename})** ({memory.type.value}{role}) — {memory.description}"
+        memories = self.list_memories()
+        for memory_dir in self._memory_dirs():
+            memory_dir.mkdir(parents=True, exist_ok=True)
+            lines = ["# Memory Index", ""]
+            for memory in memories:
+                if memory.path.parent != memory_dir:
+                    continue
+                role = f", role={memory.role}" if memory.role else ""
+                lines.append(
+                    f"- **[{memory.name}]({memory.filename})** ({memory.type.value}{role}) — {memory.description}"
+                )
+            (memory_dir / "MEMORY.md").write_text(
+                "\n".join(lines).rstrip() + "\n", encoding="utf-8"
             )
-        (self.memory_dir / "MEMORY.md").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
     def build_prompt_section(self, excluded_types: set[MemoryType] | None = None) -> str:
         index = self.format_index(excluded_types) if excluded_types else self.load_index()
@@ -265,6 +288,8 @@ class MemoryStore:
 - `repair_recipe`：成功修复案例抽象出的可复用策略，只记录问题识别、修复思路、验证契约和反模式。
 - `repair_episode`：紧凑的成功示例，或“失败输出 → 反馈 → 成功输出”示例；不得包含完整轨迹或 benchmark 答案。
 - `semantic_insight`：按 Coordinator / Implement / Review 角色维护的短小、可执行高层经验。
+- `global_experience`：跨仓库复用的问题机制、适用条件、通用修复步骤、验证思路和错误做法。
+- `repository_experience`：当前仓库的模块/API、调用关系、可复用工具函数、特有契约和公开验证方法。
 
 ## What To Save
 - 只保存无法通过读取当前仓库、Git 历史或项目指令重新推导的信息。
@@ -330,6 +355,20 @@ class MemoryStore:
     ) -> list[RecalledMemory]:
         return self._recall_bm25(query, MemoryType.SEMANTIC_INSIGHT, limit=limit, role=role)
 
+    def recall_experiences(
+        self,
+        query: str,
+        *,
+        memory_type: MemoryType,
+        limit: int = 1,
+    ) -> list[RecalledMemory]:
+        if memory_type not in {
+            MemoryType.GLOBAL_EXPERIENCE,
+            MemoryType.REPOSITORY_EXPERIENCE,
+        }:
+            raise ValueError("experience recall requires a global or repository experience type")
+        return self._recall_bm25(query, memory_type, limit=limit)
+
     def search(self, query: str, limit: int = MAX_RECALLED_MEMORIES, memory_type: MemoryType | None = None) -> list[MemoryHeader]:
         headers = self.list_memories()
         if memory_type is not None:
@@ -391,14 +430,18 @@ class MemoryStore:
         ]
 
     def _resolve_memory_path(self, filename: str) -> Path:
-        path = (self.memory_dir / filename).resolve()
-        try:
-            path.relative_to(self.memory_dir.resolve())
-        except ValueError as exc:
-            raise ValueError(f"Memory path escapes memory directory: {filename}") from exc
-        if not path.is_file():
-            raise FileNotFoundError(filename)
-        return path
+        if Path(filename).name != filename:
+            raise ValueError(f"Memory path escapes memory directory: {filename}")
+        for memory_dir in self._memory_dirs():
+            path = (memory_dir / filename).resolve()
+            if path.is_file():
+                return path
+        raise FileNotFoundError(filename)
+
+    def _memory_dirs(self) -> tuple[Path, ...]:
+        if self.global_memory_dir == self.memory_dir:
+            return (self.memory_dir,)
+        return (self.memory_dir, self.global_memory_dir)
 
 
 def format_memories_for_injection(memories: list[RecalledMemory]) -> str:

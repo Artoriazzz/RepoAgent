@@ -1,0 +1,17 @@
+diff --git a/swebench/harness/docker_build.py b/swebench/harness/docker_build.py
+--- a/swebench/harness/docker_build.py
++++ b/swebench/harness/docker_build.py
+@@ -610,10 +610,5 @@
+         cap_add = run_args.get("cap_add", [])
+-        environment = dict(run_args.get("environment", {}) or {})
+-        proxy_keys = ("NO_PROXY", "no_proxy")
+-        if os.environ.get("SWEBENCH_PASS_PROXY_TO_DOCKER") == "1":
+-            proxy_keys = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy")
+-        for key in proxy_keys:
+-            value = os.environ.get(key)
+-            if value and key not in environment:
+-                environment[key] = value
++        from swebench.harness.repoagent_environment import runtime_container_environment
++
++        environment = runtime_container_environment(run_args.get("environment", {}) or {}, os.environ)
+         network_mode = run_args.get("network_mode") or os.environ.get("SWEBENCH_DOCKER_NETWORK")

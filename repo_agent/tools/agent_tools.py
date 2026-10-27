@@ -64,6 +64,10 @@ def reset_agent_tool_state(state: dict[str, Any], cwd: Path) -> None:
             "review_reasons": [],
             "static_issues": [],
             "corrective_implement_count": 0,
+            "delivery_retry_used": False,
+            "delivery_retry_required": False,
+            "delivery_retry_scope": None,
+            "delivery_retry_issues": [],
             "last_chance_required": False,
             "last_chance_used": False,
             "last_chance_scope": None,
@@ -276,7 +280,7 @@ def build_agent_tools(
                 "WORKER_TYPE_DISABLED",
                 (
                     f"agent(type={spec.name}) is disabled in this profile. "
-                    f"Allowed Worker types: {', '.join(sorted(allowed_agent_types))}."
+                    f"Allowed role types: {', '.join(sorted(allowed_agent_types))}."
                 ),
             )
         if spec.name == "reproducer" and state.get("reproducer_attempted"):
@@ -290,7 +294,7 @@ def build_agent_tools(
         if not require_patch_review and spec.name == "verify" and state.get("verify_attempted"):
             return ToolResponse.failure(
                 "VERIFY_ALREADY_ATTEMPTED",
-                "SWE-bench slim profile allows only one verify Worker. Keep the existing patch and finish.",
+                "SWE-bench slim profile allows only one independent verification. Keep the existing patch and finish.",
             )
         description = inp.get("description") or "sub-agent task"
         raw_prompt = inp["prompt"]
@@ -356,6 +360,16 @@ def build_agent_tools(
                     "The requested Implement scope contained only tests/fixtures. Provide a production source range.",
                 )
         scope_key = _scope_key(constraints)
+        delivery_retry_now = bool(
+            spec.name == "implement" and state.get("delivery_retry_required")
+            and not state.get("delivery_retry_used")
+        )
+        if delivery_retry_now and scope_key != state.get("delivery_retry_scope"):
+            return ToolResponse.failure("DELIVERY_RETRY_SCOPE_DENIED",
+                "The one delivery correction must reuse the original allowed_files and allowed_ranges exactly.")
+        if state.get("delivery_retry_required") and spec.name != "implement":
+            return ToolResponse.failure("DELIVERY_RETRY_REQUIRED",
+                "Fix the reported syntax/edit-application error once in the same scope, or finish with the blocker.")
         if spec.name == "implement" and state.get("last_chance_failed_scope") == scope_key:
             return ToolResponse.failure(
                 "LAST_CHANCE_EXHAUSTED",
@@ -373,7 +387,7 @@ def build_agent_tools(
             return ToolResponse.failure(
                 "PUBLIC_VERIFICATION_REQUIRED",
                 "Register one safe public behavior assertion with register_public_verification before Implement. "
-                "The deterministic controller will execute and freeze it; do not dispatch a Reproducer Worker.",
+                "The deterministic controller will execute and freeze it; do not launch a separate reproduction role.",
             )
         if (
             reproducer_required_now()
@@ -404,8 +418,8 @@ def build_agent_tools(
         if spec.name in {"research", "general", "plan"} and _looks_like_subagent_output_read(prompt):
             return ToolResponse.failure(
                 "SUBAGENT_OUTPUT_READ_BLOCKED",
-                "Do not launch Workers to read subagents output directories. "
-                "Use the previous Worker result already returned by the agent tool, then proceed with an EditBrief or finish.",
+                "Do not launch independent roles to read subagent output directories. "
+                "Use the previous result already returned by the agent tool, then proceed with an EditBrief or finish.",
             )
         if spec.name == "patch_ranker":
             ranker_denial = _check_patch_ranker_preconditions(state)
@@ -428,10 +442,10 @@ def build_agent_tools(
         ):
             return ToolResponse.failure(
                 "IMPLEMENT_REQUIRED",
-                "A previous Worker already returned a structured edit_brief. "
+                "A previous read-only task already returned a structured edit_brief. "
                 "Do not launch research, plan, general, verify, or review yet. "
                 "Dispatch implement now with a concrete EditBrief, allowed_files, and allowed_ranges. "
-                "If implementation is impossible, finish with the exact missing fact instead of launching another Worker.",
+                "If implementation is impossible, finish with the exact missing fact instead of launching another role.",
             )
         if state["implementation_done"] and spec.name in {"research", "reproducer", "general", "plan"}:
             if spec.name == "reproducer" and not state.get("reproducer_attempted") and not state.get("candidate_patches"):
@@ -439,7 +453,7 @@ def build_agent_tools(
             else:
                 return ToolResponse.failure(
                     "POST_IMPLEMENT_BUDGET_EXHAUSTED",
-                    "Implementation already completed. Do not launch more research/general/plan Workers. "
+                    "Implementation already completed. Do not launch more research/general/plan roles. "
                     "Use patch_review, verify, or finish with the result.",
                 )
         if review_required_now() and state["implementation_done"] and spec.name == "verify" and not state["patch_review_done"]:
@@ -459,18 +473,16 @@ def build_agent_tools(
                 "Patch Risk Review did not accept the patch. Dispatch one corrective agent(type=implement) using "
                 "the review findings/required_changes, then run patch_review again before verify.",
             )
-        semantic_corrective_now = False
         if (
             review_policy == "conditional"
             and state["implementation_done"]
             and spec.name == "implement"
-            and not semantic_corrective_now
+            and not delivery_retry_now
         ):
             return ToolResponse.failure(
                 "FINAL_PATCH_ALREADY_EXISTS",
-                "The simplified SWE-bench pipeline allows one implementation patch plus at most one correction forced "
-                "by a deterministic SemanticEvidence gate. No such correction is currently available; keep the patch "
-                "and finish after at most one verify.",
+                "The initial pipeline allows one implementation plus one same-scope correction only for a "
+                "tool-confirmed syntax or edit-application error. No unused delivery correction is available; finish.",
             )
         if require_patch_review and state["implementation_done"] and spec.name == "implement" and not state["patch_review_high_risk"]:
             return ToolResponse.failure(
@@ -481,7 +493,7 @@ def build_agent_tools(
             not require_patch_review
             and state["implementation_done"]
             and spec.name == "implement"
-            and not semantic_corrective_now
+            and not delivery_retry_now
         ):
             return ToolResponse.failure(
                 "FINAL_PATCH_ALREADY_EXISTS",
@@ -507,8 +519,8 @@ def build_agent_tools(
         if spec.name == "implement" and not constraints.has_scope:
             return ToolResponse.failure(
                 "IMPLEMENT_SCOPE_REQUIRED",
-                "implement Worker requires structured allowed_files and allowed_ranges. "
-                "Ask research Worker to produce an EditBrief, then call agent with type=implement, "
+                "The implementation role requires structured allowed_files and allowed_ranges. "
+                "Use a read-only research task to produce an EditBrief, then call agent with type=implement, "
                 "allowed_files, and allowed_ranges.",
             )
         if state["implementation_done"] and state["patch_review_high_risk"] and spec.name == "implement":
@@ -600,6 +612,14 @@ def build_agent_tools(
             prompt = _augment_swebench_verify_prompt(prompt, state, verification_plan)
         if spec.name == "patch_review" and swebench_context:
             prompt = _augment_swebench_patch_review_prompt(prompt, state)
+        if delivery_retry_now:
+            prompt += ("\n\n## Delivery correction\n"
+                       "只修工具确认的语法或补丁应用错误，不改变原修改方案或范围；这是唯一一次落地纠正。\n"
+                       + "\n".join(state["delivery_retry_issues"]))
+            state["delivery_retry_used"] = True
+            state["delivery_retry_required"] = False
+        if spec.name == "implement" and state.get("delivery_retry_scope") is None:
+            state["delivery_retry_scope"] = scope_key
         state.setdefault("worker_attempts", {})[spec.name] = int(
             state.setdefault("worker_attempts", {}).get(spec.name, 0)
         ) + 1
@@ -615,6 +635,7 @@ def build_agent_tools(
             verification_plan=verification_plan,
         )
         record_worker_result(result, constraints)
+        edit_application_errors = _unresolved_edit_application_errors(result.output_dir) if result.type == "implement" else []
         # Worker 的结果既作为本次 agent 工具 observation 返回 Coordinator，也被解析为
         # 下一阶段的代码状态，例如 ready_to_implement、implementation_done 或 review 风险。
         result_text = result.text
@@ -733,6 +754,9 @@ def build_agent_tools(
             current_patch = _git_diff_text(runner.cwd)
             implementation_report = _extract_json_object(result.text) or {}
             state["implementation_report"] = implementation_report
+            implementation_review_reasons = _implementation_report_review_reasons(
+                implementation_report
+            )
             # Semantic alignment is evidence for Review/diagnostics, not a
             # second task-specific patch generator. Only deterministic syntax,
             # scope and basic safety checks can block this initial patch.
@@ -765,6 +789,7 @@ def build_agent_tools(
                 else:
                     review_reasons = [
                         *_conditional_patch_review_reasons(runner.cwd, tuple(result.changed_files)),
+                        *implementation_review_reasons,
                         *semantic_patch_issues,
                     ]
                     state["review_reasons"] = review_reasons
@@ -802,7 +827,7 @@ def build_agent_tools(
                     state["patch_review_high_risk"] = True
                     state["last_patch_gate_text"] = _format_static_gate_text(static_issues)
                     result_text = f"{result.text}\n\n{state['last_patch_gate_text']}"
-            terminal_message = _finish_static_safe_unverified(state, runner, review_policy)
+            terminal_message = "" if edit_application_errors else _finish_static_safe_unverified(state, runner, review_policy)
             if terminal_message:
                 result_text = f"{result_text}\n\n{terminal_message}"
         if result.type == "implement" and not result.changed_files:
@@ -812,12 +837,30 @@ def build_agent_tools(
                 state["last_chance_failed_scope"] = state.get("last_chance_scope")
                 state["last_chance_scope"] = None
                 state["ready_to_implement"] = False
-            elif not state["implementation_done"] and _should_try_last_chance(result.text):
+            elif (review_policy != "conditional" and not state["implementation_done"]
+                  and _should_try_last_chance(result.text)):
                 state["last_chance_required"] = True
                 state["ready_to_implement"] = True
             elif not state["implementation_done"]:
                 state["last_chance_required"] = False
                 state["ready_to_implement"] = False
+        if result.type == "implement" and review_policy == "conditional":
+            delivery_issues = [issue for issue in state.get("static_issues", [])
+                               if issue.startswith("python_syntax_error:")]
+            delivery_issues.extend(edit_application_errors)
+            if delivery_issues and not state.get("delivery_retry_used"):
+                state["delivery_retry_required"] = True
+                state["delivery_retry_issues"] = delivery_issues
+                state["review_required"] = False
+                result_text = (f"{result.text}\n\n工具确认了落地错误，允许一次同范围纠正。"
+                               "立即派发 implement，保持原 allowed_files/allowed_ranges，禁止新增语义改动。\n"
+                               + "\n".join(delivery_issues))
+            elif delivery_issues:
+                state["workflow_terminal_reason"] = "delivery_retry_failed"
+                state["workflow_terminal_completed"] = False
+            elif not result.changed_files:
+                state["workflow_terminal_reason"] = "implementation_delivery_incomplete"
+                state["workflow_terminal_completed"] = False
         if result.type == "patch_review":
             state["patch_review_done"] = True
             state["patch_review_completed"] = result.completed
@@ -894,6 +937,8 @@ def build_agent_tools(
             "completion_tokens": result.completion_tokens,
             "total_tokens": result.total_tokens,
             "changed_files": list(result.changed_files),
+            "delivery_retry_required": bool(state.get("delivery_retry_required")),
+            "delivery_retry_used": bool(state.get("delivery_retry_used")),
         }
         if terminal_reason:
             response_data.update(
@@ -921,7 +966,7 @@ def build_agent_tools(
         build_tool(
             name="agent",
             description=(
-                "Launch a sub-agent Worker and return its result. "
+                "Launch one isolated role with a self-contained task and return its result. "
                 "Types: "
                 + (
                     ", ".join(sorted(allowed_agent_types))
@@ -931,9 +976,9 @@ def build_agent_tools(
                 )
             ),
             parameters=[
-                ToolParameter("description", "string", "Short 3-8 word description of the worker task"),
-                ToolParameter("prompt", "string", "Self-contained detailed instructions for the worker"),
-                ToolParameter("type", "string", "Worker type. Default: general", required=False),
+                ToolParameter("description", "string", "Short 3-8 word description of the isolated task"),
+                ToolParameter("prompt", "string", "Self-contained detailed instructions for the selected role"),
+                ToolParameter("type", "string", "Role type. Default: general", required=False),
                 ToolParameter("allowed_files", "array", "Required for implement: repository-relative files it may edit", required=False),
                 ToolParameter(
                     "allowed_ranges",
@@ -950,17 +995,17 @@ def build_agent_tools(
             ],
             handler=launch_agent,
             prompt=(
-                "Coordinator 只能通过 agent 工具派发 Worker。Worker prompt 必须自包含，"
+                "协调阶段只能通过 agent 工具调用独立角色。每次输入必须自包含，"
                 "包含目标、已知事实、文件路径、输出格式和约束；不要写“根据上面的发现”。"
-                "派发 implement Worker 时必须额外传 allowed_files 和 allowed_ranges，否则工具会拒绝。"
+                "调用 implement 时必须额外传 allowed_files 和 allowed_ranges，否则工具会拒绝。"
                 + (
-                    "implement 产生改动后，verify 前必须先派 patch_review Worker。"
+                    "implement 产生改动后，verify 前必须先执行 patch_review。"
                     if require_patch_review
                     else (
                         "SWE-bench profile 仅在 implement 结果明确返回 Conditional patch review required 时派一次 patch_review；"
-                        "否则直接 finish 或派 verify 做一次轻量验证。"
+                        "否则直接结束，不主动派发额外审查或验证。"
                         if conditional_patch_review
-                        else "SWE-bench profile 下不要派 patch_review；实现后可直接 finish 或派 verify 做一次轻量验证。"
+                        else "不要派 patch_review；实现后直接结束，不主动派发额外验证。"
                     )
                 )
             ),
@@ -2012,36 +2057,44 @@ def _augment_swebench_semantic_prompt(
         f"coverage_warning:{value}" for value in state.get("semantic_evidence_warnings") or []
     )
     repair_brief = dict(state.get("repair_brief") or {})
-    if not repair_brief:
+    semantic_evidence = state.get("semantic_evidence")
+    if not repair_brief and semantic_evidence:
         repair_brief = build_repair_brief(
-            state.get("semantic_evidence"),
+            semantic_evidence,
             str(state.get("problem_statement") or ""),
         ).to_dict()
     if evidence_issues:
         repair_brief["evidence_issues"] = evidence_issues[:6]
-    compact_brief = {
-        "problem_contract": repair_brief.get("problem_contract") or {},
-        "semantic_cases": list(repair_brief.get("semantic_cases") or [])[:3],
-        "unknowns": list(repair_brief.get("unknowns") or [])[:3],
-    }
-    if repair_brief.get("contract_edges"):
-        compact_brief["contract_edges"] = list(repair_brief["contract_edges"])[:2]
-    if evidence_issues:
-        compact_brief["evidence_issues"] = evidence_issues[:3]
-    evidence_text = json.dumps(compact_brief, ensure_ascii=False, separators=(",", ":"))
-    if len(evidence_text) > 2_000:
-        evidence_text = evidence_text[:2_000] + "...[clipped]"
     active_contracts = "\n\n".join(constraint_prompts)
-    return (
-        f"{prompt}\n\n"
-        "## Compact public repair contract\n"
-        "This object is evidence, not a suggested patch. Coordinator replacements remain hypotheses.\n"
-        f"{evidence_text}\n\n"
-        "Cover the listed cases and preserve the existing producer/consumer identity, ordering, and state lifecycle. "
-        "Evidence issues lower confidence but do not permit broader scope.\n"
-        f"{active_contracts}\n"
+    sections = [prompt]
+    if repair_brief:
+        compact_brief = {
+            "problem_contract": repair_brief.get("problem_contract") or {},
+            "semantic_cases": list(repair_brief.get("semantic_cases") or [])[:3],
+            "unknowns": list(repair_brief.get("unknowns") or [])[:3],
+        }
+        if repair_brief.get("contract_edges"):
+            compact_brief["contract_edges"] = list(repair_brief["contract_edges"])[:2]
+        if evidence_issues:
+            compact_brief["evidence_issues"] = evidence_issues[:3]
+        evidence_text = json.dumps(compact_brief, ensure_ascii=False, separators=(",", ":"))
+        if len(evidence_text) > 2_000:
+            evidence_text = evidence_text[:2_000] + "...[clipped]"
+        sections.append(
+            "## Compact public repair contract\n"
+            "This object is evidence, not a suggested patch. Coordinator replacements remain hypotheses.\n"
+            f"{evidence_text}\n\n"
+            "Cover the listed cases and preserve the existing producer/consumer identity, ordering, and state lifecycle. "
+            "Evidence issues lower confidence but do not permit broader scope."
+        )
+    if active_contracts:
+        sections.append(active_contracts)
+    sections.append(
         "If a critical claim is unproven inside the allowed ranges, block with that one missing fact. Otherwise make one "
         "minimal edit using existing repository helpers and preserve exact output, shape, ordering, and public state."
+    )
+    return (
+        "\n\n".join(section.strip() for section in sections if section.strip())
     )
 
 
@@ -2076,6 +2129,38 @@ def _augment_swebench_patch_review_prompt(prompt: str, state: dict) -> str:
         "concrete coverage obligation. Check whether repository_native_rule source_precondition actually matches "
         "target_precondition; a nearby fallback with a different domain is not proof. Do not accept by merely restating it."
     )
+
+
+def _unresolved_edit_application_errors(output_dir: Path) -> list[str]:
+    """只采信实际工具轨迹；自报风险、语义判断和越权拒绝不能开启纠正。"""
+    path = Path(output_dir) / "trace.jsonl"
+    if not path.exists():
+        return []
+    eligible = {"REPLACE_NOT_FOUND", "REPLACE_AMBIGUOUS", "REPLACE_OCCURRENCE_NOT_FOUND",
+                "REPLACE_OVERLAP", "STALE_LINE_RANGE", "BAD_LINE_RANGE"}
+    calls = {}
+    pending = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            event = json.loads(line)
+            if event.get("tool") != "replace_in_file":
+                continue
+            identifier = event.get("tool_call_id")
+            if event.get("type") == "tool_call":
+                arguments = event.get("arguments") or {}
+                arguments = json.loads(arguments) if isinstance(arguments, str) else arguments
+                calls[identifier] = arguments.get("path")
+            elif event.get("type") == "tool_result" and calls.get(identifier):
+                response = event.get("response") or {}
+                error = response.get("error") or {}
+                target = calls[identifier]
+                if error.get("code") in eligible:
+                    pending[target] = f"{error['code']}:{target}:{str(error.get('message') or '')[:500]}"
+                elif response.get("status") == "success":
+                    pending.pop(target, None)
+        except (ValueError, TypeError, AttributeError):
+            continue
+    return list(pending.values())
 
 
 def _static_patch_sanity(cwd: Path, changed_files: tuple[str, ...]) -> list[str]:

@@ -352,7 +352,7 @@ def build_test_expander_prompt(
     initial_validation: dict[str, Any],
     source_context: str = "",
 ) -> str:
-    """构造 ExpeRepair 风格的公开差分输入生成任务。"""
+    """构造公开差分输入生成任务。"""
 
     guard_obligations = extract_differential_obligations(candidate_patch)
     return f"""## Goal
@@ -386,7 +386,7 @@ def build_test_expander_prompt(
 ## Rules
 - 只能依据公开题意、当前生产源码和仓库中的公开测试；禁止 hints、gold patch、hidden tests、harness 日志及其测试名称。
 - Initial Public Validation 可能是无效 reproducer；不要沿用其单一输入或 oracle，必须从 Public Task 和源码条件重新提取能区分错误 guard 的输入维度。
-- 借鉴 ExpeRepair：不要要求提前知道所有精确 oracle。生成 2-{MAX_DIFFERENTIAL_CASES} 个有区分度的输入，分别观察 baseline 与 candidate 输出。
+- 不要求提前知道所有精确 oracle。生成 2-{MAX_DIFFERENTIAL_CASES} 个有区分度的输入，分别观察 baseline 与 candidate 输出；没有可信 exact oracle 时明确标记为 differential_only。
 - 至少包含一个公开问题输入，以及一个由当前 patch 修改的 guard/predicate 直接影响的旧行为或边界输入。
 - 若 patch 修改复合 guard，必须逐项检查决定该分支的语义维度；结构类型检查与语义属性判断不等价时，加入带 assumptions 的符号输入；正负性影响运算合法性时，加入相反符号边界。
 - Required Guard Coverage 是控制器硬约束：`required_relation` 不得降级为 `observe`；`case_hints` 是必须同时满足的 AND 分组。测试某一 predicate 时，要让同一复合 guard 的其他 predicate 保持为真，只隔离该维度。

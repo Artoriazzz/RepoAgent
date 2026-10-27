@@ -29,6 +29,12 @@ class RepoAgent:
     ):
         # Facade 只把面向用户的参数翻译为 QueryEngine 配置。它没有自己的 loop，
         # 因而 CLI、测试或未来 HTTP API 都可以复用同一个会话运行时。
+        excluded_memory_types = {
+            MemoryType.GLOBAL_EXPERIENCE,
+            MemoryType.REPOSITORY_EXPERIENCE,
+        }
+        if not repair_memory_recall:
+            excluded_memory_types.add(MemoryType.REPAIR_RECIPE)
         self.engine = QueryEngine(
             llm=llm,
             tools=tools,
@@ -38,7 +44,8 @@ class RepoAgent:
             cwd=cwd,
             memory_store=memory_store,
             semantic_memory_recall=semantic_memory_recall,
-            excluded_memory_types=set() if repair_memory_recall else {MemoryType.REPAIR_RECIPE},
+            # Repair experience is recalled only by CoordinatorEngine.
+            excluded_memory_types=excluded_memory_types,
             memory_prompt_enabled=not swebench_profile,
             memory_recall_enabled=not swebench_profile,
             include_dynamic_context=not swebench_profile,

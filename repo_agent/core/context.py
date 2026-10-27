@@ -14,6 +14,11 @@ PERSIST_LARGE_RESULT_BYTES = 30 * 1024
 MAX_RESULT_CHARS = 50_000
 MICROCOMPACT_IDLE_S = 5 * 60
 KEEP_RECENT_RESULTS = 3
+# 上下文缓存友好阈值：低于该利用率时完全不改写历史消息，保证请求前缀字节级稳定。
+COMPACTION_TRIGGER_UTILIZATION = 0.5
+# 达到阈值后一次性使用的最严格结果预算。之后不再逐轮重新截断，
+# 让后续请求继续命中此前已经建立的前缀缓存。
+STABILIZED_RESULT_BUDGET_CHARS = 15_000
 SNIPPABLE_TOOLS = {"read_file", "search_repo", "list_files", "run_command", "download_workflow_logs"}
 SNIP_PLACEHOLDER = "[Content snipped - re-run the tool if needed]"
 OLD_RESULT_PLACEHOLDER = "[Old tool result cleared - re-run the tool if needed]"
@@ -38,13 +43,37 @@ class ConversationContextManager:
         self.last_input_token_count = 0
         self.last_api_call_time = 0.0
         self.compaction_failures = 0
+        # 历史稳定化状态：一旦在阈值处做过一次确定性压缩，就不再原地改写旧消息。
+        self._history_stabilized = False
+        self.stabilization_count = 0
+
+    @property
+    def history_stabilized(self) -> bool:
+        return self._history_stabilized
+
+    def _utilization(self) -> float:
+        if not self.config.effective_window:
+            return 0.0
+        return self.last_input_token_count / self.config.effective_window
 
     def before_model_call(self, messages: list[dict[str, Any]]) -> None:
         # 使用上一次模型调用报告的输入 token 估计当前压力，因此这是近似预算而非精确
-        # tokenizer 预计算。每次请求前按从轻到重的顺序处理历史工具结果。
-        self._budget_tool_results(messages)
+        # tokenizer 预计算。
+        #
+        # 缓存友好策略：压力低于阈值时完全保持历史不可变；达到阈值后只执行一次
+        # 确定性压缩并接受一次缓存重建，之后不再逐轮改写，否则每一轮都会让此前
+        # 建立的前缀缓存失效。
+        if self._history_stabilized:
+            return
+        if self._utilization() < COMPACTION_TRIGGER_UTILIZATION:
+            return
+        self._stabilize_history(messages)
+
+    def _stabilize_history(self, messages: list[dict[str, Any]]) -> None:
+        self._budget_tool_results(messages, budget=STABILIZED_RESULT_BUDGET_CHARS)
         self._snip_stale_results(messages)
-        self._microcompact(messages)
+        self._history_stabilized = True
+        self.stabilization_count += 1
 
     def after_model_call(self, prompt_tokens: int) -> None:
         self.last_input_token_count = prompt_tokens
@@ -71,6 +100,8 @@ class ConversationContextManager:
                 *trailing,
             ]
             self.last_input_token_count = 0
+            # 历史已被整体重建，允许在压力再次升高时再做一次确定性稳定化。
+            self._history_stabilized = False
         except Exception:
             self.compaction_failures += 1
 
@@ -110,11 +141,12 @@ class ConversationContextManager:
             response.status = ToolStatus.PARTIAL
         return response
 
-    def _budget_tool_results(self, messages: list[dict[str, Any]]) -> None:
-        utilization = self.last_input_token_count / self.config.effective_window if self.config.effective_window else 0
-        if utilization < 0.5:
-            return
-        budget = 15_000 if utilization > 0.70 else 30_000
+    def _budget_tool_results(self, messages: list[dict[str, Any]], *, budget: int | None = None) -> None:
+        utilization = self._utilization()
+        if budget is None:
+            if utilization < COMPACTION_TRIGGER_UTILIZATION:
+                return
+            budget = 15_000 if utilization > 0.70 else 30_000
         for message in messages:
             if message.get("role") != "tool":
                 continue
@@ -127,8 +159,8 @@ class ConversationContextManager:
             message["content"] = json.dumps(payload, ensure_ascii=False, indent=2)
 
     def _snip_stale_results(self, messages: list[dict[str, Any]]) -> None:
-        utilization = self.last_input_token_count / self.config.effective_window if self.config.effective_window else 0
-        if utilization < 0.6:
+        # 只由 _stabilize_history 在阈值处调用一次；平时不改变任何历史消息。
+        if self._utilization() < COMPACTION_TRIGGER_UTILIZATION:
             return
         tool_indexes = [index for index, message in enumerate(messages) if message.get("role") == "tool"]
         keep = set(tool_indexes[-KEEP_RECENT_RESULTS:])

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from collections.abc import Callable
@@ -136,6 +137,7 @@ async def query_loop(
 
         # 协议要求先保存包含 tool_calls 的 assistant 消息，再为每个调用追加匹配
         # tool_call_id 的 tool 消息。缺少这一步，下一次模型请求会成为非法对话历史。
+        final_output_requested = False
         for tool_call in response.tool_calls:
             if abort_signal.aborted:
                 yield LoopEvent(LoopEventType.FINISH, step, {"answer": "任务已中断。", "aborted": True})
@@ -166,6 +168,7 @@ async def query_loop(
             )
 
             messages.append(_tool_result_message(tool_call.id, tool_call.name, tool_response))
+            final_output_requested |= bool(tool_response.data.get("force_final_output"))
 
             # 除模型自然结束外，工具也可以请求终止。例如验证工具发现已经没有可信的
             # 后续动作时，可携带 terminate_loop，避免模型继续消耗步数。
@@ -187,6 +190,16 @@ async def query_loop(
             if tool_call.name == "finish":
                 yield LoopEvent(LoopEventType.FINISH, step, {"answer": tool_response.text})
                 return
+
+        if final_output_requested:
+            # 先完成本次 assistant 所有工具消息，再用完整历史做一次无工具终稿。
+            async for event in _max_steps_finalization_turn(
+                messages=messages, llm=llm, completion_guard=completion_guard,
+                completion_guard_extra_turns=0, abort_signal=abort_signal,
+                context_manager=context_manager, step=step,
+            ):
+                yield event
+            return
 
         yield LoopEvent(
             LoopEventType.CONTINUE,
@@ -231,8 +244,8 @@ async def _completion_guard_correction_turn(
         yield LoopEvent(LoopEventType.FINISH, step, {"answer": "任务已中断。", "aborted": True})
         return
     correction_messages = _completion_guard_correction_messages(messages)
-    if context_manager:
-        context_manager.before_model_call(correction_messages)
+    # 这是证据修正回合，不再压缩历史，否则已读源码可能再次被裁掉。
+    messages.append(deepcopy(correction_messages[-1]))
 
     response = await asyncio.to_thread(llm.invoke_with_tools, correction_messages, [])
     yield LoopEvent(
@@ -293,46 +306,19 @@ def _completion_guard_candidate(response: Any) -> str:
 
 
 def _completion_guard_correction_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """隔离 JSON 修正上下文，避免模型延续上一轮的工具调用意图。"""
+    """保留完整证据历史，只限制新工具调用，不重新启动或摘要归因。"""
 
-    system = next(
-        (str(message.get("content") or "") for message in messages if message.get("role") == "system"),
-        "",
-    )
-    draft = next(
-        (
-            str(message.get("content") or "")
-            for message in reversed(messages)
-            if message.get("role") == "assistant" and str(message.get("content") or "").strip()
+    return [*deepcopy(messages), {
+        "role": "user",
+        "content": (
+            "[JSON correction]\n"
+            "根据完整历史修复上一版 JSON 中列出的字段或证据引用错误。"
+            "原任务、补丁、失败日志和已读取源码仍是有效输入；没有新矛盾时，"
+            "不要把已确认事实改成未读取。不要为通过校验编造依据，必要时如实保留未知。"
+            "本轮无工具权限，不得发起或伪造工具调用；历史工具结果只作为证据。"
+            "只输出一个符合原 schema 的 JSON 对象，不要 Markdown、解释或前后缀。"
         ),
-        "{}",
-    )
-    guard = next(
-        (
-            str(message.get("content") or "")
-            for message in reversed(messages)
-            if message.get("role") == "user"
-            and str(message.get("content") or "").startswith("[Workflow guard]")
-        ),
-        "[Workflow guard]\nReturn valid JSON.",
-    )
-    return [
-        {
-            "role": "system",
-            "content": (
-                f"{system}\n\n"
-                "# Isolated JSON correction mode\n"
-                "You have no tools and must not request, describe, or imitate a tool call. "
-                "Repair the supplied draft using only its evidence and the validation errors. "
-                "Return exactly one literal JSON object. The first non-whitespace character must be `{` and the last "
-                "must be `}`. Do not use Markdown, XML/tool-call tags, commentary, or a preamble."
-            ),
-        },
-        {
-            "role": "user",
-            "content": f"DRAFT_TO_REPAIR:\n{draft}\n\nVALIDATION_ERRORS:\n{guard}",
-        },
-    ]
+    }]
 
 
 async def _max_steps_finalization_turn(
@@ -352,7 +338,9 @@ async def _max_steps_finalization_turn(
             "role": "user",
             "content": (
                 "[Workflow finalizer]\nThe regular tool/step budget is exhausted. "
-                "Do not call tools. Return the required final JSON object now."
+                "Use the full conversation, including source observations and failure evidence. "
+                "Do not call tools. Return the required final JSON object now. "
+                "Do not invent missing facts or force an actionable decision; report insufficient_evidence when appropriate."
             ),
         }
     )
@@ -447,7 +435,8 @@ def _assistant_tool_call_message(response: LLMToolResponse) -> dict[str, Any]:
             for tool_call in response.tool_calls
         ],
     }
-    # DeepSeek 思考模式要求工具调用后的下一轮原样带回 reasoning_content。
+    # 思考模型（DeepSeek、GLM 等）要求工具调用后的下一轮原样带回 reasoning_content。
+    # 该字段在 raw_message 中按供应商扩展透传，此处理与模型协议族无关。
     reasoning_content = response.raw_message.get("reasoning_content")
     if reasoning_content is not None:
         message["reasoning_content"] = reasoning_content

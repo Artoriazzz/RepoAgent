@@ -24,15 +24,25 @@ def _repair_memory_policy_error(
     role: str,
     provenance: str,
 ) -> str:
-    if memory_type not in {MemoryType.REPAIR_EPISODE, MemoryType.SEMANTIC_INSIGHT}:
+    if memory_type not in {
+        MemoryType.REPAIR_EPISODE,
+        MemoryType.SEMANTIC_INSIGHT,
+        MemoryType.GLOBAL_EXPERIENCE,
+        MemoryType.REPOSITORY_EXPERIENCE,
+    }:
         return ""
     if not provenance.strip():
-        return "repair_episode and semantic_insight require truthful provenance"
+        return "repair experience requires truthful provenance"
     if memory_type == MemoryType.REPAIR_EPISODE and role != "implement":
         return "repair_episode role must be implement"
     if memory_type == MemoryType.SEMANTIC_INSIGHT and role not in _SEMANTIC_ROLES:
         return "semantic_insight role must be coordinator, implement, or review"
-    max_chars = 6_000 if memory_type == MemoryType.REPAIR_EPISODE else 2_500
+    max_chars = {
+        MemoryType.REPAIR_EPISODE: 6_000,
+        MemoryType.SEMANTIC_INSIGHT: 2_500,
+        MemoryType.GLOBAL_EXPERIENCE: 3_500,
+        MemoryType.REPOSITORY_EXPERIENCE: 4_500,
+    }[memory_type]
     if len(content) > max_chars:
         return f"{memory_type.value} must be compact (at most {max_chars} characters)"
     lowered = content.lower()
@@ -109,6 +119,8 @@ def build_memory_tools(store: MemoryStore) -> list[Tool]:
             MemoryType.REPAIR_RECIPE.value,
             MemoryType.REPAIR_EPISODE.value,
             MemoryType.SEMANTIC_INSIGHT.value,
+            MemoryType.GLOBAL_EXPERIENCE.value,
+            MemoryType.REPOSITORY_EXPERIENCE.value,
         }:
             similar = store.similar_memories(
                 inp["name"],
@@ -238,13 +250,13 @@ def build_memory_tools(store: MemoryStore) -> list[Tool]:
             name="save_memory",
             description="Save a long-term memory only when the user explicitly asks to remember something.",
             parameters=[
-                ToolParameter("name", "string", "Short memory name"),
-                ToolParameter("description", "string", "One-line memory index description"),
+                ToolParameter("name", "string", "Short memory title; for repair experiences use a descriptive English name."),
+                ToolParameter("description", "string", "One-line index description; for repair experiences summarize the observed problem, not the fix."),
                 ToolParameter("type", "string", f"One of: {', '.join(item.value for item in MemoryType)}"),
                 ToolParameter(
                     "content",
                     "string",
-                    "Memory body. repair_episode is compact evidence; semantic_insight is one short actionable rule.",
+                    "Memory body. Repair experiences include a title, problem_description, usage_scenario and repair lessons. global_experience is cross-repository; repository_experience may retain stable repository APIs and contracts.",
                 ),
                 ToolParameter(
                     "role",
@@ -262,7 +274,7 @@ def build_memory_tools(store: MemoryStore) -> list[Tool]:
             handler=save_memory,
             prompt=(
                 "只有当用户明确要求记住信息，或给出可复用偏好/反馈/项目决策时才调用 save_memory；"
-                "repair_episode 只能保存紧凑 demonstration；semantic_insight 只能保存短小角色规则；"
+                "修复经验只使用 global_experience 或 repository_experience；"
                 "不要保存完整 diff、具体 instance、gold patch、hidden test 或一次性文件路径。"
             ),
             source=ToolSource.BUILTIN,
@@ -280,7 +292,7 @@ def build_memory_tools(store: MemoryStore) -> list[Tool]:
             ],
             handler=update_memory,
             prompt=(
-                "如果成功修复案例与已有 repair_recipe 相似，优先 read_memory 后用 update_memory 合并新抽象；"
+                "如果成功修复案例与已有同类经验相似，优先 read_memory 后用 update_memory 合并新抽象；"
                 "如果没有新增可复用策略，不要更新也不要新增。"
             ),
             source=ToolSource.BUILTIN,

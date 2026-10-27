@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -186,9 +187,14 @@ def build_repo_tools(workspace: RepoWorkspace) -> list[Tool]:
         query = inp["query"]
         file_glob = inp.get("file_glob") or ""
         glob = f" -g {shlex.quote(file_glob)}" if file_glob else ""
+        rg_path = shutil.which("rg")
+        user_rg = Path.home() / ".local/bin/rg"
+        if not rg_path and user_rg.is_file():
+            rg_path = str(user_rg)
+        rg_command = shlex.quote(rg_path) if rg_path else "rg"
         command = (
-            "if command -v rg >/dev/null 2>&1; then "
-            f"rg -n --hidden -g '!.git' -g '!.env*'{glob} -- {shlex.quote(query)} .; "
+            f"if command -v {rg_command} >/dev/null 2>&1; then "
+            f"{rg_command} -n --hidden -g '!.git' -g '!.env*'{glob} -- {shlex.quote(query)} .; "
             "else "
             f"grep -RIn --exclude-dir=.git --exclude='.env*' -- {shlex.quote(query)} .; "
             "fi"

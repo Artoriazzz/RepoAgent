@@ -28,3 +28,37 @@ def test_context_manager_budgets_tool_messages(tmp_path):
     updated = json.loads(messages[0]["content"])
     assert updated["data"]["context_budgeted"] is True
     assert len(updated["text"]) < 20_000
+
+
+def test_context_manager_keeps_history_immutable_below_threshold(tmp_path):
+    """低于阈值时不改写任何历史消息，保证请求前缀可以命中缓存。"""
+
+    manager = ConversationContextManager(tmp_path)
+    manager.last_input_token_count = int(manager.config.effective_window * 0.3)
+    payload = {"status": "success", "text": "x" * 40_000, "data": {"tool": "run_command"}}
+    messages = [{"role": "tool", "content": json.dumps(payload), "tool_call_id": "call_1"}]
+    original = messages[0]["content"]
+
+    manager.before_model_call(messages)
+
+    assert messages[0]["content"] == original
+    assert manager.history_stabilized is False
+
+
+def test_context_manager_stabilizes_history_only_once(tmp_path):
+    """达到阈值后只做一次确定性压缩，之后保持历史不变。"""
+
+    manager = ConversationContextManager(tmp_path)
+    manager.last_input_token_count = int(manager.config.effective_window * 0.75)
+    payload = {"status": "success", "text": "x" * 40_000, "data": {"tool": "run_command"}}
+    messages = [{"role": "tool", "content": json.dumps(payload), "tool_call_id": "call_1"}]
+
+    manager.before_model_call(messages)
+    stabilized = messages[0]["content"]
+    assert manager.history_stabilized is True
+
+    # 后续轮次即使压力继续升高也不再改写。
+    manager.last_input_token_count = int(manager.config.effective_window * 0.95)
+    manager.before_model_call(messages)
+    assert messages[0]["content"] == stabilized
+    assert manager.stabilization_count == 1

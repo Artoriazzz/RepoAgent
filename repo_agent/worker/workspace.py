@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -11,12 +12,18 @@ class WorkspaceError(RuntimeError):
 
 
 class WorktreeManager:
-    def __init__(self, mirror_root: Path, worktree_root: Path) -> None:
+    def __init__(
+        self,
+        mirror_root: Path,
+        worktree_root: Path,
+        swebench_mirror_root: Path | None = None,
+    ) -> None:
         self._mirror_root = mirror_root
         self._worktree_root = worktree_root
+        self._swebench_mirror_root = swebench_mirror_root or mirror_root
 
     def prepare(self, context: RepairTaskContext) -> Path:
-        mirror = self._mirror_root / str(context.repository_id)
+        mirror = self._resolve_mirror(context)
         if not mirror.is_dir():
             raise WorkspaceError(
                 f"Repository mirror is missing: {mirror}. "
@@ -31,6 +38,31 @@ class WorktreeManager:
         self._run(["git", "-C", str(mirror), "worktree", "add", "--detach", str(worktree), context.base_sha])
         self._run(["git", "-C", str(worktree), "switch", "-c", context.branch_name])
         return worktree
+
+    def prepare_or_reuse(self, context: RepairTaskContext) -> Path:
+        """恢复同一 Coordinator 阶段时复用已创建的隔离 worktree。"""
+        worktree = self._worktree_root / str(context.task_id)
+        if worktree.is_dir():
+            probe = self._run(
+                ["git", "-C", str(worktree), "rev-parse", "--is-inside-work-tree"],
+                allow_failure=True,
+            )
+            if probe.returncode == 0 and probe.stdout.strip() == "true":
+                return worktree
+            raise WorkspaceError(f"Existing worktree is invalid: {worktree}")
+        return self.prepare(context)
+
+    def _resolve_mirror(self, context: RepairTaskContext) -> Path:
+        if context.repository_provider == "GITHUB":
+            return self._mirror_root / str(context.repository_id)
+        if context.repository_provider != "SWE_BENCH":
+            raise WorkspaceError(f"Unsupported repository provider: {context.repository_provider}")
+        if not context.mirror_key or not _valid_mirror_key(context.mirror_key):
+            raise WorkspaceError("Invalid SWE-bench mirror key")
+        mirror = self._swebench_mirror_root / context.mirror_key
+        if mirror.is_dir():
+            return mirror
+        return mirror.with_suffix(".git")
 
     def collect_patch(self, worktree: Path) -> PatchArtifacts:
         patch = self._run(
@@ -61,3 +93,7 @@ class WorktreeManager:
             output = result.stdout[-2_000:]
             raise WorkspaceError(f"Git command failed: {' '.join(command)}\n{output}")
         return result
+
+
+def _valid_mirror_key(value: str) -> bool:
+    return re.fullmatch(r"[A-Za-z0-9_.-]+__[A-Za-z0-9_.-]+", value) is not None

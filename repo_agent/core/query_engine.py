@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from repo_agent.core.context import ConversationContextManager
-from repo_agent.core.llm import ChatLLM
+from repo_agent.core.llm import ChatLLM, LLMOutputLimitError
 from repo_agent.core.memory import MAX_SESSION_MEMORY_BYTES, MemoryStore, MemoryType, format_memories_for_injection
-from repo_agent.core.prompts import build_system_prompt
+from repo_agent.core.prompts import build_dynamic_context, build_system_prompt
 from repo_agent.core.query_loop import AbortSignal, LoopEvent, LoopEventType, query_loop
 from repo_agent.core.session_memory import ShortTermMemory
 from repo_agent.core.tool import ToolRegistry
@@ -41,6 +41,7 @@ class QueryEngine:
         completion_guard: Callable[[str], str | None] | None = None,
         completion_guard_extra_turns: int = 0,
         force_completion_after_max_steps: bool = False,
+        prompt_version: str = "",
     ):
         # 运行依赖：LLM 决定如何推理，ToolRegistry 决定允许执行哪些动作。
         self.llm = llm
@@ -57,8 +58,9 @@ class QueryEngine:
         self.short_memory = ShortTermMemory(repo_path=str(self.cwd))
         self._hydrate_repo_context()
         self.context_manager = ConversationContextManager(self.output_dir)
-        # system prompt 由稳定规则、仓库动态上下文、工具规则和长期记忆共同组成。
-        # 这些内容只在会话初始化时装配，单轮循环只消费最终 messages。
+        # 缓存友好装配：system prompt 只包含稳定规则，工具规则对同一角色也是固定的；
+        # 日期、工作目录、Git 状态、项目指令和召回记忆全部后置到第一条 user 消息。
+        # 这样同一 Agent 处理不同题目时，请求前缀（system + 工具 schema）可以命中缓存。
         tool_prompt = tools.prompt().strip() if tool_prompt_enabled else ""
         memory_prompt = (
             self.memory_store.build_prompt_section(excluded_types=self.excluded_memory_types)
@@ -66,23 +68,28 @@ class QueryEngine:
             else ""
         )
         self.system_prompt = (
-            build_system_prompt(
-                cwd=self.cwd,
-                tool_rules=tool_prompt,
-                memory_section=memory_prompt,
-                include_dynamic_context=include_dynamic_context,
-            )
+            build_system_prompt(tool_rules=tool_prompt)
             if system_prompt is None
-            else self._append_dynamic_prompt_sections(system_prompt, tool_prompt, memory_prompt)
+            else self._append_stable_prompt_sections(system_prompt, tool_prompt)
+        )
+        self.dynamic_context = build_dynamic_context(
+            cwd=self.cwd,
+            memory_section=memory_prompt,
+            include_dynamic_context=include_dynamic_context,
         )
         self.max_steps = max_steps
         self.completion_guard = completion_guard
         self.completion_guard_extra_turns = max(0, completion_guard_extra_turns)
         self.force_completion_after_max_steps = force_completion_after_max_steps
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": self.system_prompt}]
+        # 动态上下文只在会话初始化时快照一次，后续轮次保持不变，使多轮请求也能共享前缀。
+        if self.dynamic_context.strip():
+            self.messages.append({"role": "user", "content": self.dynamic_context})
         # token 和完成状态属于会话级指标，所以由 Engine 持有，而不是塞进纯循环。
+        self.prompt_version = prompt_version
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0
+        self.total_cached_tokens = 0
         self.total_tokens = 0
         self.last_input_token_count = 0
         self.completed = False
@@ -138,6 +145,9 @@ class QueryEngine:
                         self.completed = True
                         self.stop_reason = "finished"
                     break
+        except LLMOutputLimitError:
+            self.stop_reason = "output_limit"
+            raise
         finally:
             self._auto_save(final_answer)
 
@@ -154,8 +164,10 @@ class QueryEngine:
             prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
             completion_tokens = int(usage.get("completion_tokens", 0) or 0)
             total_tokens = int(usage.get("total_tokens", 0) or 0)
+            cached_tokens = int(usage.get("cached_tokens", 0) or 0)
             self.total_prompt_tokens += prompt_tokens
             self.total_completion_tokens += completion_tokens
+            self.total_cached_tokens += cached_tokens
             self.total_tokens += total_tokens
             self.last_input_token_count = prompt_tokens
             self.context_manager.after_model_call(prompt_tokens)
@@ -181,7 +193,14 @@ class QueryEngine:
         (self.output_dir / "session.json").write_text(
             json.dumps(
                 {
+                    "prompt_version": self.prompt_version,
                     "total_prompt_tokens": self.total_prompt_tokens,
+                    "total_cached_tokens": self.total_cached_tokens,
+                    "cache_hit_rate": (
+                        round(self.total_cached_tokens / self.total_prompt_tokens, 4)
+                        if self.total_prompt_tokens
+                        else 0.0
+                    ),
                     "total_completion_tokens": self.total_completion_tokens,
                     "total_tokens": self.total_tokens,
                     "last_input_token_count": self.last_input_token_count,
@@ -245,12 +264,12 @@ class QueryEngine:
         return result.stdout.strip()
 
     @staticmethod
-    def _append_dynamic_prompt_sections(system_prompt: str, tool_prompt: str, memory_prompt: str) -> str:
+    def _append_stable_prompt_sections(system_prompt: str, tool_prompt: str) -> str:
+        """只追加同一角色稳定的工具规则。记忆和运行时上下文不在这里出现。"""
+
         sections = [system_prompt.rstrip()]
         if tool_prompt.strip():
             sections.append(f"# Tool-specific Rules\n{tool_prompt.strip()}")
-        if memory_prompt.strip():
-            sections.append(memory_prompt.strip())
         return "\n\n".join(sections)
 
     def _side_query(self, system: str, user: str) -> str:

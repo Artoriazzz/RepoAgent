@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -17,8 +18,6 @@ from repo_agent.core.differential_validation import (
 from repo_agent.core.experience import (
     RepairRunMode,
     assess_lightweight_validation,
-    augment_implement_with_episodes,
-    augment_task_with_semantic_insights,
     build_failure_review_prompt,
     constraints_from_patch,
     independent_validation_succeeded,
@@ -27,7 +26,11 @@ from repo_agent.core.experience import (
 )
 from repo_agent.core.llm import DEFAULT_MODEL, ChatLLM
 from repo_agent.core.memory import MemoryStore
+from repo_agent.core.memory_query import MemoryQueryAgent
 from repo_agent.core.subagent import SubAgentRunner, WorkerConstraints
+from repo_agent.core.query_engine import QueryEngine
+from repo_agent.core.replan import REPLAN_PROMPT, validate_replan
+from repo_agent.core.semantic_evidence import extract_json_object, extract_public_problem_statement
 from repo_agent.tools import RepoWorkspace, ToolImportContext, assemble_tool_pool
 
 
@@ -37,7 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     def add_common(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument("--repo", required=True, type=Path)
-        subparser.add_argument("--model", default=DEFAULT_MODEL)
+        subparser.add_argument(
+            "--model",
+            default=os.getenv("OPENAI_MODEL", DEFAULT_MODEL),
+            help="Model name. Defaults to OPENAI_MODEL, then the built-in default.",
+        )
         subparser.add_argument(
             "--implement-model",
             default=None,
@@ -47,7 +54,13 @@ def build_parser() -> argparse.ArgumentParser:
             "--reasoning-effort",
             choices=("low", "medium", "high", "max"),
             default="high",
-            help="Reasoning effort for Coordinator and reasoning-enabled review Workers.",
+            help="Reasoning effort for reasoning-enabled review Workers.",
+        )
+        subparser.add_argument(
+            "--coordinator-reasoning-effort",
+            choices=("low", "medium", "high", "max"),
+            default="max",
+            help="Reasoning effort for the Coordinator itself.",
         )
         subparser.add_argument(
             "--implement-reasoning-effort",
@@ -55,12 +68,40 @@ def build_parser() -> argparse.ArgumentParser:
             default="max",
             help="Reasoning effort for Implement and corrective Implement.",
         )
+        subparser.add_argument(
+            "--coordinator-max-output-tokens",
+            type=_positive_int,
+            default=os.getenv("REPO_AGENT_COORDINATOR_MAX_OUTPUT_TOKENS", "12288"),
+            help="Per-request Coordinator output cap, including reasoning and tool arguments (default: 12288).",
+        )
         subparser.add_argument("--output-dir", type=Path, default=Path(".repo_agent_runs/latest"))
+        subparser.add_argument(
+            "--review-max-output-tokens",
+            type=_positive_int,
+            default=os.getenv("REPO_AGENT_REVIEW_MAX_OUTPUT_TOKENS"),
+            help="Optional per-request review output cap, including reasoning.",
+        )
         subparser.add_argument("--max-steps", type=int, default=16)
         subparser.add_argument("--semantic-memory", action="store_true")
         subparser.add_argument("--memory-root", type=Path)
         subparser.add_argument("--memory-scope", help="Stable shared memory scope, for example repo:owner/name.")
         subparser.add_argument("--no-repair-memory", action="store_true", help="Disable repair_recipe recall for this run.")
+        subparser.add_argument(
+            "--memory-query-model",
+            default=os.getenv("REPO_AGENT_MEMORY_QUERY_MODEL"),
+            help="Enable independent public-Issue query extraction with this model before Coordinator memory recall.",
+        )
+        subparser.add_argument(
+            "--memory-query-base-url",
+            default=os.getenv("REPO_AGENT_MEMORY_QUERY_BASE_URL"),
+            help="Optional separate OpenAI-compatible endpoint for query extraction.",
+        )
+        subparser.add_argument(
+            "--memory-query-max-output-tokens",
+            type=_positive_int,
+            default=os.getenv("REPO_AGENT_MEMORY_QUERY_MAX_OUTPUT_TOKENS", "4096"),
+            help="Query extraction output cap including reasoning (default: 4096).",
+        )
         subparser.add_argument(
             "--swebench-profile",
             action="store_true",
@@ -84,6 +125,21 @@ def build_parser() -> argparse.ArgumentParser:
             default=RepairRunMode.STANDARD.value,
             help="Repair workflow policy. benchmark is frozen/read-only; experience-build allows one correction and memory write.",
         )
+
+    extract_query = subparsers.add_parser(
+        "extract-memory-query", help="Extract an isolated retrieval query from a public Issue, without running repair.",
+    )
+    extract_query.add_argument("--issue-file", required=True, type=Path)
+    extract_query.add_argument("--issue-title", default="")
+    extract_query.add_argument(
+        "--model", default=os.getenv("REPO_AGENT_MEMORY_QUERY_MODEL") or os.getenv("OPENAI_MODEL", DEFAULT_MODEL),
+    )
+    extract_query.add_argument("--base-url", default=os.getenv("REPO_AGENT_MEMORY_QUERY_BASE_URL"))
+    extract_query.add_argument(
+        "--max-output-tokens", type=_positive_int,
+        default=os.getenv("REPO_AGENT_MEMORY_QUERY_MAX_OUTPUT_TOKENS", "4096"),
+    )
+    extract_query.add_argument("--output-dir", type=Path, default=Path(".repo_agent_runs/memory-query"))
 
     run = subparsers.add_parser("run", help="Run an arbitrary repository task.")
     add_common(run)
@@ -114,6 +170,10 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(corrective)
     corrective.add_argument("--task-file", required=True, type=Path)
     corrective.add_argument("--constraints-file", required=True, type=Path)
+
+    replan = subparsers.add_parser("coordinator-replan", help="Confirm a new corrective scope from failure evidence without editing.")
+    add_common(replan)
+    replan.add_argument("--task-file", required=True, type=Path)
 
     benchmark = subparsers.add_parser(
         "benchmark",
@@ -177,6 +237,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_failure.add_argument("--patch-file", required=True, type=Path)
     review_failure.add_argument("--failure-log-file", required=True, type=Path)
     review_failure.add_argument("--validation-file", type=Path)
+    review_failure.add_argument("--implementation-report-file", type=Path)
     review_failure.set_defaults(repair_mode=RepairRunMode.EXPERIENCE_BUILD.value)
 
     design_differential = subparsers.add_parser(
@@ -205,11 +266,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def _build_role_llms(args: argparse.Namespace) -> tuple[ChatLLM, dict[str, ChatLLM]]:
     coordinator_llm = ChatLLM(
         model=args.model,
-        reasoning_effort=args.reasoning_effort,
+        reasoning_effort=args.coordinator_reasoning_effort,
         enable_thinking=True,
+        max_output_tokens=getattr(args, "coordinator_max_output_tokens", 12288),
+        output_limit_recovery=True,
     )
     lightweight_llm = ChatLLM(model=args.model, enable_thinking=False)
     implement_llm = ChatLLM(
@@ -221,6 +291,8 @@ def _build_role_llms(args: argparse.Namespace) -> tuple[ChatLLM, dict[str, ChatL
         model=args.model,
         reasoning_effort=args.reasoning_effort,
         enable_thinking=True,
+        max_output_tokens=getattr(args, "review_max_output_tokens", None),
+        output_limit_recovery=getattr(args, "review_max_output_tokens", None) is not None,
     )
     overrides = {
         "research": lightweight_llm,
@@ -241,6 +313,20 @@ def _build_role_llms(args: argparse.Namespace) -> tuple[ChatLLM, dict[str, ChatL
     return coordinator_llm, overrides
 
 
+def _build_memory_query_agent(
+    *, model: str, base_url: str | None, max_output_tokens: int,
+) -> MemoryQueryAgent:
+    return MemoryQueryAgent(ChatLLM(
+        model=model,
+        api_key=os.getenv("REPO_AGENT_MEMORY_QUERY_API_KEY") or os.getenv("OPENAI_API_KEY"),
+        base_url=base_url,
+        reasoning_effort="low",
+        enable_thinking=False,
+        max_output_tokens=max_output_tokens,
+        output_limit_recovery=False,
+    ))
+
+
 def main(argv: list[str] | None = None) -> None:
     """CLI composition root：解析配置、装配依赖，再把任务交给具体运行时。
 
@@ -250,6 +336,22 @@ def main(argv: list[str] | None = None) -> None:
 
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command == "extract-memory-query":
+        query_agent = _build_memory_query_agent(
+            model=args.model, base_url=args.base_url, max_output_tokens=args.max_output_tokens,
+        )
+        result = query_agent.extract(
+            issue_title=args.issue_title,
+            issue_body=extract_public_problem_statement(args.issue_file.read_text(encoding="utf-8")),
+            output_dir=args.output_dir,
+        )
+        print(json.dumps({
+            "problem_description": result.problem_description,
+            "usage_scenario": result.usage_scenario,
+            "status": result.status,
+            "retrieval_text": result.retrieval_text,
+        }, ensure_ascii=False, indent=2))
+        return
     fixed_modes = {
         "benchmark": RepairRunMode.BENCHMARK.value,
         "experience-build": RepairRunMode.EXPERIENCE_BUILD.value,
@@ -262,6 +364,11 @@ def main(argv: list[str] | None = None) -> None:
         parser.error(f"{args.command} requires --repair-mode {expected_mode}")
     if args.command == "experience-build" and not (args.final_eval_command or args.verify_command):
         parser.error("experience-build requires --final-eval-command")
+    if args.memory_query_model and not args.no_repair_memory and args.repair_mode != "experience-build":
+        if args.command in {"run", "benchmark"} and not args.coordinator:
+            parser.error("--memory-query-model requires --coordinator")
+        if args.command in {"fix-issue", "repair-ci"} and args.coordinator:
+            parser.error("Query extraction requires public Issue text; use run --task or extract-memory-query --issue-file")
     task = _build_task(args)
     workspace = RepoWorkspace(repo_path=args.repo, output_dir=args.output_dir)
     memory_store = _build_memory_store(args)
@@ -276,6 +383,41 @@ def main(argv: list[str] | None = None) -> None:
         )
     )
     llm, worker_llm_overrides = _build_role_llms(args)
+    if args.command == "coordinator-replan":
+        if args.repair_mode != "experience-build":
+            parser.error("coordinator-replan requires experience-build")
+        runner = SubAgentRunner(llm=llm, base_tools=registry, cwd=args.repo,
+                                output_dir=args.output_dir, swebench_profile=True)
+        tools = runner._swebench_failure_review_tools()
+        engine = None
+
+        def guard(answer):
+            read_files = set()
+            calls = {}
+            for message in engine.messages:
+                for call in message.get("tool_calls", []):
+                    function = call.get("function", {})
+                    if function.get("name") == "read_file":
+                        calls[call["id"]] = json.loads(function["arguments"]).get("path")
+                if message.get("role") == "tool" and message.get("tool_call_id") in calls:
+                    result = json.loads(message["content"])
+                    if result.get("status") == "success":
+                        read_files.add(calls[message["tool_call_id"]])
+            return validate_replan(answer, args.repo, read_files)
+
+        engine = QueryEngine(llm=llm, tools=tools, system_prompt=REPLAN_PROMPT,
+                             max_steps=6, cwd=args.repo, output_dir=args.output_dir,
+                             memory_prompt_enabled=False, memory_recall_enabled=False,
+                             include_dynamic_context=False, completion_guard=guard,
+                             completion_guard_extra_turns=1)
+        answer = engine.chat(task)
+        data = extract_json_object(answer) or {}
+        if guard(answer) or not engine.completed:
+            data = {"status": "blocked", "reason": "Invalid or incomplete replan output"}
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        (args.output_dir / "replan.json").write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        print(json.dumps(data, ensure_ascii=False))
+        return
     if args.command == "design-differential-tests":
         candidate_patch = args.patch_file.read_text(
             encoding="utf-8",
@@ -341,6 +483,7 @@ def main(argv: list[str] | None = None) -> None:
                 failed_patch=args.patch_file.read_text(encoding="utf-8", errors="replace"),
                 failure_log=args.failure_log_file.read_text(encoding="utf-8", errors="replace"),
                 validation=_read_json_or_text(args.validation_file),
+                implementation_report=_read_json_or_text(args.implementation_report_file),
             ),
         )
         feedback = parse_failure_feedback(result.text)
@@ -416,25 +559,10 @@ def main(argv: list[str] | None = None) -> None:
             swebench_profile=True,
             implement_phase="experience_corrective",
         )
-        corrective_prompt = task
-        recalled_semantic_insights = ()
-        recalled_episodes = ()
-        if repair_policy.semantic_recall and not args.no_repair_memory:
-            corrective_prompt, recalled_semantic_insights = augment_task_with_semantic_insights(
-                task=corrective_prompt,
-                memory_store=memory_store,
-                role="implement",
-            )
-        if repair_policy.episodic_recall and not args.no_repair_memory:
-            corrective_prompt, recalled_episodes = augment_implement_with_episodes(
-                prompt=corrective_prompt,
-                memory_store=memory_store,
-                limit=1,
-            )
         result = runner.run(
             agent_type="implement",
             description="Diagnostic corrective implement",
-            prompt=corrective_prompt,
+            prompt=task,
             constraints=constraints,
         )
         payload = {
@@ -450,12 +578,7 @@ def main(argv: list[str] | None = None) -> None:
             "completion_tokens": result.completion_tokens,
             "total_tokens": result.total_tokens,
             "changed_files": list(result.changed_files),
-            "recalled_repair_episodes": [
-                memory.header.filename for memory in recalled_episodes
-            ],
-            "recalled_semantic_insights": [
-                memory.header.filename for memory in recalled_semantic_insights
-            ],
+            "recalled_memories": [],
         }
         args.output_dir.mkdir(parents=True, exist_ok=True)
         (args.output_dir / "worker_result.json").write_text(
@@ -494,6 +617,12 @@ def main(argv: list[str] | None = None) -> None:
         forced_scope = _read_json_or_text(args.forced_scope_file) or {}
         if forced_scope and not isinstance(forced_scope, dict):
             parser.error("--forced-scope-file must contain a JSON object")
+        memory_query_agent = None
+        if args.memory_query_model and not args.no_repair_memory and args.repair_mode != "experience-build":
+            memory_query_agent = _build_memory_query_agent(
+                model=args.memory_query_model, base_url=args.memory_query_base_url,
+                max_output_tokens=args.memory_query_max_output_tokens,
+            )
         coordinator = CoordinatorEngine(
             llm=llm,
             worker_llm_overrides=worker_llm_overrides,
@@ -508,6 +637,7 @@ def main(argv: list[str] | None = None) -> None:
             candidate_mode=args.candidate_mode,
             forced_implement_scope=forced_scope,
             repair_mode=args.repair_mode,
+            memory_query_agent=memory_query_agent,
         )
         print(coordinator.run(task))
         return
@@ -550,8 +680,10 @@ def _run_experience_build(
         output_dir=args.output_dir / "initial",
         cwd=args.repo,
         memory_store=memory_store,
-        semantic_memory_recall=args.semantic_memory,
-        repair_memory_recall=not args.no_repair_memory,
+        # Experience-build learns only after final success. Historical memory
+        # must not influence Coordinator or either Implement pass.
+        semantic_memory_recall=False,
+        repair_memory_recall=False,
         swebench_profile=True,
         candidate_mode="off",
         repair_mode=RepairRunMode.EXPERIENCE_BUILD.value,
@@ -594,6 +726,9 @@ def _run_experience_build(
                 failed_patch=failed_patch,
                 failure_log=str(initial_feedback.get("output") or ""),
                 validation=lightweight.to_dict(),
+                implementation_report=dict(
+                    coordinator._agent_state.get("implementation_report") or {}
+                ),
             ),
         )
         feedback = parse_failure_feedback(feedback_result.text)
@@ -609,9 +744,13 @@ def _run_experience_build(
             constraints = constraints_from_patch(failed_patch, args.repo)
             correction_prompt = (
                 f"## Public Task\n{task}\n\n"
-                f"## FailureFeedback\n{json.dumps(feedback.to_dict(), ensure_ascii=False)}\n\n"
-                "Correct the current patch in place exactly once. Use only direct correction evidence, preserve "
-                "regression_guards, do not search, and do not expand the enforced file/range scope."
+                f"## FailureFeedback\n{json.dumps(feedback.to_dict(), ensure_ascii=False, indent=2)}\n\n"
+                f"## Current Failed Patch\n```diff\n{failed_patch}\n```\n\n"
+                "The worktree already contains Current Failed Patch. Correct it in place exactly once; do not "
+                "reapply it from scratch. Every edit must be authorized by correction_evidence_ids and must address "
+                "the first failed predicate, identity, conversion, state transition, or exact output contract named "
+                "by FailureFeedback. Preserve regression_guards and every hunk not invalidated by direct evidence. "
+                "Do not search, run commands, edit tests, or expand the enforced file/range scope."
             )
             # Experience-build 的 corrective pass 只消费本次公开失败证据；
             # 历史记忆留给冻结的 benchmark 模式使用。
@@ -624,6 +763,7 @@ def _run_experience_build(
                     description="Correct failed repair",
                     prompt=correction_prompt,
                     constraints=constraints,
+                    implement_phase="experience_corrective",
                 )
                 correction_report["worker"] = _worker_payload(correction_result)
                 correction_report["recalled_episodes"] = [
@@ -634,12 +774,6 @@ def _run_experience_build(
                 ]
             else:
                 correction_report["error"] = "failed patch did not provide a safe corrective scope"
-        elif feedback and feedback.correction_route == "coordinator_replan":
-            correction_report["route"] = "deferred_replan"
-            correction_report["error"] = (
-                "A full Coordinator restart is intentionally skipped in the compact experience loop."
-            )
-
         corrected_patch = _git_diff(args.repo)
         corrected_feedback = (
             _run_validation(
@@ -714,6 +848,10 @@ def _worker_payload(result) -> dict:
         "prompt_tokens": result.prompt_tokens,
         "completion_tokens": result.completion_tokens,
         "total_tokens": result.total_tokens,
+        # 缓存指标按 Agent 与 Prompt 版本分组，避免只看总 token 掩盖命中率差异。
+        "prompt_version": getattr(result, "prompt_version", ""),
+        "cached_tokens": getattr(result, "cached_tokens", 0),
+        "cache_hit_rate": getattr(result, "cache_hit_rate", 0.0),
         "text": result.text,
     }
 
@@ -737,7 +875,7 @@ def _build_task(args: argparse.Namespace) -> str:
         if args.task_file:
             return args.task_file.read_text(encoding="utf-8", errors="replace")
         return args.task
-    if args.command == "corrective-implement":
+    if args.command in {"corrective-implement", "coordinator-replan"}:
         return args.task_file.read_text(encoding="utf-8", errors="replace")
     if args.command in {
         "review-failure",

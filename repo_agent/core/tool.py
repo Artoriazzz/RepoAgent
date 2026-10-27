@@ -361,14 +361,27 @@ class ToolRegistry:
         self.register(FunctionTool(func, name=name, description=description))
 
     def schemas(self) -> list[dict[str, Any]]:
-        return [tool.to_openai_schema() for tool in self.active_tools()]
+        """按工具名排序输出 schema。
+
+        顺序必须稳定：工具 schema 位于请求前缀，任何顺序抖动都会让同一角色的
+        不同题目无法共享上下文缓存。deferred 工具在运行中激活会改变 tools 列表，
+        因此这里的激活状态也必须与角色绑定，而不能随单次会话漂移。
+        """
+
+        return [
+            self._tools[name].to_openai_schema()
+            for name in sorted(self._tools)
+            if self._is_active(name)
+        ]
+
+    def _is_active(self, name: str) -> bool:
+        tool = self._tools.get(name)
+        if tool is None:
+            return False
+        return not tool.deferred or tool.name in self._activated_deferred
 
     def active_tools(self) -> list[Tool]:
-        return [
-            tool
-            for tool in self._tools.values()
-            if not tool.deferred or tool.name in self._activated_deferred
-        ]
+        return [self._tools[name] for name in sorted(self._tools) if self._is_active(name)]
 
     def tools(self) -> list[Tool]:
         return list(self._tools.values())
@@ -392,6 +405,8 @@ class ToolRegistry:
         return registry
 
     def prompt(self) -> str:
+        """工具规则文本同样按名称排序，保证进入 system prompt 的内容字节级稳定。"""
+
         snippets = [tool.prompt().strip() for tool in self.active_tools() if tool.prompt().strip()]
         return "\n".join(snippets)
 
