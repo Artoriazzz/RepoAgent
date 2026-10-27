@@ -41,7 +41,6 @@ RepoAgent 是面向软件仓库的多 Agent 程序修复平台，将公开 Issue
 | **Corrective Implement：纠正实现** | 根据归因结果和当前授权，对已有 patch 进行定向修正 | 纠正 patch、修改说明、剩余风险 |
 | **ExperienceCurator：经验整理** | 在独立验证成功后抽象知识，查重并维护已有经验 | 全局经验、仓库经验及新增/合并/不保存决策 |
 
-Corrective Implement 是实现角色在纠正阶段的独立调用，继续接受文件与行范围约束。Harness 承担独立执行与评分，向流程提供可检查的验证结果。
 
 ## 运行流程
 
