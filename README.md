@@ -16,8 +16,6 @@ RepoAgent 是面向软件仓库的多 Agent 程序修复系统。它把公开 Is
 
 每个角色拥有独立上下文，只接收完成本阶段所需的信息：**定位的人决定改哪里，写代码的人落实方案，分析失败的人依据证据纠偏，整理经验的人记录验证成功的知识。**
 
-项目直接使用 OpenAI-compatible Chat Completions 的 `tools/tool_calls` 协议，自行实现 Agent Loop、工具权限、上下文管理和角色调度，**不依赖 LangGraph 或高层 Agent SDK**。这里使用的 `openai` 包仅是模型接口客户端。
-
 > 当前仓库包含 CLI、Python 后端 Worker 和 SWE-bench 研究工具。Java/Spring Boot 平台位于独立的 [backend 仓库](https://github.com/Artoriazzz/backend)。
 
 ## 为什么是多 Agent
