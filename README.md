@@ -47,7 +47,7 @@ Corrective Implement 是实现角色在纠正阶段的独立调用，继续接�
 
 任务先检索经验，再进入协调、实现和验证。验证失败后，归因与纠正阶段尝试缩小语义偏差；纠正仍未通过时检查剩余预算，预算允许则回到 Coordinator，重新确认事实、方案与授权，预算耗尽则结束任务。
 
-![经验召回驱动的多 Agent 修复闭环](docs/assets/repair-workflow.svg)
+![经验召回驱动的多 Agent 修复闭环](docs/assets/repair-workflow-v2.png)
 
 上图展示统一协作设计。各运行入口当前支持的调度路径、召回开关和纠正预算见 [运行说明](docs/quickstart.md#运行流程与入口)。
 
