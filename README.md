@@ -73,17 +73,6 @@ RepoAgent 是面向软件仓库的多 Agent 程序修复平台，将公开 Issue
 
 历史侧和查询侧均以 `problem_description`、`usage_scenario` 表达问题：前者概括异常与预期行为，后者描述 API、操作、输入结构和触发条件。
 
-```text
-公开 Issue → 独立查询提取 → embedding → 相似度排序
-                                      ↓
-                          全局 Top-1 + 当前仓库 Top-1
-                                      ↓
-                            Coordinator 复核并形成方案
-```
-
-MemoryQueryAgent 的提取历史保持独立，Coordinator 接收原始任务与召回经验。向量实验采用 BAAI/bge-small-zh-v1.5、L2 归一化和分块余弦比较；经验来源题号只用于事后命中审计。
-
-CLI 的词法召回、独立向量实验和后端版本化 RAG 入口分别见 [快速开始](docs/quickstart.md#经验检索入口)。
 
 ## 自研 Agent Loop
 
