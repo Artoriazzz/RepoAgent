@@ -2,13 +2,15 @@
 
 # RepoAgent
 
+**简体中文** | [English](README.en.md)
+
 ![各司其职的机器人协作修复 Issue](docs/assets/repair-squad-v2.png)
 
 ### 把一个 Issue，交给一支各司其职的修复小队。
 
 **经验召回 · 协同定位 · 定向修复 · 持续学习**
 
-[认识修复小队](#认识修复小队) · [运行流程](#运行流程) · [经验与检索](#经验与检索) · [后端介绍](#后端介绍) · [实验结果](#swe-bench-lite-实验结果) · [快速开始](docs/quickstart.md)
+[认识修复小队](#认识修复小队) · [运行流程](#运行流程) · [经验与检索](#经验与检索) · [后端介绍](#后端介绍) · [实验结果](#swe-bench-lite-实验结果) · [快速开始](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md)
 
 </div>
 
@@ -19,6 +21,8 @@ RepoAgent 是面向软件仓库的多 Agent 程序修复平台，将公开 Issue
 每个角色拥有独立上下文，只接收当前阶段需要的信息：**查询者寻找可复用经验，协调者决定修复方向，实现者落实代码修改，归因者分析失败，经验整理者沉淀验证成功的知识。**
 
 平台包含 Python Agent Runtime、Spring Boot 业务后端和 Vue 监控前端。Agent Runtime 直接使用 OpenAI-compatible `tools/tool_calls` 协议，实现会话管理、工具执行、流式响应、预算控制与角色调度。
+
+完整平台源码位于 [full-stack-integration 分支](https://github.com/Artoriazzz/RepoAgent/tree/full-stack-integration)；`main` 分支保留 Python Agent Runtime、Worker 与实验工具。
 
 ## 为什么是多 Agent
 
@@ -50,7 +54,7 @@ RepoAgent 是面向软件仓库的多 Agent 程序修复平台，将公开 Issue
 
 ![经验召回驱动的多 Agent 修复闭环](docs/assets/repair-workflow-v5.png)
 
-上图展示统一协作设计。各运行入口当前支持的调度路径、召回开关和纠正预算见 [运行说明](docs/quickstart.md#运行流程与入口)。
+上图展示统一协作设计。各运行入口当前支持的调度路径、召回开关和纠正预算见 [运行说明](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md#运行流程与入口)。
 
 整个过程中保留三个明确的交接点：
 
@@ -140,7 +144,7 @@ Coordinator、Implement、验证、失败归因和经验整理通过独立阶段
 - **成功经验通过提案合并**：修复结果生成 observation 和经验提案，由经验维护流程执行新增、更新或不变决策。
 - **版本检查与索引对账**：过期提案重新基于当前版本判断；向量索引通过后台任务补齐和对账。
 
-完整设计见 [经验 RAG](backend/docs/memory-rag-design.md)、[任务准入与租约](backend/docs/repair-admission-quota-and-lease-design.md) 和 [后端接口](backend/README.md)。
+完整设计见 [经验 RAG](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/backend/docs/memory-rag-design.md)、[任务准入与租约](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/backend/docs/repair-admission-quota-and-lease-design.md) 和 [后端接口](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/backend/README.md)。
 
 ## SWE-bench Lite 实验结果
 
@@ -156,6 +160,8 @@ Coordinator、Implement、验证、失败归因和经验整理通过独立阶段
 
 
 ## 深入代码
+
+全栈分支的目录结构：
 
 ```text
 repo_agent/                 Python Agent Runtime 与 Worker
@@ -174,7 +180,7 @@ scripts/                    批处理、向量实验和环境工具
 tests/                      Python 单元与离线集成测试
 ```
 
-- [快速开始](docs/quickstart.md) · [WSL 部署与开发](docs/full-stack-development.md)
+- [快速开始](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md) · [WSL 部署与开发](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/full-stack-development.md)
 - [Coordinator Prompt](docs/prompts/Coordinator.md) · [Implement Prompt](docs/prompts/Implement.md)
 - [FailureReview Prompt](docs/prompts/FailureReview.md) · [ExperienceCurator Prompt](docs/prompts/ExperienceCurator.md)
 
