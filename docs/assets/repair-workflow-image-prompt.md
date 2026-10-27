@@ -1,7 +1,7 @@
 # Workflow Image Generation
 
 Method: built-in `image_gen`, followed by one targeted connection correction.
-Selected asset: `repair-workflow-v2.png`.
+Selected asset: `repair-workflow-v5.png`.
 The editable earlier diagram remains in `repair-workflow.svg`.
 
 ## Generation Prompt
@@ -47,3 +47,68 @@ from the upper Harness into FailureReview, labelled 未通过. Keep the existing
 FailureReview to Corrective Implement to lower Harness sequence, both success
 paths, memory reuse connection, budget termination and return to Coordinator.
 There must be no direct upper Harness to Corrective Implement connection.
+
+## Readability Redesign
+
+Method: built-in `image_gen` edit of `repair-workflow-v2.png`.
+Final asset: `repair-workflow-v3.png`. Earlier versions are preserved.
+
+Redesign the workflow for a GitHub README displayed at approximately 900 CSS
+pixels wide. Use a 3:2 landscape canvas, three horizontal lanes with at most
+four nodes across, large Chinese primary labels and readable English role
+names beneath. Wrap long role names into two lines. Reduce the heading and
+unused whitespace. Keep a clean white background with blue coordination,
+green memory/success and amber failure routes.
+
+Place Issue, MemoryQueryAgent and retrieval in the first lane; Coordinator,
+Initial Implement and Harness in the second; FailureReview, Corrective
+Implement and the second Harness in the third. Share ExperienceCurator at
+the right. Put the budget decision and termination below. Preserve all
+directed edges from the original graph, especially initial failure into
+FailureReview, budget remaining back into Coordinator, and dashed experience
+reuse into retrieval. Do not invent additional nodes or connections.
+
+## Scope Routing Correction (Current)
+
+This version supersedes the earlier routing specifications above.
+Method: built-in `image_gen`, with two targeted edge-cleanup edits.
+Final asset: `repair-workflow-v4.png`.
+
+```text
+Edit the supplied RepoAgent workflow infographic to CORRECT the control flow. Keep its readable large Chinese primary labels and smaller English role names, clean white background, blue work routes, amber failures/decisions, green success/memory. Landscape about 3:2; compact polished orthogonal diagram, maximum four nodes per row. You may fully rearrange nodes to avoid crossings. Typography must remain legible at 900px README width. Title modest "RepoAgent · 修复流程".
+
+Use EXACTLY this graph. It replaces the old graph:
+A 公开 Issue -> B 检索查询提取 / MemoryQueryAgent -> C 经验检索 / 全局 + 仓库经验 -> D 定位与决策 / Coordinator -> E 首次修复 / Initial Implement -> V 独立验证 / Harness.
+V -> G 沉淀经验 / ExperienceCurator, green edge "通过".
+G -> L 结束任务, green edge. This terminal edge is REQUIRED.
+V -> K diamond "预算耗尽？", amber edge "未通过".
+K -> L, edge "是".
+K -> H 失败归因 / FailureReview, edge "否".
+H -> R diamond "需要扩大修改范围？".
+R -> D Coordinator, blue edge "是 · 重新规划". Only this scope-expansion decision can route back to Coordinator.
+R -> I 定向纠正 / Corrective Implement, edge "否".
+I -> V 独立验证 / Harness, blue loop. Reuse the SAME V node, do not add another validation node.
+A thin optional dashed green G -> C "后续任务复用" denotes reuse across later tasks, not current-task execution; omit this dashed cross-task edge if it makes the required solid G->L terminal edge unclear.
+
+Non-negotiable: FailureReview MUST lead to an explicit scope-routing diamond; within current authorized scope -> Corrective Implement directly, expanded scope -> Coordinator replan. Budget available NEVER goes directly to Coordinator. Independent validation is shared by initial and corrective patches. Successful experience curation MUST end the task. Exhausted budget ends task too. Do not write 再次验证. Do not introduce extra roles. Display every decision's 是/否 branches and arrowheads clearly. Do not use a direct FailureReview->Coordinator edge bypassing scope decision. Do not leave any node disconnected. Use short wrapped text in decision diamonds, large type. Favor graph correctness and readability over decorative icons. All text Chinese and English accurately rendered.
+```
+
+Targeted edits: the scope diamond's YES branch must originate at its bottom
+point and return to Coordinator via an outer bottom/right route. Keep this
+route clear of the Corrective Implement rectangle. Its NO branch enters
+Corrective Implement; that node has only one outgoing edge, into the shared
+Harness. The final image omits the optional cross-task memory reuse edge to
+keep task termination clear. Both successful curation and exhausted budget
+lead to End Task.
+
+## Coordinator Return Entry (Current Asset)
+
+Method: built-in `image_gen` edit of `repair-workflow-v4.png`.
+Final asset: `repair-workflow-v5.png`.
+
+Preserve the graph, labels and layout. Extend the white right margin and
+reroute the scope-expansion YES return edge outside all nodes. Replace the
+arrowhead at Coordinator's bottom-right corner with a horizontal,
+left-pointing arrowhead entering the midpoint of Coordinator's right side.
+Keep its source at the scope diamond's bottom tip and retain the label
+是 · 重新规划. Do not connect this edge to either implementation node.
