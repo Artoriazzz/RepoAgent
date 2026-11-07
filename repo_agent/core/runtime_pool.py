@@ -73,7 +73,7 @@ class AgentSession:
     force_completion_after_max_steps: bool = False
     _used: bool = False
 
-    def execute(self, prompt: str) -> tuple[str, QueryEngine]:
+    def execute(self, prompt: str, *, history: list[dict] | None = None) -> tuple[str, QueryEngine]:
         if self._used:
             raise RuntimeError("AgentSession is single-use")
         self._used = True
@@ -95,6 +95,8 @@ class AgentSession:
             force_completion_after_max_steps=self.force_completion_after_max_steps,
             prompt_version=self.runtime.prompt_version,
         )
+        if history is not None:
+            engine.messages = list(history)
         return engine.chat(prompt), engine
 
 

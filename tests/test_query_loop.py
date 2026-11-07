@@ -454,6 +454,13 @@ def test_max_steps_forces_no_tool_finalization_then_guard_correction(tmp_path):
     def guard(answer):
         return None if '"complete"' in answer else "Return corrected JSON only."
 
+    finalizer_histories = []
+
+    def finalize(messages):
+        finalizer_histories.append(list(messages))
+        return llm.invoke_with_tools(messages, [])
+
+    llm.invoke_finalization = finalize
     engine = QueryEngine(
         llm=llm,
         tools=registry,
@@ -469,6 +476,8 @@ def test_max_steps_forces_no_tool_finalization_then_guard_correction(tmp_path):
     assert len(llm.calls) == 3
     assert llm.calls[1]["tools"] == []
     assert llm.calls[2]["tools"] == []
+    assert len(finalizer_histories) == 1
+    assert any(message["role"] == "tool" for message in finalizer_histories[0])
     trace = (tmp_path / "trace.jsonl").read_text(encoding="utf-8")
     assert '"max_steps_finalization": true' in trace
     assert '"completion_guard_correction": true' in trace

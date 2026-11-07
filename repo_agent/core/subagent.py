@@ -13,6 +13,7 @@ from typing import Literal
 from repo_agent.core.llm import ChatLLM
 from repo_agent.core.memory import MemoryStore, MemoryType
 from repo_agent.core.prompts import prompt_version_for
+from repo_agent.core.public_validation import PUBLIC_VALIDATION_PROMPT, public_plan_error
 from repo_agent.core.differential_validation import (
     differential_plan_validation_errors,
     guard_obligations_from_prompt,
@@ -32,8 +33,9 @@ from repo_agent.core.runtime_pool import (
     AgentSession,
     default_runtime_pool_registry,
 )
-from repo_agent.core.tool import ToolParameter, ToolRegistry, ToolResponse, ToolSource, build_tool
+from repo_agent.core.tool import Tool, ToolParameter, ToolRegistry, ToolResponse, ToolSource, build_tool
 from repo_agent.core.verification import (
+    temporary_test_overlay,
     assess_verification_result,
     classify_verification_command,
     prepare_verification_command,
@@ -42,6 +44,7 @@ from repo_agent.core.verification import (
 
 
 SubAgentType = Literal[
+    "public_validation",
     "research",
     "reproducer",
     "test_expander",
@@ -313,6 +316,7 @@ IMPLEMENT_PROMPT = """你负责在明确授权的文件范围内完成一次代�
 - 如果 prompt 标记 `LAST_CHANCE_IMPLEMENT`，这是补丁落地重试：不要再做额外探索；读最小范围后直接应用最小安全改动，或输出 `blocked_insufficient_edit_scope` 和唯一缺失事实。
 - SWE-bench 任务禁止修改 tests/、fixtures/、test_*.py、*_test.py 或评测期望文件；如果范围包含这些文件，直接报告 scope_denied，不要绕过。
 - 涉及异常、warning、repr、CLI、SQL、HTML、stdout/stderr、日志、lint 描述或序列化文本时，必须保持精确类型、精确字符串、顺序和格式；不要用“更友好”的改写替代题意要求。
+- 保持已授权的诊断文本和参数，不自行追加修复建议或 hint。新增诊断的正文只描述问题及必要参数；仅在明确要求建议时按框架既有方式提供，没有需要时不新增 hint。
 - 涉及 reader/writer/roundtrip、parser/serializer、case-insensitive token、None/empty/missing、多 backend 或 host/subdomain 时，必须覆盖 Problem Contract 中列出的所有语义侧面；不要只修入口或只修输出。
 - 涉及 Sphinx/autodoc/autosummary/napoleon/domain 这类共享文档生成路径时，默认认为 P2P 回归风险高：不能改通用 escaping、signature、index 或渲染规则，除非 Problem Contract 明确要求；优先给目标场景增加窄 guard，并说明哪些相邻公开格式保持不变。
 - 涉及 sklearn/sympy 的分类、打印、简化、矩阵或数组输出时，不能只让一个示例通过；必须保留 shape、dtype、排序、精确字符串、数学等价域和旧 API 不变量。
@@ -651,6 +655,7 @@ SWEBENCH_IMPLEMENT_PROMPT = """你是代码实现者。根据调用方已经决�
 - 修改前读取相关代码；allowed_files/allowed_ranges 是可编辑范围，context_ranges 是只读辅助范围。
 - 落实 required_changes（已决定的修改），不重新选择修复方案、不搜索全仓、不运行命令、不修改测试或范围外文件。
 - 优先复用已有实现，保留与本次目标无关的分支、异常、输出和顺序。
+- 按已授权方案落实诊断文本、参数和 hint，不自行补充操作步骤或“更友好”的建议。新增消息正文简洁描述问题；只有明确要求建议时才按框架既有机制提供，没有需要时不新增 hint。
 - unproven_assumptions（未确认假设）不是事实。若源码直接反驳修改方案，或缺少落实方案的关键事实，停止相关编辑并报告矛盾，不擅自扩大范围或增加兜底。
 - 使用 replace_in_file 精确替换最小片段，old 内容须来自已读取原文；仅在明确授权时用 write_file 新建或重写小文件。
 - 修改后检查工具结果，确认替换没有误删相邻代码或破坏缩进、循环、try/except 等结构。未执行测试时不得声称测试通过。
@@ -738,6 +743,10 @@ Implement report 中 `overlaps_changed_contract=true` 的 known_risks 或 `cover
 
 
 WORKER_SPECS: dict[str, WorkerSpec] = {
+    "public_validation": WorkerSpec(
+        "public_validation", "基线公开测试设计", {"list_files", "read_file", "search_repo"},
+        PUBLIC_VALIDATION_PROMPT, max_steps=12,
+    ),
     "research": WorkerSpec("research", "只读事实收集", RESEARCH_TOOLS, RESEARCH_PROMPT, max_steps=4),
     "explore": WorkerSpec("research", "只读事实收集", RESEARCH_TOOLS, RESEARCH_PROMPT, max_steps=4),
     "reproducer": WorkerSpec("reproducer", "公开复现与差分验证契约", REPRODUCER_TOOLS, REPRODUCER_PROMPT, max_steps=5),
@@ -1050,18 +1059,28 @@ class SubAgentRunner:
         constraints: WorkerConstraints | None = None,
         verification_plan: dict[str, Any] | None = None,
         implement_phase: str | None = None,
+        test_design_history: list[dict] | None = None,
+        test_design_tool: Tool | None = None,
     ) -> WorkerResult:
         """选择角色、裁剪工具、创建独立 QueryEngine，再返回结构化 WorkerResult。"""
 
         spec = self._worker_spec(agent_type, implement_phase=implement_phase)
+        if test_design_history is not None and spec.name != "public_validation":
+            raise ValueError("Test-design history is only available to public_validation")
+        if test_design_tool is not None and spec.name != "public_validation":
+            raise ValueError("Baseline test probes are only available to public_validation")
         constraints = constraints or WorkerConstraints()
         verification_execution: dict[str, Any] = {}
         # 最小权限在这里落实：角色白名单之外，Implement 还会用文件/行范围重新包装工具。
         worker_tools = self._tools_for(spec, constraints, verification_plan, verification_execution)
+        if test_design_tool is not None:
+            worker_tools.register(test_design_tool)
         worker_llm = self.llm_overrides.get(spec.name, self.llm)
         worker_output_dir = self.output_dir / "subagents" / f"{time.time_ns()}-{_safe_name(spec.name)}"
         before_changed_files = _git_changed_files(self.cwd) if spec.name == "implement" else ()
-        if spec.name == "failure_review":
+        if spec.name == "public_validation":
+            completion_guard = public_plan_error
+        elif spec.name == "failure_review":
             completion_guard = _failure_review_completion_guard
         elif self.swebench_profile and spec.name == "reproducer":
             completion_guard = lambda answer: _reproducer_completion_guard(
@@ -1109,22 +1128,24 @@ class SubAgentRunner:
                 # SWE-bench / benchmark 流程强制关闭整库记忆注入：它既会污染缓存前缀，
                 # 也会把历史经验泄漏进子 Agent。记忆只允许由 Coordinator 以少量
                 # 当前任务召回结果的形式后置注入。
-                memory_prompt_enabled=not self.swebench_profile,
-                memory_recall_enabled=not self.swebench_profile,
-                include_dynamic_context=not self.swebench_profile,
+                memory_prompt_enabled=not self.swebench_profile and spec.name != "public_validation",
+                memory_recall_enabled=not self.swebench_profile and spec.name != "public_validation",
+                include_dynamic_context=not self.swebench_profile and spec.name != "public_validation",
                 completion_guard=completion_guard,
                 # FailureReview 的第二次调用只修正 JSON，不计入正常 max_steps，也不暴露工具。
                 completion_guard_extra_turns=(
-                    1 if spec.name in {"failure_review", "test_expander"} else 0
+                    1 if spec.name in {"failure_review", "test_expander", "public_validation"} else 0
                 ),
                 force_completion_after_max_steps=(
-                    self.swebench_profile and spec.name in {"reproducer", "failure_review"}
+                    spec.name == "public_validation"
+                    or (self.swebench_profile and spec.name in {"reproducer", "failure_review"})
                 ),
             )
             text, engine = session.execute(
                 _worker_prompt(description, prompt, constraints if spec.name == "implement" else None,
                                output_schema=SWEBENCH_IMPLEMENT_OUTPUT_SCHEMA
-                               if self.swebench_profile and spec.name == "implement" else None)
+                               if self.swebench_profile and spec.name == "implement" else None),
+                history=test_design_history,
             )
         # Worker 和 Coordinator 共享 worktree，因此用调用前后的 git diff 识别 Implement
         # 实际留下的文件；WorkerResult 只把紧凑结果返回主 Agent，不合并完整 messages。
@@ -1396,10 +1417,13 @@ class SubAgentRunner:
                 "UNSAFE_VERIFICATION_COMMAND",
                 f"{safety_reason}. Run the behavior command directly; output truncation is automatic.",
             )
-        prepared_command, runtime = prepare_verification_command(requested_command, self.cwd)
+        overlay = Path(inp["public_test_overlay"]) if inp.get("public_test_overlay") else None
+        prepared_command, runtime = prepare_verification_command(requested_command, self.cwd, test_overlay=overlay)
         prepared_input = dict(inp)
+        prepared_input.pop("public_test_overlay", None)
         prepared_input["command"] = prepared_command
-        response = tool.run_with_timing(prepared_input)
+        with temporary_test_overlay(self.cwd, overlay if runtime == "local_interpreter" else None):
+            response = tool.run_with_timing(prepared_input)
         response.data["requested_command"] = requested_command
         response.data["execution_command"] = prepared_command
         response.data["verification_runtime"] = runtime

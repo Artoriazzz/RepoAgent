@@ -154,6 +154,7 @@ SWEBENCH_COORDINATOR_BASE_PROMPT = """你是代码修复任务的协调者。你
 - old_behavior_invariants：具体写出最可能受当前修改影响的相邻合法场景及预期行为，优先采用已发现的兼容性风险。只列直接相关的场景；题目要求改变的行为不属于保留条件。
 - scope：allowed_files/allowed_ranges 是允许编辑的文件与行范围；context_ranges 是辅助阅读范围；forbidden 是禁止修改的内容。
 同时按工具 schema 传入 allowed_files 和 allowed_ranges。修改说明、允许范围和旧行为约束必须一致。
+新增辅助函数也必须授权其实际插入位置：先读取插入锚点，再将对应行纳入 allowed_ranges；正文不能豁免结构化范围，也不能许诺范围外插入。context_ranges 只授予阅读权限。
 实现者只负责落实方案；发现直接反证时应报告，不得擅自换方案。
 实现者不能运行命令。不得要求它执行 Python、动态追踪或提供运行验证结果，也不得把未完成的定位包装为实现任务。
 
@@ -429,6 +430,8 @@ class CoordinatorEngine:
         repair_mode: str = RepairRunMode.STANDARD.value,
         runtime_pool_registry: AgentRuntimePoolRegistry | None = None,
         memory_query_agent: MemoryQueryAgent | None = None,
+        public_validation: bool = False,
+        public_validation_timeout: int = 300,
     ):
         self.llm = llm
         self.cwd = Path(cwd).resolve()
@@ -483,6 +486,12 @@ class CoordinatorEngine:
                 else "default"
             ),
             runtime_pool_registry=self.runtime_pool_registry,
+        )
+        from repo_agent.core.public_validation import PublicValidationAgent
+
+        self.public_validator = (
+            PublicValidationAgent(self.runner, self.output_dir, public_validation_timeout)
+            if public_validation else None
         )
         coordinator_tools = ToolRegistry()
         # budget_state 是代码层状态机，不依赖模型是否记得 prompt。它记录只读预算、
@@ -591,14 +600,33 @@ class CoordinatorEngine:
             ),
         )
 
+    def _design_public_tests(self, problem_statement: str) -> None:
+        if self.public_validator is None:
+            return
+        # 在协调者首次读取前完成设计与基线执行，避免候选方案和修改中的源码影响测试。
+        self.public_validator.design(problem_statement, {})
+        self._agent_state.setdefault("worker_events", []).append({
+            **self.public_validator.worker,
+            "type": "public_validation",
+            "changed_files": [],
+        })
+
     def run(self, task: str) -> str:
         """重置一次编排状态，注入适用记忆，运行 Coordinator 并保存阶段归因。"""
 
         reset_agent_tool_state(self._agent_state, self.cwd)
+        if self.public_validator:
+            self.public_validator.plan = {"status": "unavailable", "cases": [], "unknowns": ["Initial implementation has not been dispatched"]}
+            self.public_validator.baseline = {}
+            self.public_validator.worker = {}
+            self.public_validator.context = {}
+            self.public_validator.test_overlay = None
+            self.public_validator.save()
         # 只提取公开 problem statement 供语义门禁使用，避免 batch 指令、评测元数据或
         # 运行说明被误当成待修复的软件行为契约。
         problem_statement = extract_public_problem_statement(task)
         self._agent_state["problem_statement"] = problem_statement
+        self._design_public_tests(problem_statement)
         candidate_required = _candidate_mode_required_for_task(task, self.candidate_mode)
         public_verification_required = _public_verification_required_for_task(
             task,

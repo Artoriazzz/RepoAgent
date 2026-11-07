@@ -454,6 +454,20 @@ def compact_failure_validation(
 
     if not isinstance(validation, dict):
         return str(validation or "")
+    if validation.get("validation_kind") == "public_test_suite":
+        return {
+            "validation_kind": "public_test_suite",
+            "status": validation.get("status"),
+            "target_reproduced": validation.get("target_reproduced"),
+            "unknowns": validation.get("unknowns", []),
+            "cases": [{
+                **{key: case.get(key) for key in ("id", "kind", "command", "expected_behavior", "basis", "usable")},
+                "baseline": {"exit_code": case.get("baseline", {}).get("exit_code"),
+                             "classification": case.get("baseline_classification")},
+                "patched": {"exit_code": case.get("patched", {}).get("exit_code"),
+                            "classification": case.get("patched_classification")},
+            } for case in validation.get("cases", [])],
+        }
     if validation.get("validation_kind") == "swebench_harness_feedback":
         return {
             "validation_kind": "swebench_harness_feedback",

@@ -3,6 +3,8 @@ import subprocess
 import sys
 from dataclasses import replace
 
+import pytest
+
 from repo_agent.core.coordinator import (
     COORDINATOR_SYSTEM_PROMPT,
     SWEBENCH_COORDINATOR_BASE_PROMPT,
@@ -1439,18 +1441,35 @@ def test_coordinator_can_freeze_repair_memory_recall(tmp_path):
     assert engine.last_recalled_repair_recipes == ()
 
 
-def test_implement_worker_requires_structured_scope(tmp_path):
+@pytest.mark.parametrize("swebench", [False, True])
+def test_implement_worker_requires_structured_scope(tmp_path, swebench):
     runner = SubAgentRunner(llm=FakeLLM([]), base_tools=_base_tools(), cwd=tmp_path, output_dir=tmp_path / "out")
     registry = ToolRegistry()
     registry.register_many(build_agent_tools(runner))
 
     response = registry.execute(
         "agent",
-        {"type": "implement", "description": "改代码", "prompt": "修改 src/app.py"},
+        {"type": "implement", "description": "改代码",
+         "prompt": _swebench_edit_brief_prompt("修改 src/app.py:1-5") if swebench else "修改 src/app.py"},
     )
 
     assert response.status == "error"
     assert response.error["code"] == "IMPLEMENT_SCOPE_REQUIRED"
+    assert "top-level" in response.error["message"]
+
+
+def test_swebench_test_only_scope_still_denied(tmp_path):
+    runner = SubAgentRunner(llm=FakeLLM([]), base_tools=_base_tools(), cwd=tmp_path, output_dir=tmp_path / "out")
+    registry = ToolRegistry()
+    registry.register_many(build_agent_tools(runner))
+    response = registry.execute("agent", {
+        "type": "implement", "description": "Edit only tests",
+        "prompt": _swebench_edit_brief_prompt("修改 tests/test_app.py"),
+        "allowed_files": ["tests/test_app.py"],
+        "allowed_ranges": {"tests/test_app.py": [[1, 5]]},
+    })
+    assert response.status == "error"
+    assert response.error["code"] == "SWEBENCH_TEST_EDIT_DENIED"
 
 
 def test_swebench_implement_scope_strips_test_files(tmp_path):

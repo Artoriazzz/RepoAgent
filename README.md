@@ -36,11 +36,14 @@ RepoAgent 是面向软件仓库的多 Agent 程序修复平台，将公开 Issue
 
 ## 认识修复小队
 
+**本版新增：[公开测试 Agent](docs/public-validation.md)**。它根据公开 Issue、源码与已有测试独立设计用例，先跑原始基线，再用同一组冻结用例验证补丁。可信失败可触发纠正；官方 Harness 在这条路径上只做最终评分。目前已接入 CLI 和 SWE-bench 批处理，后端阶段队列尚未接入。
+
 ### 主线角色
 
 | 角色 | 职责 | 交付物 |
 | --- | --- | --- |
 | **MemoryQueryAgent：经验查询** | 从公开 Issue 提取问题描述与使用场景，形成独立的检索查询 | `problem_description`、`usage_scenario` |
+| **PublicValidation：公开测试** | 在代码修改前独立设计并执行公开用例，冻结测试后验证补丁 | 测试计划、基线结果、修复后结果及可用失败证据 |
 | **Coordinator：定位与决策** | 结合召回经验、当前题意和源码，确认错误操作，决定修复方案与编辑范围 | Problem Contract、源码证据、EditBrief、授权文件与行范围 |
 | **Initial Implement：首次实现** | 按照 EditBrief 在授权范围内完成修改，报告直接反证与已知风险 | 初始 patch、完成状态、风险说明 |
 | **FailureReview：失败归因** | 分析验证失败事实和允许读取的源码，识别语义错误、遗漏路径或环境故障 | 证据清单、失效假设、纠正建议、范围调整需求 |

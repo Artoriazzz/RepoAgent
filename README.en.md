@@ -36,11 +36,14 @@ The complete platform is on the [full-stack-integration branch](https://github.c
 
 ## Meet the Team
 
+**New in this version: [Public Test Agent](docs/public-validation.md).** It designs tests independently from the public issue, source code, and existing tests. It runs them on the original baseline and freezes the suite for patch verification. Reproducible failures can guide corrections; the official harness is reserved for final scoring in this workflow. The agent is integrated with the CLI and SWE-bench batch runner; backend queue integration is pending.
+
 ### Main Roles
 
 | Role | Responsibility | Deliverables |
 | --- | --- | --- |
 | **MemoryQueryAgent: Experience Query** | Extracts the problem description and usage scenario from a public Issue to form an independent retrieval query | `problem_description`, `usage_scenario` |
+| **PublicValidation: Public Testing** | Designs and runs public tests before implementation, then verifies the patch against the frozen suite | Test plan, baseline and patched results, and actionable failure evidence |
 | **Coordinator: Diagnosis and Decisions** | Combines retrieved experience, the current Issue, and source code to identify the faulty operation and decide the repair strategy and edit scope | Problem Contract, source evidence, EditBrief, authorized files and line ranges |
 | **Initial Implement: First Repair** | Applies the EditBrief within the authorized scope and reports direct counterevidence and known risks | Initial patch, completion status, risk notes |
 | **FailureReview: Failure Analysis** | Examines validation failures and authorized source code to identify semantic errors, missed paths, or environment failures | Evidence, invalidated assumptions, correction suggestions, scope adjustment needs |

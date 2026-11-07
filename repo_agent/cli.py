@@ -27,6 +27,7 @@ from repo_agent.core.experience import (
 from repo_agent.core.llm import DEFAULT_MODEL, ChatLLM
 from repo_agent.core.memory import MemoryStore
 from repo_agent.core.memory_query import MemoryQueryAgent
+from repo_agent.core.public_validation import PublicValidationAgent
 from repo_agent.core.subagent import SubAgentRunner, WorkerConstraints
 from repo_agent.core.query_engine import QueryEngine
 from repo_agent.core.replan import REPLAN_PROMPT, validate_replan
@@ -114,6 +115,9 @@ def build_parser() -> argparse.ArgumentParser:
             help="Candidate-pool ablation policy. The default off path uses one patch; auto/required are retained for experiments.",
         )
         subparser.add_argument("--coordinator", action="store_true")
+        subparser.add_argument("--public-validation", action="store_true",
+                               help="Design public tests before initial implementation and run the fixed suite after repair.")
+        subparser.add_argument("--public-validation-timeout", type=_positive_int, default=300)
         subparser.add_argument(
             "--forced-scope-file",
             type=Path,
@@ -228,6 +232,14 @@ def build_parser() -> argparse.ArgumentParser:
         repair_mode=RepairRunMode.EXPERIENCE_BUILD.value,
     )
 
+    design_validation = subparsers.add_parser(
+        "design-public-tests", help="Design and baseline-check public tests without starting repair.",
+    )
+    add_common(design_validation)
+    design_validation.add_argument("--task-file", required=True, type=Path)
+    design_validation.add_argument("--context-file", type=Path,
+                                   help="Optional localization facts, hypotheses, unknowns and source_files JSON.")
+
     review_failure = subparsers.add_parser(
         "review-failure",
         help="Analyze a failed patch and produce structured correction evidence.",
@@ -298,6 +310,7 @@ def _build_role_llms(args: argparse.Namespace) -> tuple[ChatLLM, dict[str, ChatL
         "research": lightweight_llm,
         "plan": lightweight_llm,
         "test_expander": lightweight_llm,
+        "public_validation": review_llm,
         "verify": lightweight_llm,
         "general": lightweight_llm,
         "implement": implement_llm,
@@ -362,8 +375,10 @@ def main(argv: list[str] | None = None) -> None:
     expected_mode = fixed_modes.get(args.command)
     if expected_mode and args.repair_mode != expected_mode:
         parser.error(f"{args.command} requires --repair-mode {expected_mode}")
-    if args.command == "experience-build" and not (args.final_eval_command or args.verify_command):
+    if args.command == "experience-build" and args.feedback_command and not (args.final_eval_command or args.verify_command):
         parser.error("experience-build requires --final-eval-command")
+    if args.public_validation and args.command in {"run", "fix-issue", "repair-ci"} and not args.coordinator:
+        parser.error("--public-validation requires --coordinator")
     if args.memory_query_model and not args.no_repair_memory and args.repair_mode != "experience-build":
         if args.command in {"run", "benchmark"} and not args.coordinator:
             parser.error("--memory-query-model requires --coordinator")
@@ -383,6 +398,18 @@ def main(argv: list[str] | None = None) -> None:
         )
     )
     llm, worker_llm_overrides = _build_role_llms(args)
+    if args.command == "design-public-tests":
+        if _git_diff(args.repo).strip():
+            parser.error("design-public-tests requires a clean baseline worktree")
+        context = _read_json_or_text(args.context_file) or {}
+        if not isinstance(context, dict):
+            parser.error("--context-file must contain a JSON object")
+        runner = SubAgentRunner(llm=llm, llm_overrides=worker_llm_overrides,
+                                base_tools=registry, cwd=args.repo, output_dir=args.output_dir,
+                                swebench_profile=True)
+        result = PublicValidationAgent(runner, args.output_dir, args.public_validation_timeout).design(task, context)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
     if args.command == "coordinator-replan":
         if args.repair_mode != "experience-build":
             parser.error("coordinator-replan requires experience-build")
@@ -638,8 +665,12 @@ def main(argv: list[str] | None = None) -> None:
             forced_implement_scope=forced_scope,
             repair_mode=args.repair_mode,
             memory_query_agent=memory_query_agent,
+            public_validation=args.public_validation,
+            public_validation_timeout=args.public_validation_timeout,
         )
         print(coordinator.run(task))
+        if coordinator.public_validator:
+            coordinator.public_validator.evaluate()
         return
     # 不启用 Coordinator 时，CLI 进入最短主链：RepoAgent -> QueryEngine -> query_loop。
     agent = RepoAgent(
@@ -667,9 +698,10 @@ def _run_experience_build(
 ) -> dict:
     feedback_command = str(args.feedback_command or "").strip()
     final_eval_command = str(args.final_eval_command or args.verify_command or "").strip()
+    use_public_tests = bool(args.public_validation or not feedback_command)
     baseline_feedback = (
         _run_validation(registry, feedback_command, timeout=args.verification_timeout)
-        if feedback_command
+        if feedback_command and not use_public_tests
         else {}
     )
     coordinator = CoordinatorEngine(
@@ -687,15 +719,20 @@ def _run_experience_build(
         swebench_profile=True,
         candidate_mode="off",
         repair_mode=RepairRunMode.EXPERIENCE_BUILD.value,
+        public_validation=use_public_tests,
+        public_validation_timeout=args.public_validation_timeout,
     )
     initial_answer = coordinator.run(task)
     failed_patch = _git_diff(args.repo)
     initial_feedback = (
         _run_validation(registry, feedback_command, timeout=args.verification_timeout)
-        if feedback_command and failed_patch.strip()
+        if feedback_command and not use_public_tests and failed_patch.strip()
         else {}
     )
-    lightweight = assess_lightweight_validation(baseline_feedback, initial_feedback)
+    validation = (
+        coordinator.public_validator.evaluate() if use_public_tests
+        else assess_lightweight_validation(baseline_feedback, initial_feedback).to_dict()
+    )
     report: dict = {
         "mode": RepairRunMode.EXPERIENCE_BUILD.value,
         "provenance": args.provenance,
@@ -704,11 +741,12 @@ def _run_experience_build(
             "final_eval_command": final_eval_command,
             "max_corrections": 1,
             "max_full_evaluations": 1,
+            "feedback_source": "public_tests" if use_public_tests else "feedback_command",
         },
         "initial": {
             "answer": initial_answer,
             "patch_chars": len(failed_patch),
-            "lightweight_validation": lightweight.to_dict(),
+            "lightweight_validation": validation,
         },
         "correction": None,
         "final_validation": None,
@@ -717,15 +755,15 @@ def _run_experience_build(
 
     feedback = None
     successful_patch = failed_patch
-    if lightweight.feedback_eligible and failed_patch.strip():
+    if validation.get("feedback_eligible") and failed_patch.strip():
         feedback_result = coordinator.runner.run(
             agent_type="failure_review",
             description="Attribute failed repair",
             prompt=build_failure_review_prompt(
                 task=task,
                 failed_patch=failed_patch,
-                failure_log=str(initial_feedback.get("output") or ""),
-                validation=lightweight.to_dict(),
+                failure_log=str(validation.get("failure_evidence") or initial_feedback.get("output") or ""),
+                validation=validation,
                 implementation_report=dict(
                     coordinator._agent_state.get("implementation_report") or {}
                 ),
@@ -781,32 +819,37 @@ def _run_experience_build(
                 feedback_command,
                 timeout=args.verification_timeout,
             )
-            if correction_report["attempted"] and feedback_command
+            if correction_report["attempted"] and feedback_command and not use_public_tests
             else initial_feedback
         )
-        corrected_lightweight = assess_lightweight_validation(baseline_feedback, corrected_feedback)
+        validation = (
+            coordinator.public_validator.evaluate() if use_public_tests
+            else assess_lightweight_validation(baseline_feedback, corrected_feedback).to_dict()
+        )
         correction_report["patch_chars"] = len(corrected_patch)
-        correction_report["lightweight_validation"] = corrected_lightweight.to_dict()
+        correction_report["lightweight_validation"] = validation
         report["correction"] = correction_report
         successful_patch = corrected_patch
 
     final_validation = (
         _run_validation(registry, final_eval_command, timeout=args.final_eval_timeout)
-        if successful_patch.strip()
+        if successful_patch.strip() and final_eval_command
         else {
             "status": "skipped",
             "command": final_eval_command,
             "exit_code": None,
-            "output": "final evaluation skipped because the patch is empty",
+            "output": "final evaluation skipped: no patch or no independent evaluation command",
         }
     )
     report["final_validation"] = final_validation
-    if _validation_passed(final_validation) and successful_patch.strip():
+    learning_validation = validation if use_public_tests else final_validation
+    learning_passed = validation.get("status") == "passed" if use_public_tests else _validation_passed(final_validation)
+    if learning_passed and successful_patch.strip():
         correction_attempted = bool((report.get("correction") or {}).get("attempted"))
         curator_result = coordinator.curate_repair_experience(
             task=task,
             successful_patch=successful_patch,
-            validation=final_validation,
+            validation=learning_validation,
             provenance=args.provenance,
             failed_patch=failed_patch if correction_attempted else "",
             feedback=feedback if correction_attempted else None,
@@ -880,6 +923,7 @@ def _build_task(args: argparse.Namespace) -> str:
     if args.command in {
         "review-failure",
         "design-differential-tests",
+        "design-public-tests",
         "curate-experience",
     }:
         return args.task_file.read_text(encoding="utf-8", errors="replace")

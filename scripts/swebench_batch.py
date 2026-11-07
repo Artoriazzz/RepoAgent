@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from repo_agent.core.llm import DEFAULT_MODEL
+from repo_agent.core.public_validation import evaluate_public_plan
 from repo_agent.core.static_analysis import newly_undefined_names
 from repo_agent.core.differential_validation import assess_differential_validation
 from repo_agent.core.experience import (
@@ -26,6 +27,7 @@ from repo_agent.core.verification import (
     assess_verification_result,
     prepare_verification_command,
     verification_command_safety_reason,
+    test_overlay_digest,
 )
 
 
@@ -104,16 +106,17 @@ def main(argv: list[str] | None = None) -> int:
         "repair_mode": args.repair_mode,
         "evaluation_policy": {
             "agent_feedback": (
-                "harness_failure_up_to_twice"
+                f"{args.feedback_source}_failure_up_to_twice"
                 if args.repair_mode == "experience-build"
                 else "disabled"
             ),
             "max_corrections": 2 if args.repair_mode == "experience-build" else 0,
             "max_full_harness_runs_per_instance": (
-                3 if args.repair_mode == "experience-build" else 1
+                3 if args.repair_mode == "experience-build" and args.feedback_source == "harness" else 1
             ),
             "max_full_harness_runs_per_candidate": 1,
-            "harness_feedback_to_agent": args.repair_mode == "experience-build",
+            "harness_feedback_to_agent": args.repair_mode == "experience-build" and args.feedback_source == "harness",
+            "feedback_source": args.feedback_source,
             "prebuild_instance_image": should_prebuild_instance_image(args),
         },
         "count": len(instances),
@@ -175,6 +178,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="benchmark uses frozen dual memory and one patch; experience-build permits up to two feedback corrections and memory write.",
     )
     parser.add_argument("--timeout", type=int, default=1800, help="Seconds per RepoAgent run.")
+    parser.add_argument("--feedback-source", choices=("public-tests", "harness"), default="public-tests",
+                        help="Learning-mode feedback source. public-tests uses baseline-generated tests; harness is a historical diagnostic path.")
     parser.add_argument("--skip-existing", action="store_true")
     parser.add_argument(
         "--evaluate",
@@ -283,6 +288,7 @@ def run_instance_once(
     experience-build 才允许把首次失败送入 FailureReview，并最多执行一次纠正。
     """
     started = time.time()
+    public_feedback = args.repair_mode == "experience-build" and getattr(args, "feedback_source", "harness") == "public-tests"
     instance_id = row["instance_id"]
     passes: list[dict[str, Any]] = []
     verification_image = ""
@@ -359,8 +365,14 @@ def run_instance_once(
         feedback_file_for_memory: Path | None = None
         initial_harness: dict[str, Any] = {}
         correction_applied = False
+        if public_feedback and args.diagnostic_mode != "corrective":
+            patch = run_public_test_corrections(
+                row, repo_dir, pass_output, task, patch, pass_summary, args, env,
+                verification_image=verification_image,
+            )
         if (
             args.repair_mode == "experience-build"
+            and not public_feedback
             and args.evaluate
             and patch.strip()
             and not patch_validation.get("discard_patch")
@@ -456,7 +468,7 @@ def run_instance_once(
                 if args.diagnostic_mode != "none":
                     pass_summary["diagnostic_candidate_harness"] = pass_summary["harness"]
 
-        if args.repair_mode == "experience-build" and correction_applied:
+        if args.repair_mode == "experience-build" and correction_applied and not public_feedback:
             second_feedback = build_experience_harness_feedback(pass_summary["harness"], patch)
             second_feedback["previous_failure_constraints"] = build_previous_failure_constraints(
                 harness_feedback, (pass_summary.get("experience_correction") or {}).get("feedback", {}),
@@ -500,6 +512,7 @@ def run_instance_once(
 
         if (
             args.repair_mode == "experience-build"
+            and not public_feedback
             and (pass_summary.get("harness") or {}).get("resolved")
         ):
             pass_summary["experience_curator"] = run_experience_curator_for_success(
@@ -514,7 +527,7 @@ def run_instance_once(
                 args=args,
                 env=env,
             )
-        if args.evolve_memory and (pass_summary.get("harness") or {}).get("resolved"):
+        if args.evolve_memory and not public_feedback and (pass_summary.get("harness") or {}).get("resolved"):
             pass_summary["case_curator"] = run_case_curator_for_success(row, repo_dir, pass_output, pass_summary, args, env)
         pass_summary["stage_attribution"] = finalize_stage_attribution(pass_summary)
         (pass_output / "stage_attribution.json").write_text(
@@ -658,6 +671,8 @@ def run_agent_pass(
         "--task",
         agent_task,
     ]
+    if args.repair_mode == "experience-build" and getattr(args, "feedback_source", "harness") == "public-tests":
+        command.append("--public-validation")
     if args.implement_model:
         command.extend(["--implement-model", args.implement_model])
     forced_scope = diagnostic_scope_for_row(row, repo_dir, args.diagnostic_mode)
@@ -1159,6 +1174,7 @@ def run_lightweight_feedback_command(
     *,
     verification_image: str = "",
     apply_host_patch: bool = True,
+    public_test_overlay: Path | None = None,
 ) -> dict[str, Any]:
     """在现有 SWE-bench eval 镜像中重跑同一条轻量公开命令，不启动完整 harness。"""
 
@@ -1177,6 +1193,7 @@ def run_lightweight_feedback_command(
         repo_dir,
         docker_image=verification_image or swebench_eval_image(row["instance_id"]),
         apply_host_patch=apply_host_patch,
+        test_overlay=public_test_overlay,
     )
     try:
         result = subprocess.run(
@@ -1208,7 +1225,94 @@ def run_lightweight_feedback_command(
         "runtime": runtime,
         "exit_code": result.returncode,
         "evidence": result.stdout[-4_000:],
+        "test_files_sha256": test_overlay_digest(public_test_overlay),
     }
+
+
+def run_public_test_corrections(
+    row, repo_dir, pass_output, task, patch, pass_summary, args, env, *, verification_image="",
+):
+    """固定公开用例驱动纠正；官方评测在调用方最后执行，不参与选择或学习。"""
+    artifact = read_json_file(pass_output / "public_validation.json")
+    plan = artifact.get("plan") or {"status": "unavailable", "cases": [], "unknowns": ["No public validation plan"]}
+    baseline = artifact.get("baseline") or {}
+    test_overlay = Path(artifact["test_files_dir"]) if artifact.get("test_files_dir") else None
+
+    def evaluate():
+        return evaluate_public_plan(plan, baseline, lambda command: run_lightweight_feedback_command(
+            row, repo_dir, command, args, env, verification_image=verification_image,
+            public_test_overlay=test_overlay,
+        ))
+
+    validation = artifact.get("validation") or evaluate()
+    pass_summary["initial_public_validation"] = validation
+    retained_patch, retained_validation = patch, validation
+    retained_check = pass_summary.get("patch_validation", {})
+
+    def passing_cases(result):
+        return {case["id"] for case in result.get("cases", [])
+                if case.get("usable") and case.get("patched_classification") == "behavior_passed"}
+
+    failed_patch = ""
+    feedback_file = None
+    report = (((pass_summary.get("stage_attribution") or {}).get("stages") or {})
+              .get("implementation", {}).get("report", {}))
+    for index in range(2):
+        if not patch.strip() or not validation.get("feedback_eligible"):
+            break
+        correction = run_experience_correction(
+            row, repo_dir, pass_output / f"public-correction-{index + 1}", task,
+            patch, validation, report, args, env,
+        )
+        pass_summary.setdefault("public_corrections", []).append(strip_large_fields(correction))
+        candidate = correction.get("model_patch", "")
+        if not correction.get("attempted") or not candidate.strip() or candidate == patch:
+            break
+        check = validate_model_patch(candidate, repo_dir=repo_dir,
+                                     agent_output_dir=Path(correction["output_dir"]),
+                                     require_patch_review=False, reject_failed_verification=False,
+                                     stage_attribution=correction.get("stage_attribution"))
+        if check.get("discard_patch"):
+            restore_worktree_patch(repo_dir, patch)
+            break
+        failed_patch, patch = patch, candidate
+        report = (((correction.get("stage_attribution") or {}).get("stages") or {})
+                  .get("implementation", {}).get("report", {}))
+        feedback_file = Path(correction["feedback_file"])
+        pass_summary.update(model_patch=patch, patch_chars=len(patch), patch_validation=check)
+        validation = evaluate()
+        # 仍允许下一轮修正新回归；预算结束时保留没有丢失已通过公开用例的版本。
+        previous_passing = passing_cases(retained_validation)
+        candidate_passing = passing_cases(validation)
+        previous_usable = {case["id"] for case in retained_validation.get("cases", []) if case.get("usable")}
+        candidate_usable = {case["id"] for case in validation.get("cases", []) if case.get("usable")}
+        # 固定用例中已有的基线缺口不应抹掉全部可信用例均通过的改进。
+        improved_inconclusive = (
+            validation.get("status") == "inconclusive"
+            and previous_usable | candidate_usable <= candidate_passing
+            and bool(previous_usable - previous_passing)
+        )
+        if (validation.get("status") in {"passed", "failed"} or improved_inconclusive) and previous_passing <= candidate_passing:
+            retained_patch, retained_validation, retained_check = patch, validation, check
+    if patch != retained_patch:
+        pass_summary["public_regression_rollback"] = {
+            "lost_passing_cases": sorted(passing_cases(retained_validation) - passing_cases(validation)),
+            "discarded_validation": validation,
+        }
+        restore_worktree_patch(repo_dir, retained_patch)
+        patch, validation = retained_patch, retained_validation
+        pass_summary.update(model_patch=patch, patch_chars=len(patch), patch_validation=retained_check)
+    pass_summary["public_validation"] = validation
+    (pass_output / "public_validation_final.json").write_text(
+        json.dumps(validation, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+    if patch.strip() and validation.get("status") == "passed":
+        pass_summary["experience_curator"] = run_experience_curator_for_success(
+            row, repo_dir, pass_output, task=task, failed_patch=failed_patch,
+            successful_patch=patch, feedback_file=feedback_file, validation=validation,
+            args=args, env=env,
+        )
+    return patch
 
 
 def run_experience_correction(
@@ -1733,7 +1837,7 @@ def validated_failure_feedback_route(feedback: dict[str, Any]) -> str | None:
     return (
         route
         if direct_sources & {"failure_log", "validation_summary"}
-        and (route == "coordinator_replan" or direct_sources & {"public_task", "failed_patch", "semantic_evidence"})
+        and (route == "coordinator_replan" or direct_sources & {"public_task", "failed_patch", "semantic_evidence", "repository_code"})
         else None
     )
 
@@ -1815,7 +1919,7 @@ def run_inline_experience_corrective(
         f"## Current Failed Patch\n```diff\n{failed_patch}\n```\n\n"
         "Correct this patch in place exactly once. Every edit must map to the authorizing direct subset of "
         "correction_evidence_ids; inference may explain causality but cannot add an edit obligation.\n"
-        "The feedback comes from one real experience-build harness run. Treat only logged exceptions, expected/actual "
+        "The feedback comes from a recorded validation run. Treat only logged exceptions, expected/actual "
         "mismatches, failing target behavior, and observed regressions as acceptance criteria; do not infer hidden test "
         "source or a gold implementation. For each actionable violation, state which existing predicate, output rule, "
         "or state mutation caused the observed mismatch.\n"
@@ -2135,7 +2239,7 @@ def run_experience_curator_for_success(
     failed_patch_path.write_text(failed_patch, encoding="utf-8")
     validation_path.write_text(
         json.dumps(
-            {
+            validation if validation.get("validation_kind") == "public_test_suite" else {
                 "repo": row["repo"],
                 "resolved": validation.get("resolved"),
                 "error": validation.get("error"),

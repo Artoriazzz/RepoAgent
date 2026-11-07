@@ -354,7 +354,7 @@ def build_agent_tools(
                     f"{prompt}\n\nTool-enforced scope: test/fixture paths were removed from writable scope: "
                     f"{removed_test_paths}. Modify production source only."
                 )
-            if not constraints.has_scope:
+            if removed_test_paths and not constraints.has_scope:
                 return ToolResponse.failure(
                     "SWEBENCH_TEST_EDIT_DENIED",
                     "The requested Implement scope contained only tests/fixtures. Provide a production source range.",
@@ -519,9 +519,9 @@ def build_agent_tools(
         if spec.name == "implement" and not constraints.has_scope:
             return ToolResponse.failure(
                 "IMPLEMENT_SCOPE_REQUIRED",
-                "The implementation role requires structured allowed_files and allowed_ranges. "
-                "Use a read-only research task to produce an EditBrief, then call agent with type=implement, "
-                "allowed_files, and allowed_ranges.",
+                "Missing structured edit scope. Pass allowed_files and allowed_ranges as top-level "
+                "arguments to agent(type=implement). File names and ranges written inside prompt do not "
+                "authorize edits. Use the production files and line ranges already confirmed from source.",
             )
         if state["implementation_done"] and state["patch_review_high_risk"] and spec.name == "implement":
             corrective_denial = _check_corrective_implement_scope(constraints, state)

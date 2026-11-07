@@ -10,6 +10,7 @@ from repo_agent.core.verification import (
     prepare_verification_command,
     public_assertion_contract_reason,
     verification_command_safety_reason,
+    temporary_test_overlay,
 )
 
 
@@ -60,6 +61,19 @@ def test_environment_failure_preserves_patch():
 
 def test_assert_bearing_inline_script_is_behavior_check():
     assert classify_verification_command("python3 -c \"from app import f; assert f(1) == 2\"") == "behavior"
+
+
+@pytest.mark.parametrize("command", [
+    "python tests/runtests.py invalid_models_tests.test_ordinary_fields.CharFieldTests.test_valid_field",
+    "python3 ./tests/runtests.py invalid_models_tests --settings=test_sqlite --parallel 1",
+    "python manage.py test app.tests",
+])
+def test_django_test_entrypoints_are_behavior_checks(command):
+    assert classify_verification_command(command) == "behavior"
+    result = assess_verification_result({
+        "status": "failed", "command": command, "exit_code": 1, "evidence": "AssertionError",
+    })
+    assert result["classification"] == "behavior_failed"
 
 
 def test_public_assertion_contract_rejects_weak_or_old_behavior_checks():
@@ -176,6 +190,45 @@ def test_prepare_verification_command_uses_swebench_image_and_testbed_path(tmp_p
     assert "python -c" in prepared
     assert "--network none" in prepared
     assert str(repo) not in prepared.split("bash -lc", 1)[1]
+
+
+def test_docker_public_tests_are_copied_into_native_tree_without_changing_host(tmp_path):
+    repo, overlay = tmp_path / "repo", tmp_path / "test-artifacts"
+    repo.mkdir()
+    overlay.mkdir()
+    prepared, runtime = prepare_verification_command(
+        "python tests/runtests.py app.test_public", repo,
+        docker_image="sweb.eval.x86_64.project__repo-1:latest", test_overlay=overlay,
+    )
+    assert runtime == "swebench_docker"
+    assert f"{overlay}:/repo-agent-public-tests:ro" in prepared
+    assert "cp -R /repo-agent-public-tests/. /testbed/" in prepared
+    assert "python tests/runtests.py app.test_public" in prepared
+    assert not list(repo.iterdir())
+
+
+def test_local_public_test_files_are_removed_after_command_exception(tmp_path):
+    repo, overlay = tmp_path / "repo", tmp_path / "artifacts"
+    repo.mkdir()
+    (overlay / "tests").mkdir(parents=True)
+    (overlay / "tests/test_public.py").write_text("assert True\n")
+    with pytest.raises(RuntimeError, match="execution failed"):
+        with temporary_test_overlay(repo, overlay):
+            assert (repo / "tests/test_public.py").exists()
+            raise RuntimeError("execution failed")
+    assert not (repo / "tests").exists()
+
+
+def test_local_public_tests_never_overwrite_existing_tests(tmp_path):
+    repo, overlay = tmp_path / "repo", tmp_path / "artifacts"
+    repo.mkdir()
+    overlay.mkdir()
+    (repo / "test_existing.py").write_text("original")
+    (overlay / "test_existing.py").write_text("generated")
+    with pytest.raises(ValueError, match="cannot overwrite"):
+        with temporary_test_overlay(repo, overlay):
+            pytest.fail("must reject the overlay before execution")
+    assert (repo / "test_existing.py").read_text() == "original"
 
 
 def test_prepare_verification_command_can_skip_dirty_host_patch(tmp_path):

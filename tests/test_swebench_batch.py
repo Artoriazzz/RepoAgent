@@ -337,6 +337,34 @@ def test_batch_validates_cli_normalized_failure_routes():
     assert batch.validated_failure_feedback_route(actionable) == "corrective_implement"
 
 
+@pytest.mark.parametrize("context_source", ["public_task", "failed_patch", "semantic_evidence", "repository_code"])
+@pytest.mark.parametrize("quality", ["exception_detail", "expected_actual", "failure_only"])
+def test_batch_correction_accepts_direct_source_evidence_without_redundant_task_reference(context_source, quality):
+    from repo_agent.core.experience import parse_failure_feedback
+
+    batch = load_batch_module()
+    feedback = {
+        "failure_stage": "implementation_semantics",
+        "correction_route": "corrective_implement", "correction_readiness": "actionable",
+        "failure_observation_quality": quality, "scope_expansion": [],
+        "evidence_ledger": [
+            {"id": "E1", "source": "failure_log", "support": "direct", "fact": "hash(value) raises TypeError"},
+            {"id": "E2", "source": context_source, "support": "direct", "fact": "The class defines __eq__ without __hash__"},
+            {"id": "E3", "source": "semantic_evidence", "support": "inference", "fact": "Equal objects need equal hashes"},
+        ],
+        "correction_evidence_ids": ["E1", "E2", "E3"],
+    }
+    expected = "corrective_implement" if quality != "failure_only" or context_source == "repository_code" else None
+    assert batch.validated_failure_feedback_route(feedback) == expected
+    parsed = parse_failure_feedback(json.dumps(feedback))
+    assert parsed is not None
+    assert parsed.correction_route == (expected or "none")
+    feedback["evidence_ledger"][1]["support"] = "inference"
+    assert batch.validated_failure_feedback_route(feedback) is None
+    feedback["evidence_ledger"][1]["support"] = "unknown"
+    assert batch.validated_failure_feedback_route(feedback) is None
+
+
 def test_output_limit_is_not_reported_as_invalid_patch():
     batch = load_batch_module()
     error = "repo_agent.core.llm.LLMOutputLimitError: Incomplete LLM stream: finish_reason=length\n"

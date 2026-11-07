@@ -272,6 +272,7 @@ class ChatLLM:
                      tool_count=len(request.get("tools", [])),
                      tool_schema_chars=len(json.dumps(request.get("tools", []), ensure_ascii=False)),
                      reasoning_effort=request.get("reasoning_effort"),
+                     temperature=request.get("temperature"),
                      stream=True,
                      max_output_tokens=limit,
                      timeout_seconds=getattr(self, "timeout", DEFAULT_LLM_TIMEOUT_SECONDS),
@@ -438,7 +439,12 @@ class ChatLLM:
             return {"reasoning_effort": _GLM_EFFORT_MAP.get(effort, _GLM_DEFAULT_EFFORT)}
         return {}
 
-    def invoke_with_tools(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> LLMToolResponse:
+    def invoke_finalization(self, messages: list[dict[str, Any]]) -> LLMToolResponse:
+        return self.invoke_with_tools(messages, [], lightweight_finalization=True)
+
+    def invoke_with_tools(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], *, lightweight_finalization: bool = False,
+    ) -> LLMToolResponse:
         """执行一次支持 function calling 的同步模型请求。"""
 
         request: dict[str, Any] = {
@@ -451,8 +457,11 @@ class ChatLLM:
             request["tools"] = tools
             request["tool_choice"] = "auto"
         completion_options = self._completion_options()
+        if lightweight_finalization and _model_family(self.model) == "glm":
+            completion_options["reasoning_effort"] = "low"
         request.update(completion_options)
-        if not completion_options:
+        # GLM 同时支持思考档位与温度，不能因开启思考而丢弃采样配置。
+        if not completion_options or _model_family(self.model) == "glm":
             request["temperature"] = self.temperature
         response = self._create_completion(request)
         message = response.choices[0].message
@@ -494,7 +503,7 @@ class ChatLLM:
         }
         completion_options = self._completion_options()
         request.update(completion_options)
-        if not completion_options:
+        if not completion_options or _model_family(self.model) == "glm":
             request["temperature"] = 0
         response = self._create_completion(request)
         return response.choices[0].message.content or ""

@@ -350,7 +350,11 @@ async def _max_steps_finalization_turn(
     if context_manager:
         context_manager.before_model_call(messages)
 
-    response = await asyncio.to_thread(llm.invoke_with_tools, messages, [])
+    invoke_finalization = getattr(llm, "invoke_finalization", None)
+    if invoke_finalization is None:
+        response = await asyncio.to_thread(llm.invoke_with_tools, messages, [])
+    else:
+        response = await asyncio.to_thread(invoke_finalization, messages)
     yield LoopEvent(
         LoopEventType.LLM_RESPONSE,
         step,
