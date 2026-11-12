@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from repo_agent.core.llm import DEFAULT_MODEL
+from repo_agent.core.memory import MemoryStore, MemoryType
 from repo_agent.core.public_validation import evaluate_public_plan
 from repo_agent.core.static_analysis import newly_undefined_names
 from repo_agent.core.differential_validation import assess_differential_validation
@@ -34,6 +35,19 @@ from repo_agent.core.verification import (
 def main(argv: list[str] | None = None) -> int:
     """批量实验入口，并在启动前执行模式完整性检查。"""
     args = build_parser().parse_args(argv)
+    if args.require_public_pass and (
+        args.repair_mode != "benchmark" or args.feedback_source != "public-tests"
+        or args.diagnostic_mode != "none" or not args.evaluate
+    ):
+        raise SystemExit("--require-public-pass requires benchmark mode, public-tests feedback, --evaluate, and no diagnostics")
+    if args.require_public_pass:
+        if not args.memory_root:
+            raise SystemExit("--require-public-pass requires an explicit --memory-root")
+        if args.no_repair_memory:
+            if not args.memory_root.is_dir() or any(args.memory_root.rglob("*.md")):
+                raise SystemExit("A no-memory public-test run requires an isolated empty memory directory")
+        else:
+            validate_global_memory_snapshot(args.memory_root)
     # 学习模式必须用独立评测证明成功后才能写记忆；正式评测则冻结记忆。
     if args.repair_mode == "experience-build":
         if not args.evaluate:
@@ -100,23 +114,26 @@ def main(argv: list[str] | None = None) -> int:
         "reasoning_effort": args.reasoning_effort,
         "coordinator_reasoning_effort": args.coordinator_reasoning_effort,
         "implement_reasoning_effort": args.implement_reasoning_effort,
-        "diagnostic_only": args.diagnostic_mode != "none",
+        "diagnostic_only": args.diagnostic_mode != "none" or args.require_public_pass,
         "diagnostic_mode": args.diagnostic_mode,
-        "leaderboard_eligible": args.diagnostic_mode == "none" and args.repair_mode == "benchmark",
+        "leaderboard_eligible": args.diagnostic_mode == "none" and args.repair_mode == "benchmark" and not args.require_public_pass,
         "repair_mode": args.repair_mode,
         "evaluation_policy": {
             "agent_feedback": (
                 f"{args.feedback_source}_failure_up_to_twice"
-                if args.repair_mode == "experience-build"
+                if args.repair_mode == "experience-build" or args.require_public_pass
                 else "disabled"
             ),
-            "max_corrections": 2 if args.repair_mode == "experience-build" else 0,
+            "max_corrections": 2 if args.repair_mode == "experience-build" or args.require_public_pass else 0,
             "max_full_harness_runs_per_instance": (
                 3 if args.repair_mode == "experience-build" and args.feedback_source == "harness" else 1
             ),
             "max_full_harness_runs_per_candidate": 1,
             "harness_feedback_to_agent": args.repair_mode == "experience-build" and args.feedback_source == "harness",
             "feedback_source": args.feedback_source,
+            "require_public_pass": args.require_public_pass,
+            "repair_memory_recall": not args.no_repair_memory and args.repair_mode == "benchmark",
+            "experience_generation_disabled": args.no_experience_generation,
             "prebuild_instance_image": should_prebuild_instance_image(args),
         },
         "count": len(instances),
@@ -218,6 +235,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional shared memory scope. Supports {repo} and {instance_id}, for example swebench-lite:{repo}.",
     )
     parser.add_argument("--no-repair-memory", action="store_true", help="Disable repair_recipe recall in RepoAgent runs.")
+    parser.add_argument("--no-experience-generation", action="store_true",
+                        help="Skip experience and case curators without changing repair or evaluation.")
     parser.add_argument(
         "--candidate-mode",
         choices=("auto", "required", "off"),
@@ -255,6 +274,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Baseline diagnostic output containing candidate.patch and harness failure logs.",
     )
+    parser.add_argument("--require-public-pass", action="store_true",
+                        help="Read-only public-test correction preview; run final Harness only after public tests pass.")
     return parser
 
 
@@ -288,7 +309,7 @@ def run_instance_once(
     experience-build 才允许把首次失败送入 FailureReview，并最多执行一次纠正。
     """
     started = time.time()
-    public_feedback = args.repair_mode == "experience-build" and getattr(args, "feedback_source", "harness") == "public-tests"
+    public_feedback = uses_public_test_feedback(args)
     instance_id = row["instance_id"]
     passes: list[dict[str, Any]] = []
     verification_image = ""
@@ -345,7 +366,7 @@ def run_instance_once(
             repo_dir=repo_dir,
             agent_output_dir=pass_output,
             require_patch_review=args.full_agent_profile,
-            reject_failed_verification=args.repair_mode != "experience-build",
+            reject_failed_verification=args.repair_mode != "experience-build" and not public_feedback,
             stage_attribution=(
                 pass_summary.get("stage_attribution")
                 if args.diagnostic_mode != "corrective"
@@ -463,6 +484,8 @@ def run_instance_once(
                         env,
                         90,
                     )
+            elif getattr(args, "require_public_pass", False) and (pass_summary.get("public_validation") or {}).get("status") != "passed":
+                pass_summary["harness"] = {"skipped": True, "reason": "public_tests_not_passed", "resolved": False}
             else:
                 pass_summary["harness"] = run_harness_for_instance(row, patch, pass_output, args, env, 0)
                 if args.diagnostic_mode != "none":
@@ -514,6 +537,7 @@ def run_instance_once(
             args.repair_mode == "experience-build"
             and not public_feedback
             and (pass_summary.get("harness") or {}).get("resolved")
+            and not getattr(args, "no_experience_generation", False)
         ):
             pass_summary["experience_curator"] = run_experience_curator_for_success(
                 row,
@@ -527,7 +551,8 @@ def run_instance_once(
                 args=args,
                 env=env,
             )
-        if args.evolve_memory and not public_feedback and (pass_summary.get("harness") or {}).get("resolved"):
+        if (args.evolve_memory and not public_feedback and (pass_summary.get("harness") or {}).get("resolved")
+                and not getattr(args, "no_experience_generation", False)):
             pass_summary["case_curator"] = run_case_curator_for_success(row, repo_dir, pass_output, pass_summary, args, env)
         pass_summary["stage_attribution"] = finalize_stage_attribution(pass_summary)
         (pass_output / "stage_attribution.json").write_text(
@@ -582,9 +607,9 @@ def run_instance_once(
         "model_patch": patch,
         "output_dir": str(output_dir),
         "passes": passes,
-        "official_pass1": args.diagnostic_mode == "none" and args.repair_mode == "benchmark",
+        "official_pass1": args.diagnostic_mode == "none" and args.repair_mode == "benchmark" and not getattr(args, "require_public_pass", False),
         "official_no_hints": args.diagnostic_mode in {"none", "baseline"},
-        "diagnostic_only": args.diagnostic_mode != "none" or args.repair_mode != "benchmark",
+        "diagnostic_only": args.diagnostic_mode != "none" or args.repair_mode != "benchmark" or getattr(args, "require_public_pass", False),
         "diagnostic_mode": args.diagnostic_mode,
         "repair_mode": args.repair_mode,
         "verification_image_lifecycle": image_lifecycle,
@@ -671,7 +696,7 @@ def run_agent_pass(
         "--task",
         agent_task,
     ]
-    if args.repair_mode == "experience-build" and getattr(args, "feedback_source", "harness") == "public-tests":
+    if uses_public_test_feedback(args):
         command.append("--public-validation")
     if args.implement_model:
         command.extend(["--implement-model", args.implement_model])
@@ -722,13 +747,30 @@ def swebench_eval_image(instance_id: str) -> str:
     return f"sweb.eval.x86_64.{instance_id}:latest"
 
 
+def validate_global_memory_snapshot(root: Path) -> None:
+    root = root.resolve()
+    global_dir = root / "global" / "memory"
+    entries = list(root.rglob("*.md"))
+    headers = MemoryStore(global_dir).list_memories()
+    if (not headers or len(headers) != len(entries)
+            or any(p.is_symlink() or p.parent != global_dir for p in entries)
+            or any(header.type != MemoryType.GLOBAL_EXPERIENCE for header in headers)):
+        raise SystemExit("Expected an isolated nonempty snapshot containing only global/memory global experiences")
+
+
+def uses_public_test_feedback(args: argparse.Namespace) -> bool:
+    return getattr(args, "feedback_source", "harness") == "public-tests" and (
+        args.repair_mode == "experience-build" or getattr(args, "require_public_pass", False)
+    )
+
+
 def should_prebuild_instance_image(args: argparse.Namespace) -> bool:
     """模式一默认预构建；模式二保持原有只在最终 harness 构建的行为。"""
 
     configured = getattr(args, "prebuild_instance_image", None)
     if configured is not None:
         return bool(configured)
-    return getattr(args, "repair_mode", "benchmark") == "experience-build"
+    return getattr(args, "repair_mode", "benchmark") == "experience-build" or getattr(args, "require_public_pass", False)
 
 
 def prebuild_swebench_instance_image(
@@ -1306,7 +1348,8 @@ def run_public_test_corrections(
     (pass_output / "public_validation_final.json").write_text(
         json.dumps(validation, ensure_ascii=False, indent=2), encoding="utf-8",
     )
-    if patch.strip() and validation.get("status") == "passed":
+    if (patch.strip() and validation.get("status") == "passed" and not getattr(args, "require_public_pass", False)
+            and not getattr(args, "no_experience_generation", False)):
         pass_summary["experience_curator"] = run_experience_curator_for_success(
             row, repo_dir, pass_output, task=task, failed_patch=failed_patch,
             successful_patch=patch, feedback_file=feedback_file, validation=validation,

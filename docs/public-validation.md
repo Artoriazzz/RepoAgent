@@ -85,3 +85,9 @@ repo-agent experience-build --repo /path/to/repo \
 Docker 运行复用 `REPO_AGENT_VERIFY_DOCKER_IMAGE` 和已准备的 `/testbed`，不应用官方测试补丁。此角色不自动配置依赖或安装测试运行环境；环境缺失会保留执行日志。历史经验与调优数据仍需单独审计，启用该角色本身不证明榜单合规。
 
 角色 Prompt：`repo_agent/core/public_validation.py` 中的 `PUBLIC_VALIDATION_PROMPT`。本次接入 CLI 与 SWE-bench 批处理，后端阶段队列尚未接入此角色。
+
+## 全局 Top-1 门控预跑
+
+在批处理参数中使用 `--repair-mode benchmark --feedback-source public-tests --require-public-pass --evaluate --memory-root <冻结经验目录>`。经验目录只放 `global/memory/` 下的全局经验；启动时拒绝空库、混入仓库经验或其他 Markdown 记忆的目录。沿用 Coordinator 的全局 Top-1 检索，无匹配时不注入。公开测试可以驱动定向纠正，运行过程中不更新经验库。
+
+只有最终公开验证为 `passed` 的有效补丁才运行一次 Harness。失败或证据不足的补丁仍可供离线分析，Harness 状态记录为 `public_tests_not_passed`，不视作官方判分。该入口标记为诊断预跑，不能把前 50 题或门控后子集的结果当成 Lite 全集成绩。要制作正式材料，应冻结并审计经验来源，披露开发使用过的评测数据、内部尝试策略及提交选择规则，再按官方流程评估和打包。

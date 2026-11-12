@@ -772,6 +772,48 @@ def test_experience_validation_preserves_failed_patch_for_lightweight_correction
     assert "verification_failed_feedback_eligible:behavior_failed" in result["warnings"]
 
 
+@pytest.mark.parametrize("public_status", ["passed", "failed", "inconclusive"])
+def test_public_preview_only_scores_a_publicly_passing_patch(tmp_path, monkeypatch, public_status):
+    batch = load_batch_module()
+    output = tmp_path / "out"
+    output.mkdir()
+    patch = "nonempty patch"
+    calls = []
+    monkeypatch.setattr(batch, "checkout_repo", lambda *a, **k: None)
+    monkeypatch.setattr(batch, "git_diff", lambda *a: patch)
+    monkeypatch.setattr(batch, "run_agent_pass", lambda *a, **k: {
+        "model_patch": patch, "status": "agent_ok", "output_dir": str(output / "pass-1"),
+    })
+    monkeypatch.setattr(batch, "validate_model_patch", lambda *a, **k: {})
+
+    def public_tests(*args, **kwargs):
+        args[5]["public_validation"] = {"status": public_status}
+        return patch
+
+    def harness(*args, **kwargs):
+        calls.append(args[1])
+        return {"resolved": True}
+
+    monkeypatch.setattr(batch, "run_public_test_corrections", public_tests)
+    monkeypatch.setattr(batch, "run_harness_for_instance", harness)
+    monkeypatch.setattr(batch, "run_experience_curator_for_success", lambda *a, **k: pytest.fail("memory write"))
+    args = SimpleNamespace(
+        work_dir=tmp_path / "work", diagnostic_mode="none", full_agent_profile=False,
+        repair_mode="benchmark", require_public_pass=True, feedback_source="public-tests",
+        evaluate=True, evolve_memory=False, timeout=60, offline_cache=False, prebuild_instance_image=False,
+    )
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    result = batch.run_instance_once({"instance_id": "owner__repo-1", "repo": "owner/repo",
+                                      "base_commit": "abc", "problem_statement": "fix public behavior"},
+                                     repo, output, args, {})
+    assert calls == ([patch] if public_status == "passed" else [])
+    assert result["model_patch"] == patch
+    assert not result["official_pass1"]
+    if public_status != "passed":
+        assert result["passes"][0]["harness"]["reason"] == "public_tests_not_passed"
+
+
 @pytest.mark.parametrize("second_result", ["resolved", "failed", "error"])
 def test_experience_batch_uses_initial_harness_failure_then_evaluates_correction(tmp_path, monkeypatch, second_result):
     batch = load_batch_module()

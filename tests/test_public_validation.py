@@ -53,7 +53,7 @@ def test_input_contract_design_has_two_extra_steps_but_no_write_permission():
     spec = WORKER_SPECS['public_validation']
     assert spec.max_steps == 12
     assert spec.allowed_tools == {'list_files', 'read_file', 'search_repo'}
-    assert '读取其定义与一个已有合法定制示例' in PUBLIC_VALIDATION_PROMPT
+    assert '原拟目标已通过时，可保留为 regression' in PUBLIC_VALIDATION_PROMPT
 
 
 def test_baseline_probe_is_bounded_and_does_not_replace_final_plan(tmp_path):
@@ -231,20 +231,20 @@ def test_valid_baseline_still_gets_one_coverage_review_with_original_history(tmp
     assert len(calls) == 2
     assert calls[1]["test_design_history"] == history
     assert "ideally also support configured input" in calls[1]["prompt"]
-    assert "最小反例" in calls[1]["prompt"]
-    assert "unknowns 已承认未定义的细节不得同时作为断言" in calls[1]["prompt"]
-    assert "独立的基线可用输入运行同一断言逻辑" in calls[1]["prompt"]
-    assert "参数化目标与可用对照共用预期计算和断言逻辑" in calls[1]["prompt"]
-    assert "输入对象" in calls[1]["prompt"]
-    assert "再次调用、更新或恢复" in calls[1]["prompt"]
-    assert "不猜测新参数名、错误编号或内部实现" in calls[1]["prompt"]
+    feedback = json.loads(calls[1]["prompt"].split("\n", 1)[1])
+    observation = feedback["baseline_observations"][target["id"]]
+    assert observation["command"] == target["command"]
+    assert observation["classification"] == "behavior_failed"
+    assert observation["evidence"]
+    assert feedback["remaining_probes"] == 2
     assert '"baseline_mismatches": []' in calls[1]["prompt"]
     assert artifact["worker"]["baseline_repair"]["reason"] == "coverage_review"
     assert artifact["worker"]["total_tokens"] == 20
     assert [item["id"] for item in artifact["plan"]["cases"]] == ["target", "extension"]
 
 
-def test_baseline_mismatch_repairs_once_with_history_and_counts_tokens(tmp_path, monkeypatch):
+@pytest.mark.parametrize("retain_as_regression", [True, False])
+def test_baseline_mismatch_repairs_once_with_history_and_counts_tokens(tmp_path, monkeypatch, retain_as_regression):
     history = [{"role": "system", "content": "rules"},
                {"role": "user", "content": "issue"},
                {"role": "assistant", "content": "source evidence and original plan"}]
@@ -253,7 +253,10 @@ def test_baseline_mismatch_repairs_once_with_history_and_counts_tokens(tmp_path,
     plan = {"status": "ready", "cases": [case()], "unknowns": []}
     def run(**kwargs):
         calls.append(kwargs)
-        return SimpleNamespace(text=json.dumps(plan), completed=True, output_dir=tmp_path,
+        revised = {**plan, "cases": [{**plan["cases"][0], "kind": "regression"}],
+                   "unknowns": ["Target was not reproduced."]}
+        return SimpleNamespace(text=json.dumps(revised if len(calls) == 2 and retain_as_regression else plan),
+                               completed=True, output_dir=tmp_path,
                                total_tokens=10, prompt_tokens=8, completion_tokens=2, model="fake")
     agent = PublicValidationAgent(SimpleNamespace(run=run, cwd=tmp_path), tmp_path / "out")
     # 两次均意外通过，第二次后仍停止，不能无限修正或把无效目标当作复现。
@@ -264,7 +267,10 @@ def test_baseline_mismatch_repairs_once_with_history_and_counts_tokens(tmp_path,
     assert "OK" in calls[1]["prompt"]
     assert artifact["worker"]["total_tokens"] == 20
     assert (tmp_path / "out/public_validation_initial.json").exists()
-    assert agent.evaluate()["status"] == "inconclusive"
+    evaluation = agent.evaluate()
+    assert evaluation["status"] == "inconclusive"
+    assert evaluation["cases"][0]["usable"] is retain_as_regression
+    assert not evaluation["target_reproduced"]
 
 
 @pytest.mark.parametrize("repair_succeeds", [True, False])
