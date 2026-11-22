@@ -47,6 +47,7 @@ public class RepairTaskService {
     private final WorkerPresenceStore workerPresence;
     private final RepairTaskEventStream eventStream;
     private final RepairAdmissionService admission;
+    private final RepairAgentContextStore agentContexts;
     private final long eventStreamTimeoutMillis;
 
     public RepairTaskService(
@@ -60,6 +61,7 @@ public class RepairTaskService {
             WorkerPresenceStore workerPresence,
             RepairTaskEventStream eventStream,
             RepairAdmissionService admission,
+            RepairAgentContextStore agentContexts,
             @org.springframework.beans.factory.annotation.Value(
                     "${app.repair.event-stream-timeout-millis:1800000}"
             ) long eventStreamTimeoutMillis
@@ -74,6 +76,7 @@ public class RepairTaskService {
         this.workerPresence = workerPresence;
         this.eventStream = eventStream;
         this.admission = admission;
+        this.agentContexts = agentContexts;
         this.eventStreamTimeoutMillis = eventStreamTimeoutMillis;
     }
 
@@ -375,7 +378,7 @@ public class RepairTaskService {
     }
 
     @Transactional
-    public RepairTaskControlResponse claim(UUID taskId, RepairTaskClaimRequest request) {
+    public ClaimedStage claim(UUID taskId, RepairTaskClaimRequest request) {
         // 领取是唯一需要抢占的入口；悲观锁令两条 RabbitMQ 重复消息只有一条能取得租约。
         RepairTask task = getRequiredForUpdate(taskId);
         if (task.isCancelRequested() || task.getStatus() == RepairTaskStatus.PATCH_READY
@@ -395,7 +398,19 @@ public class RepairTaskService {
         admission.recordClaim(task);
         appendEvent(task, RepairTaskEventType.LEASE_CLAIMED, request.effectiveStage().displayStage(),
                 "Task claimed by worker " + request.workerId(), null);
-        return RepairTaskControlResponse.from(task);
+        var references = Boolean.TRUE.equals(request.includeAgentContext()) ? agentContexts.referencesFor(task) : null;
+        return new ClaimedStage(RepairTaskControlResponse.from(task), references);
+    }
+
+    record ClaimedStage(RepairTaskControlResponse control, RepairAgentContextStore.References references) {}
+
+    RepairTaskControlResponse loadClaimedContexts(ClaimedStage claimed) {
+        var references = claimed.references();
+        if (references == null) return claimed.control();
+        var own = agentContexts.read(references.ownKey());
+        var incoming = references.incomingKey() != null && references.incomingKey().equals(references.ownKey())
+                ? own : agentContexts.read(references.incomingKey());
+        return claimed.control().withContexts(own, incoming);
     }
 
     /**
@@ -416,6 +431,9 @@ public class RepairTaskService {
             return RepairTaskControlResponse.from(task);
         }
         long completedSequence = task.getStageSequence();
+        task.requireLease(request.workerId(), request.leaseToken(),
+                request.effectiveStageSequence(completedSequence), request.effectiveLeaseEpoch(task.getLeaseEpoch()));
+        agentContexts.archive(task, request.agentContext());
         task.handoffPipelineStage(
                 request.currentStage(), request.nextStage(), request.workerId(), request.leaseToken(),
                 request.effectiveStageSequence(task.getStageSequence()), request.effectiveLeaseEpoch(task.getLeaseEpoch()),
@@ -436,6 +454,9 @@ public class RepairTaskService {
     @Transactional
     public RepairTaskResponse completePipeline(UUID taskId, RepairTaskPipelineCompletionRequest request) {
         RepairTask task = getRequiredForUpdate(taskId);
+        task.requireLease(request.workerId(), request.leaseToken(),
+                request.effectiveStageSequence(task.getStageSequence()), request.effectiveLeaseEpoch(task.getLeaseEpoch()));
+        agentContexts.archive(task, request.agentContext());
         task.completePipeline(request.workerId(), request.leaseToken(), request);
         admission.recordStageSucceeded(task);
         admission.releaseTerminalCapacity(task);

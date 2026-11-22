@@ -895,6 +895,33 @@ def test_agent_freezes_commands_and_saves_baseline(tmp_path):
     assert result["feedback_eligible"]
 
 
+def test_public_suite_revision_starts_fresh_and_keeps_issue_trigger(tmp_path):
+    item = case()
+    plan = {"status": "ready", "cases": [item], "unknowns": []}
+
+    class Runner:
+        base_tools = SimpleNamespace(get=lambda _: object())
+
+        def run(self, **kwargs):
+            assert "test_design_history" not in kwargs
+            assert "keep the filtered query" in kwargs["prompt"]
+            assert "original test source" in kwargs["prompt"]
+            assert "unique constraint failed" in kwargs["prompt"]
+            assert "use distinct fixture values" in kwargs["prompt"]
+            assert "保留 Issue 的触发路径" in kwargs["prompt"]
+            return SimpleNamespace(text=json.dumps(plan), completed=True, output_dir=tmp_path,
+                                   total_tokens=12, model="fake")
+
+        def _run_swebench_verification_command(self, tool, inp):
+            return ToolResponse.partial("AssertionError: expected 2", {"exit_code": 1})
+
+    agent = PublicValidationAgent(Runner(), tmp_path)
+    result = agent.revise("keep the filtered query", {"plan": {"files": [{"content": "original test source"}]}},
+                          {"failure_log_excerpts": ["unique constraint failed"],
+                           "suggestion": "use distinct fixture values"})
+    assert result["baseline"][item["id"]]["exit_code"] == 1
+
+
 def test_invalid_case_is_preserved_as_rejected_without_discarding_valid_test(tmp_path):
     commands = []
     valid = case()

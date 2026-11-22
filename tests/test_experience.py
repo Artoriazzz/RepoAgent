@@ -20,6 +20,41 @@ from repo_agent.core.memory import MemoryStore
 from repo_agent.core.subagent import FAILURE_REVIEW_PROMPT, EXPERIENCE_CURATOR_PROMPT
 
 
+def test_failure_review_delivery_schema_matches_parser_routes():
+    from repo_agent.core.failure_feedback_format import render_failure_handoff
+    from repo_agent.core.subagent import _failure_review_completion_guard
+
+    prompt = build_failure_review_prompt(task="public task", failed_patch="patch", failure_log="assertion failed")
+    schema_text = prompt.split("## 输出 Schema", 1)[1]
+    payload = json.loads(schema_text[schema_text.index("{"):])
+    assert set(payload) == {"failure", "repair", "evidence", "decision"}
+    payload["failure"].update(kind="implementation_semantics", quality="failure_only")
+    payload["evidence"] = {
+        "items": [
+            {"id": "E1", "source": "failure_log", "fact": "assertion failed", "support": "direct"},
+            {"id": "E2", "source": "repository_code", "fact": "a.py:1 returns None", "support": "direct"},
+        ],
+        "used_ids": ["E1", "E2"],
+    }
+    payload["decision"] = {"action": "correct", "request": ""}
+    text = json.dumps(payload)
+    assert _failure_review_completion_guard(text, require_sections=True) is None
+    result = parse_failure_feedback(text)
+    assert result.correction_route == "corrective_implement"
+    handoff = render_failure_handoff(result.to_dict())
+    report, guide = json.JSONDecoder().raw_decode(handoff)
+    assert report["repair"] == payload["repair"]
+    assert report["decision"]["action"] == "correct"
+    assert "repair.edits" in handoff[guide:] and "evidence.used_ids" in handoff[guide:]
+    payload["repair"]["edits"] = []
+    assert parse_failure_feedback(json.dumps(payload)) is None
+    payload["decision"] = {"action": "replan", "request": "Inspect a.py caller"}
+    payload["evidence"]["used_ids"] = ["E1"]
+    assert parse_failure_feedback(json.dumps(payload)).correction_route == "coordinator_replan"
+    payload["decision"] = {"action": "stop", "request": "No further source evidence is available."}
+    assert parse_failure_feedback(json.dumps(payload)).stop_reason == payload["decision"]["request"]
+
+
 def test_repair_mode_policies_separate_learning_and_benchmark():
     learning = repair_mode_policy(RepairRunMode.EXPERIENCE_BUILD)
     benchmark = repair_mode_policy(RepairRunMode.BENCHMARK)
@@ -46,11 +81,11 @@ def test_failure_review_requires_public_result_and_invalidated_patch_assumption(
     )
 
     assert "Return the exact generated field name." in prompt
-    assert "原授权范围内可修：actionable；next_evidence_source=none" in FAILURE_REVIEW_PROMPT
-    assert "有具体源码补查方向" in FAILURE_REVIEW_PROMPT
-    assert "查询预算耗尽或观测仅为 failure_only 时仍可提出此请求" in FAILURE_REVIEW_PROMPT
+    assert "correct：确认是代码问题且能在原授权范围内修复" in FAILURE_REVIEW_PROMPT
+    assert "replan：需要补查关键事实或重新授权" in FAILURE_REVIEW_PROMPT
+    assert "标为 invalid_test" in FAILURE_REVIEW_PROMPT
     assert "Review Protocol" not in prompt
-    assert prompt.count('"correction_readiness":') == 1
+    assert prompt.count('"action":') == 1
 
 
 def test_failure_review_receives_implementation_risks_as_inference_only():
@@ -74,7 +109,7 @@ def test_failure_review_receives_implementation_risks_as_inference_only():
     assert "Initial Implementation Report" in prompt
     assert "a consumer may require five vertices" in prompt
     assert "implementation_report" in prompt
-    assert "implementation_report/inference" in FAILURE_REVIEW_PROMPT
+    assert "实现者自报的风险只作为线索" in FAILURE_REVIEW_PROMPT
 
 
 def test_curator_rules_live_in_system_and_payload_keeps_provenance_and_schema():
@@ -272,7 +307,7 @@ def test_legacy_failure_feedback_is_parsed_but_not_used_for_correction():
     assert feedback is not None
     assert feedback.requires_coordinator_replan is False
     assert feedback.correction_route == "none"
-    assert feedback.confidence == 1.0
+    assert "confidence" not in feedback.to_dict()
     assert parse_failure_feedback('{"failure_stage": "unknown"}') is None
 
 

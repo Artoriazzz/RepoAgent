@@ -1,0 +1,258 @@
+{
+  "status": "executed_tests_paired5_running",
+  "date": "2026-11-06",
+  "active_full71": {
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-full71-frozen-v24-20261106",
+    "source": "/home/artoria/workspace/RepoAgent/public-validation-parameter-oracle-v24-20261101",
+    "pid_at_launch": 4603,
+    "workers": 2,
+    "total": 71,
+    "selection_sha256": "0e17e290f555d0e325777fd693bf57948d3e877695b5ef5209355755f93c5b0d",
+    "orchestration_sha256": "b2f75a2548675c4fa1c2393adf44d3fd49c593d79992369d8971020c78e82d3d",
+    "next_action": "主批次和 40 题补跑均结束，不重启或覆盖。合并同一冻结 v24 的结果见 full71_resume；候选独立比较。"
+  },
+  "full71_resume": {
+    "selection": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-full71-preparation-20261101/quota-resume-selection-40-v2.json",
+    "selection_sha256": "9bbf352cf1a98cc7f5ee69f2fb402c435d854676cca3db4f186410773d2c1380",
+    "runner": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-full71-preparation-20261101/infra-runner-v2/scripts/run_public_tests_best35_wsl.py",
+    "runner_sha256": "5bfcd0fc5ff72cee16cbfd92f7cf965b70d1851b1e45fea9e2d1a85b8fb32b94",
+    "environment_error": 22,
+    "api_error": 7,
+    "not_dispatched": 11,
+    "started": true,
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-full71-v24-resume40-20261106",
+    "pid_at_launch": 289622,
+    "resumed_pid": 4817,
+    "terminal": true,
+    "merged_resolved": 20,
+    "merged_scored": 64,
+    "merged_api_error": 7,
+    "merged_audit": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-full71-preparation-20261101/final-audit71-v24/summary.json",
+    "reboot_recovery_archive": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-full71-v24-resume40-20261106/interrupted-20261106T015259Z",
+    "environment_smoke_pid": 248057,
+    "environment_smoke": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-full71-preparation-20261101/qt-instance-verification-v2",
+    "environment_smoke_finished": true,
+    "verified_environments": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-full71-preparation-20261101/verified-environment-errors-22.json",
+    "verified_environments_sha256": "b35a2be8a7508d79d73b629806a40cf8e98f50d9c74f7eba460bbac64927afe1"
+  },
+  "evidence_candidate_paired10": {
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-evidence-candidate-paired10-20261106",
+    "pid_at_launch": 221020,
+    "total": 10,
+    "workers": 2,
+    "baseline_resolved": 4,
+    "terminal": true,
+    "resolved": 6,
+    "next_action": "已结束，6/10；保留为新覆盖候选的同题参考，不与 v24 成绩拼接。"
+  },
+  "contract_coverage_candidate_paired10": {
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-contract-coverage-paired10-20261106",
+    "source": "/home/artoria/workspace/RepoAgent/public-validation-contract-coverage-candidate-20261106",
+    "pid_at_launch": 324615,
+    "total": 10,
+    "workers": 2,
+    "evidence_candidate_resolved": 6,
+    "terminal_reason": "WSL reboot; three summaries preserved, no live process or finished marker",
+    "next_action": "不补跑此版用于选版。已评分的 matplotlib-23987 未保住前版成功（F2P 1/1、P2P 42/43）。不能把三份部分结果当作十题成绩。"
+  },
+  "frozen70_evidence": {
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-frozen70-evidence-20261106",
+    "source": "/home/artoria/workspace/RepoAgent/public-validation-evidence-candidate-20261106",
+    "pid_at_launch": 30583,
+    "resumed_pid": 4600,
+    "reboot_recovery_archive": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-frozen70-evidence-20261106/interrupted-20261106T175358Z",
+    "workers": 2,
+    "total": 70,
+    "selection_sha256": "13e3053556ae91b28e49e3581b2d38e8a9cdc6e7b6e64ad1f9724434d17eed1e",
+    "reference_resolved": 20,
+    "reference_api_errors": 7,
+    "next_action": "额度 1113 后进程退出，4 题未派发。保持冻结源码。额度恢复后用独立清单重跑 7 个 API 错误及 4 个未派发题；另两个代理执行超时单列。"
+  },
+  "frozen70_resume": {
+    "active_attempt": {
+      "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-frozen70-evidence-resume11-attempt2-20261107",
+      "pid_at_launch": 366989,
+      "resumed_pid": 4147,
+      "reboot_recovery_archives": ["interrupted-20261107T062739Z", "interrupted-20261107T064202Z"],
+      "workers": 2,
+      "source_hashes_verified": true,
+      "api_response_verified": true,
+      "terminal": true,
+      "terminal_counts": {"agent_ok": 3, "api_error": 7, "invalid_patch": 1},
+      "merged_resolved": 19,
+      "merged_scored": 60,
+      "environment_audit": "All 57 agent_ok cases have actual test counts after the two Qt fixed-prediction reevaluations; no outstanding final-evaluation environment error among these cases."
+    },
+    "selection": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-full71-preparation-20261101/frozen70-resume-selection-11.json",
+    "selection_sha256": "b2f82fe7b9d009a1c4e5d86d09a2e2208e6ab2a8e45dbde7add520cbf650e96b",
+    "runner": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-full71-preparation-20261101/infra-runner-v3/scripts/run_public_tests_best35_wsl.py",
+    "runner_sha256": "044affc3bf88185ae19ab3db5c3bdda14463bca62f7d55b5705fada27216c089",
+    "started": true,
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-frozen70-evidence-resume11-20261107",
+    "pid_at_launch": 354693,
+    "recovery_requested_at": "2026-11-07",
+    "terminal_reason": "Both initial model requests returned HTTP 429/code 1113; supervisor exited, nine tasks not dispatched.",
+    "api_errors": 7,
+    "not_dispatched": 4
+  },
+  "evidence_low_finalizer_paired3": {
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-evidence-low-finalizer-paired3-20261107",
+    "pid_at_launch": 41692,
+    "source": "/home/artoria/workspace/RepoAgent/public-validation-evidence-low-finalizer-20261107",
+    "selection_sha256": "00b2587d8ed4b56cf3d43455525f325095bb44cd9f53be28e44cdaa0d833bf2b",
+    "instances": ["django__django-16229", "sympy__sympy-21612", "sympy__sympy-23262"],
+    "test_count": 594,
+    "terminal": true,
+    "resolved": 2,
+    "api_errors": 1,
+    "next_action": "独立核对实际 low 收尾、JSON 完成率、有效评分与成功对照保留。不拼接冻结 70 题成绩。"
+  },
+  "native_runner_paired3": {
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-native-runner-paired3-20261107",
+    "pid_at_launch": 59787,
+    "source": "/home/artoria/workspace/RepoAgent/public-validation-native-runner-20261107",
+    "selection_sha256": "00b2587d8ed4b56cf3d43455525f325095bb44cd9f53be28e44cdaa0d833bf2b",
+    "test_count": 595,
+    "terminal": true,
+    "resolved": 2,
+    "invalid_patch": 1,
+    "next_action": "同三题对照：核对缺失 pytest 是否只进入测试方案复核，是否恢复可运行目标，并检查原两题成功和 P2P 保留。"
+  },
+  "executed_tests_paired5": {
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-executed-tests-paired5-20261107",
+    "source": "/home/artoria/workspace/RepoAgent/public-validation-executed-tests-20261107",
+    "pid_at_launch": 81196,
+    "test_count": 597,
+    "selection_sha256": "c399c54f510712e5a72c2d5381a9609cfee5174d2cb26b2e7e8a76823642486d",
+    "next_action": "原三题同版本对照，附加两个缺 pytest 的独立诊断。看原成功保留、公开测试实际执行、F2P/P2P 和空补丁。"
+  },
+  "current_experiment": {
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-first10-plus3-counterexample-v22-20261101",
+    "pid_at_launch": 1768794,
+    "source": "/home/artoria/workspace/RepoAgent/public-validation-counterexample-v22-20261101",
+    "total": 13,
+    "workers": 2,
+    "monitor_interval_minutes": 30,
+    "baseline_audit": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-v12-audit35-clean-20261101",
+    "settings": "Exact v12 model and sampling settings, with one coverage-review prompt change and ephemeral-file tool clarification. No temperature or scope-gate changes.",
+    "resolved": 3,
+    "terminal": true,
+    "next_action": "本轮已结束，先修正审计中误读首轮 patch 的问题，再核对固定最终预测下的测试质量；禁止重复启动本轮。"
+  },
+  "completed_infrastructure": {
+    "retry16": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-historical35-v12-infra1-20261101",
+    "reevaluate7": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-v12-matplotlib-finalpatch-infra3-20261101",
+    "merged_resolved": 11,
+    "score_status": "Final patch reevaluation complete: summary.model_patch checked against predictions.json. Previous 10/35 based on initial patches remains revoked.",
+    "merged_total": 35,
+    "tests": {"fail_to_pass_passed": 356, "fail_to_pass_failed": 53, "pass_to_pass_passed": 3427, "pass_to_pass_failed": 3}
+  },
+  "current_artifact_audit": {
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-v12-matplotlib-finalpatch-infra3-20261101",
+    "terminal": true,
+    "scope": "Reevaluate seven verified final predictions; no LLM calls. Afterwards redo paired suite audit against final patches only.",
+    "invalid_pair_audit": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-paired13-v12-v22-20261101",
+    "invalid_pair_audit_status": "stopped; used initial artifacts instead of final predictions; do not use as final-patch evidence",
+    "active_pair_audit": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-paired13-finalpatch-v12-v22-20261101"
+  },
+  "current_design_experiment": {
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-design-oracle-v23-probe5-20261101",
+    "source": "/home/artoria/workspace/RepoAgent/public-validation-oracle-v23-20261101",
+    "pid_at_launch": 1908473,
+    "instances": ["django__django-11742", "django__django-13551", "django__django-13401", "matplotlib__matplotlib-22711", "mwaskom__seaborn-3407"],
+    "repair_agents": false,
+    "official_feedback": false,
+    "terminal": true,
+    "next_action": "已完成五题对照，13401 有效检出，22711 为参数化 oracle 误报、3407 漏检；不得扩大完整修复。"
+  },
+  "active_design_experiment": {
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-design-parameter-v24-m22711-20261101",
+    "source": "/home/artoria/workspace/RepoAgent/public-validation-parameter-oracle-v24-20261101",
+    "instances": ["matplotlib__matplotlib-22711"],
+    "repair_agents": false,
+    "official_feedback": false,
+    "terminal": true,
+    "next_action": "单题与配对对照均已结束，裁剪/坐标误报消失，但旧错误 patch 仍被放行；不要宣称已补齐 F2P。"
+  },
+  "active_full_experiment": {
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-first10-plus3-oracle-v24-20261101",
+    "source": "/home/artoria/workspace/RepoAgent/public-validation-parameter-oracle-v24-20261101",
+    "pid_at_launch": 1960955,
+    "total": 13,
+    "workers": 2,
+    "monitor_interval_minutes": 30,
+    "baseline_resolved": 4,
+    "terminal": true,
+    "resolved": 5,
+    "lost_success": ["django__django-13551"],
+    "next_action": "13题已结束，不重复启动。5/13但丢失13551，seaborn-3407空patch，先跟进两条独立诊断。"
+  },
+  "active_diagnostics": {
+    "input_contract": {
+      "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-design-input-contract-v25-d13551-20261101",
+      "source": "/home/artoria/workspace/RepoAgent/public-validation-input-contract-v25-20261101",
+      "pid_at_launch": 2043365,
+      "instances": ["django__django-13551"],
+      "terminal": true,
+      "result": "Same-instance positive patch passed; default-only negative patch rejected. Coverage improvement confirmed for this case only.",
+      "next_action": "不重复启动，跟进v26完整修复。"
+    },
+    "scope_anchor": {
+      "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-v24-scope-anchor-s3407-20261101",
+      "source": "/home/artoria/workspace/RepoAgent/public-validation-v24-scope-anchor-20261101",
+      "pid_at_launch": 2043418,
+      "instances": ["mwaskom__seaborn-3407"],
+      "terminal": true,
+      "result": "Nonempty patch, F2P 0/1, P2P 120/120. No helper insertion occurred, so insertion-authority behavior not directly verified.",
+      "next_action": "不重复启动，不与v25设计臂拼接成绩。"
+    }
+  },
+  "active_v26": {
+    "run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-first10-plus3-contract-v26-20261101",
+    "source": "/home/artoria/workspace/RepoAgent/public-validation-contract-scope-v26-20261101",
+    "workers": 2,
+    "total": 13,
+    "monitor_interval_minutes": 30,
+    "resumed_pid": 6000,
+    "recovery_archive": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-first10-plus3-contract-v26-20261101/interrupted-20261101T101310Z",
+    "recovery_reason": "WSL reboot confirmed by reset uptime and absent original/child processes. Six completed cases preserved; two unfinished cases archived and restarted under exact frozen code.",
+    "next_action": "WSL 再次重启，确认无进程且无 finished.txt。保留 10 个已完成结果（2 resolved、1 API 错误）和 3 个未完成记录。前十题低于 v24 的 5/10，不再补跑 v26 选版。"
+  },
+  "full71_preparation": {
+    "directory": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-full71-preparation-20261101",
+    "started": true,
+    "total": 71,
+    "repositories": 11,
+    "uncached_instances": 36,
+    "version": "Frozen v24; regenerate all 71 cases without pooling patches across versions.",
+    "selection_sha256": "0e17e290f555d0e325777fd693bf57948d3e877695b5ef5209355755f93c5b0d",
+    "runner_tests_passed": 14,
+    "next_action": "运行目录见 active_full71；准备目录保存原编排与独立的 Python 3.6 兼容修复。"
+  },
+  "provider_error": {"http_status": 429, "code": "1113", "message": "余额不足或无可用资源包,请充值。"},
+  "automatic_model_retries": false,
+  "infrastructure_recovery": {
+    "status": "deferred_by_user_request_for_v12_best35",
+    "retry_script": "/home/artoria/workspace/SWE-bench/agent_work/runs/retry_v20_credit5.py",
+    "dry_run_verified": true,
+    "original_run": "/home/artoria/workspace/SWE-bench/agent_work/runs/public-tests-first10-temperature-v20-20261031",
+    "source": "/home/artoria/workspace/RepoAgent/public-validation-temperature-v20-20261031",
+    "instances": ["django__django-13401", "django__django-13448", "django__django-13551", "django__django-13590", "django__django-13660"],
+    "policy": "仅在额度恢复后，用原冻结源码补跑 API 中断题。保留原始记录，不重跑本轮正常完成的语义失败题。"
+  },
+  "new_code_validation": {
+    "source": "/home/artoria/workspace/RepoAgent/public-validation-scope-v21-20261031",
+    "instances": ["django__django-11797"],
+    "change": "准确区分缺少结构化编辑范围与只申请测试路径，保留原权限和重试次数。",
+    "policy": "独立新版本实验，不合并进 v20 成绩。先确认缺参反馈能否恢复有效 Implement，再检查最终 Harness。"
+  },
+  "historical_v20_settings": {
+    "model": "glm-5.3-flash",
+    "reasoning_effort": "high",
+    "temperature": 0.1,
+    "max_steps": 24,
+    "memory_recall": false,
+    "feedback_source": "public-tests",
+    "final_harness_only": true
+  }
+}

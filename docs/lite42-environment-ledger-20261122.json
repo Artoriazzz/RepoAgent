@@ -1,0 +1,981 @@
+{
+  "baseline": 182,
+  "scope": 42,
+  "new_resolved_ids": [
+    "matplotlib__matplotlib-23562",
+    "matplotlib__matplotlib-23563",
+    "matplotlib__matplotlib-23964",
+    "matplotlib__matplotlib-24265",
+    "matplotlib__matplotlib-25079",
+    "matplotlib__matplotlib-25442",
+    "matplotlib__matplotlib-25498",
+    "matplotlib__matplotlib-26011",
+    "psf__requests-1963",
+    "psf__requests-2148",
+    "psf__requests-2317",
+    "psf__requests-2674"
+  ],
+  "cumulative_resolved": 194,
+  "single_version_score": false,
+  "note": "Unresolved reports may retain environment failures; inspect logs before classifying as code failure.",
+  "outcome_counts": {
+    "resolved": 23,
+    "completed_unresolved": 18,
+    "baseline_timing_sensitive_unresolved": 1
+  },
+  "instances": {
+    "astropy__astropy-14182": {
+      "instance_id": "astropy__astropy-14182",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-astropy-astropy-14182-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-astropy-build-constraint-14182/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-astropy-build-constraint-14182/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite42-astropy-build-constraint-14182-astropy__astropy-14182-r0/repoagent-glm-5.3-flash/astropy__astropy-14182/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 1
+        },
+        "PASS_TO_PASS": {
+          "success": 9,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "matplotlib__matplotlib-22711": {
+      "instance_id": "matplotlib__matplotlib-22711",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-22711-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-22711-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-matplotlib-matplotlib-22711-20261122-matplotlib__matplotlib-22711-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-22711/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 2
+        },
+        "PASS_TO_PASS": {
+          "success": 91,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "matplotlib__matplotlib-22835": {
+      "instance_id": "matplotlib__matplotlib-22835",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-22835-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-22835-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-matplotlib-matplotlib-22835-20261122-matplotlib__matplotlib-22835-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-22835/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 1
+        },
+        "PASS_TO_PASS": {
+          "success": 24,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "matplotlib__matplotlib-23562": {
+      "instance_id": "matplotlib__matplotlib-23562",
+      "included_in_baseline182": false,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-23562-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-23562-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-matplotlib-matplotlib-23562-20261122-matplotlib__matplotlib-23562-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-23562/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 2,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 136,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "matplotlib__matplotlib-23563": {
+      "instance_id": "matplotlib__matplotlib-23563",
+      "included_in_baseline182": false,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-23563-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-23563-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-matplotlib-matplotlib-23563-20261122-matplotlib__matplotlib-23563-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-23563/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 1,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 136,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "matplotlib__matplotlib-23913": {
+      "instance_id": "matplotlib__matplotlib-23913",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-23913-rebuilt-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-23913-rebuilt-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-matplotlib-matplotlib-23913-rebuilt-20261122-matplotlib__matplotlib-23913-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-23913/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 2,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 100,
+          "failure": 1
+        }
+      },
+      "outcome": "baseline_timing_sensitive_unresolved",
+      "baseline_control": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-matplotlib23913-timing-audit/results.json"
+    },
+    "matplotlib__matplotlib-23964": {
+      "instance_id": "matplotlib__matplotlib-23964",
+      "included_in_baseline182": false,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-23964-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-23964-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-matplotlib-matplotlib-23964-20261122-matplotlib__matplotlib-23964-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-23964/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 1,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 16,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "matplotlib__matplotlib-24265": {
+      "instance_id": "matplotlib__matplotlib-24265",
+      "included_in_baseline182": false,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-24265-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-24265-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-matplotlib-matplotlib-24265-20261122-matplotlib__matplotlib-24265-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-24265/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 1,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 16,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "matplotlib__matplotlib-24334": {
+      "instance_id": "matplotlib__matplotlib-24334",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-followup-matplotlib-matplotlib-24334/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-followup-matplotlib-matplotlib-24334/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite42-followup-matplotlib-matplotlib-24334-matplotlib__matplotlib-24334-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-24334/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 1
+        },
+        "PASS_TO_PASS": {
+          "success": 770,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "matplotlib__matplotlib-25079": {
+      "instance_id": "matplotlib__matplotlib-25079",
+      "included_in_baseline182": false,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-followup-matplotlib-matplotlib-25079/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-followup-matplotlib-matplotlib-25079/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite42-followup-matplotlib-matplotlib-25079-matplotlib__matplotlib-25079-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-25079/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 1,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 253,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "matplotlib__matplotlib-25442": {
+      "instance_id": "matplotlib__matplotlib-25442",
+      "included_in_baseline182": false,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-25442-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-25442-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-matplotlib-matplotlib-25442-20261122-matplotlib__matplotlib-25442-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-25442/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 1,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 275,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "matplotlib__matplotlib-25498": {
+      "instance_id": "matplotlib__matplotlib-25498",
+      "included_in_baseline182": false,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-25498-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-25498-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-matplotlib-matplotlib-25498-20261122-matplotlib__matplotlib-25498-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-25498/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 1,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 69,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "matplotlib__matplotlib-26011": {
+      "instance_id": "matplotlib__matplotlib-26011",
+      "included_in_baseline182": false,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-26011-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-followup-matplotlib-matplotlib-26011/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-followup-matplotlib-matplotlib-26011/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite42-followup-matplotlib-matplotlib-26011-matplotlib__matplotlib-26011-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-26011/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 1,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 817,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "pallets__flask-4045": {
+      "instance_id": "pallets__flask-4045",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-pallets-flask-4045-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-pallets-flask-4045-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-pallets-flask-4045-20261122-pallets__flask-4045-r0/repoagent-glm-5.3-flash/pallets__flask-4045/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 1,
+          "failure": 1
+        },
+        "PASS_TO_PASS": {
+          "success": 50,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "psf__requests-1963": {
+      "instance_id": "psf__requests-1963",
+      "included_in_baseline182": false,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-psf-requests-1963-20261122-proxy2/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-psf-requests-1963-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-followup-psf-requests-1963/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-ca-1963/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-connect-1963/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-connect-final-1963/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-connect-final-1963/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite42-requests-connect-final-1963-psf__requests-1963-r0/repoagent-glm-5.3-flash/psf__requests-1963/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 7,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 112,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "psf__requests-2148": {
+      "instance_id": "psf__requests-2148",
+      "included_in_baseline182": false,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-psf-requests-2148-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-followup-psf-requests-2148/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-ca-2148/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-connect-final-2148/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-service-v2-2148/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-service-v3-2148/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-service-v3-2148/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite42-requests-service-v3-2148-psf__requests-2148-r0/repoagent-glm-5.3-flash/psf__requests-2148/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 10,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 118,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "psf__requests-2317": {
+      "instance_id": "psf__requests-2317",
+      "included_in_baseline182": false,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-psf-requests-2317-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-followup-psf-requests-2317/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-ca-2317/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-connect-final-2317/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-service-v2-2317/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-service-v2-2317/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite42-requests-service-v2-2317-psf__requests-2317-r0/repoagent-glm-5.3-flash/psf__requests-2317/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 8,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 133,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "psf__requests-2674": {
+      "instance_id": "psf__requests-2674",
+      "included_in_baseline182": false,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-followup-psf-requests-2674/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-ca-2674/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-connect-final-2674/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-service-v2-2674/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-service-v2-2674/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite42-requests-service-v2-2674-psf__requests-2674-r0/repoagent-glm-5.3-flash/psf__requests-2674/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 12,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 142,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "psf__requests-863": {
+      "instance_id": "psf__requests-863",
+      "included_in_baseline182": true,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/requests863-local-httpbin-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/requests863-local-httpbin-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/requests863-local-httpbin-20261122-psf__requests-863-r0/repoagent-glm-5.3-flash/psf__requests-863/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 4,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 60,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "pytest-dev__pytest-11143": {
+      "instance_id": "pytest-dev__pytest-11143",
+      "included_in_baseline182": true,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-11143-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-11143-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-11143-20261122-pytest-dev__pytest-11143-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-11143/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 1,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 114,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "pytest-dev__pytest-11148": {
+      "instance_id": "pytest-dev__pytest-11148",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-11148-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-11148-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-11148-20261122-pytest-dev__pytest-11148-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-11148/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 2,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 128,
+          "failure": 1
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "pytest-dev__pytest-5103": {
+      "instance_id": "pytest-dev__pytest-5103",
+      "included_in_baseline182": true,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-5103-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-5103-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-5103-20261122-pytest-dev__pytest-5103-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-5103/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 1,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 64,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "pytest-dev__pytest-5221": {
+      "instance_id": "pytest-dev__pytest-5221",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-metadata-pilot-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-metadata-pilot-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-metadata-pilot-20261122-pytest-dev__pytest-5221-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-5221/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 2
+        },
+        "PASS_TO_PASS": {
+          "success": 170,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "pytest-dev__pytest-5227": {
+      "instance_id": "pytest-dev__pytest-5227",
+      "included_in_baseline182": true,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-5227-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-5227-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-5227-20261122-pytest-dev__pytest-5227-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-5227/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 3,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 34,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "pytest-dev__pytest-5413": {
+      "instance_id": "pytest-dev__pytest-5413",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-5413-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-numeric-5413-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-numeric-5413-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-numeric-5413-20261122-pytest-dev__pytest-5413-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-5413/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 1
+        },
+        "PASS_TO_PASS": {
+          "success": 92,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "pytest-dev__pytest-5495": {
+      "instance_id": "pytest-dev__pytest-5495",
+      "included_in_baseline182": true,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-5495-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-5495-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-5495-20261122-pytest-dev__pytest-5495-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-5495/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 2,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 86,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "pytest-dev__pytest-5692": {
+      "instance_id": "pytest-dev__pytest-5692",
+      "included_in_baseline182": true,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-5692-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-5692-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-5692-20261122-pytest-dev__pytest-5692-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-5692/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 2,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 68,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "pytest-dev__pytest-6116": {
+      "instance_id": "pytest-dev__pytest-6116",
+      "included_in_baseline182": true,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-6116-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-6116-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-6116-20261122-pytest-dev__pytest-6116-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-6116/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 2,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 69,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "pytest-dev__pytest-7168": {
+      "instance_id": "pytest-dev__pytest-7168",
+      "included_in_baseline182": true,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-7168-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-7168-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-7168-20261122-pytest-dev__pytest-7168-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-7168/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 11,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 0,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "pytest-dev__pytest-7220": {
+      "instance_id": "pytest-dev__pytest-7220",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-7220-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-7220-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-7220-20261122-pytest-dev__pytest-7220-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-7220/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 1
+        },
+        "PASS_TO_PASS": {
+          "success": 11,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "pytest-dev__pytest-7373": {
+      "instance_id": "pytest-dev__pytest-7373",
+      "included_in_baseline182": true,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-7373-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-7373-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-7373-20261122-pytest-dev__pytest-7373-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-7373/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 1,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 81,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "pytest-dev__pytest-7432": {
+      "instance_id": "pytest-dev__pytest-7432",
+      "included_in_baseline182": true,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-7432-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-7432-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-7432-20261122-pytest-dev__pytest-7432-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-7432/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 1,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 77,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "pytest-dev__pytest-7490": {
+      "instance_id": "pytest-dev__pytest-7490",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-7490-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-7490-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-7490-20261122-pytest-dev__pytest-7490-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-7490/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 2,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 77,
+          "failure": 1
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "pytest-dev__pytest-8365": {
+      "instance_id": "pytest-dev__pytest-8365",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-8365-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-8365-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-8365-20261122-pytest-dev__pytest-8365-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-8365/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 1
+        },
+        "PASS_TO_PASS": {
+          "success": 32,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "pytest-dev__pytest-8906": {
+      "instance_id": "pytest-dev__pytest-8906",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-8906-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-8906-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-8906-20261122-pytest-dev__pytest-8906-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-8906/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 1
+        },
+        "PASS_TO_PASS": {
+          "success": 84,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "pytest-dev__pytest-9359": {
+      "instance_id": "pytest-dev__pytest-9359",
+      "included_in_baseline182": true,
+      "resolved": true,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-9359-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-9359-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/pytest-version-fix-9359-20261122-pytest-dev__pytest-9359-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-9359/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 1,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 54,
+          "failure": 0
+        }
+      },
+      "outcome": "resolved"
+    },
+    "sphinx-doc__sphinx-10451": {
+      "instance_id": "sphinx-doc__sphinx-10451",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-10451-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-10451-parser2-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-10451-parser2-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-sphinx-doc-sphinx-10451-parser2-20261122-sphinx-doc__sphinx-10451-r0/repoagent-glm-5.3-flash/sphinx-doc__sphinx-10451/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 2,
+          "failure": 0
+        },
+        "PASS_TO_PASS": {
+          "success": 74,
+          "failure": 6
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "sphinx-doc__sphinx-7686": {
+      "instance_id": "sphinx-doc__sphinx-7686",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-7686-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-7686-parser2-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-7686-parser2-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-sphinx-doc-sphinx-7686-parser2-20261122-sphinx-doc__sphinx-7686-r0/repoagent-glm-5.3-flash/sphinx-doc__sphinx-7686/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 2
+        },
+        "PASS_TO_PASS": {
+          "success": 15,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "sphinx-doc__sphinx-7738": {
+      "instance_id": "sphinx-doc__sphinx-7738",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-7738-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-7738-parser2-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-7738-parser2-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-sphinx-doc-sphinx-7738-parser2-20261122-sphinx-doc__sphinx-7738-r0/repoagent-glm-5.3-flash/sphinx-doc__sphinx-7738/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 1
+        },
+        "PASS_TO_PASS": {
+          "success": 30,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "sphinx-doc__sphinx-8273": {
+      "instance_id": "sphinx-doc__sphinx-8273",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-8273-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-8273-parser2-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-sphinx-8273-verbose3/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-sphinx-8273-verbose3/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite42-sphinx-8273-verbose3-sphinx-doc__sphinx-8273-r0/repoagent-glm-5.3-flash/sphinx-doc__sphinx-8273/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 1
+        },
+        "PASS_TO_PASS": {
+          "success": 3,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "sphinx-doc__sphinx-8282": {
+      "instance_id": "sphinx-doc__sphinx-8282",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-8282-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-8282-parser2-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-sphinx-8282-verbose3/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-sphinx-8282-verbose3/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite42-sphinx-8282-verbose3-sphinx-doc__sphinx-8282-r0/repoagent-glm-5.3-flash/sphinx-doc__sphinx-8282/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 1
+        },
+        "PASS_TO_PASS": {
+          "success": 16,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    },
+    "sphinx-doc__sphinx-8506": {
+      "instance_id": "sphinx-doc__sphinx-8506",
+      "included_in_baseline182": false,
+      "resolved": false,
+      "reports": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-8506-20261122/result.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-8506-parser2-20261122/result.json"
+      ],
+      "result_path": "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-sphinx-doc-sphinx-8506-parser2-20261122/result.json",
+      "harness_error": false,
+      "test_output_path": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-envfix-sphinx-doc-sphinx-8506-parser2-20261122-sphinx-doc__sphinx-8506-r0/repoagent-glm-5.3-flash/sphinx-doc__sphinx-8506/test_output.txt",
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": 0,
+          "failure": 1
+        },
+        "PASS_TO_PASS": {
+          "success": 14,
+          "failure": 0
+        }
+      },
+      "outcome": "completed_unresolved"
+    }
+  }
+}

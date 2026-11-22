@@ -24,6 +24,7 @@ from repo_agent.core.experience import (
     parse_failure_feedback,
     repair_mode_policy,
 )
+from repo_agent.core.failure_feedback_format import render_failure_handoff
 from repo_agent.core.llm import DEFAULT_MODEL, ChatLLM
 from repo_agent.core.memory import MemoryStore
 from repo_agent.core.memory_query import MemoryQueryAgent
@@ -239,6 +240,8 @@ def build_parser() -> argparse.ArgumentParser:
     design_validation.add_argument("--task-file", required=True, type=Path)
     design_validation.add_argument("--context-file", type=Path,
                                    help="Optional localization facts, hypotheses, unknowns and source_files JSON.")
+    design_validation.add_argument("--revision-file", type=Path,
+                                   help="Previous public test plan and test-only FailureReview feedback.")
 
     review_failure = subparsers.add_parser(
         "review-failure",
@@ -407,7 +410,14 @@ def main(argv: list[str] | None = None) -> None:
         runner = SubAgentRunner(llm=llm, llm_overrides=worker_llm_overrides,
                                 base_tools=registry, cwd=args.repo, output_dir=args.output_dir,
                                 swebench_profile=True)
-        result = PublicValidationAgent(runner, args.output_dir, args.public_validation_timeout).design(task, context)
+        designer = PublicValidationAgent(runner, args.output_dir, args.public_validation_timeout)
+        if args.revision_file:
+            revision = _read_json_or_text(args.revision_file)
+            if not isinstance(revision, dict) or not isinstance(revision.get("previous"), dict) or not isinstance(revision.get("feedback"), dict):
+                parser.error("--revision-file must contain previous and feedback objects")
+            result = designer.revise(task, revision["previous"], revision["feedback"])
+        else:
+            result = designer.design(task, context)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
     if args.command == "coordinator-replan":
@@ -782,12 +792,12 @@ def _run_experience_build(
             constraints = constraints_from_patch(failed_patch, args.repo)
             correction_prompt = (
                 f"## Public Task\n{task}\n\n"
-                f"## FailureFeedback\n{json.dumps(feedback.to_dict(), ensure_ascii=False, indent=2)}\n\n"
+                f"## FailureFeedback\n{render_failure_handoff(feedback.to_dict())}\n\n"
                 f"## Current Failed Patch\n```diff\n{failed_patch}\n```\n\n"
                 "The worktree already contains Current Failed Patch. Correct it in place exactly once; do not "
-                "reapply it from scratch. Every edit must be authorized by correction_evidence_ids and must address "
+                "reapply it from scratch. Follow repair.edits. Every edit must be authorized by evidence.used_ids and must address "
                 "the first failed predicate, identity, conversion, state transition, or exact output contract named "
-                "by FailureFeedback. Preserve regression_guards and every hunk not invalidated by direct evidence. "
+                "by FailureFeedback. Preserve repair.preserve and every hunk not invalidated by direct evidence. "
                 "Do not search, run commands, edit tests, or expand the enforced file/range scope."
             )
             # Experience-build 的 corrective pass 只消费本次公开失败证据；

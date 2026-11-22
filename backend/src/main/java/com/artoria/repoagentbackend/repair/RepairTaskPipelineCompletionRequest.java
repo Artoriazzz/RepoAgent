@@ -1,5 +1,6 @@
 package com.artoria.repoagentbackend.repair;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -27,7 +28,8 @@ public record RepairTaskPipelineCompletionRequest(
         @PositiveOrZero Long durationMs,
         @PositiveOrZero Long promptTokens,
         @PositiveOrZero Long completionTokens,
-        @PositiveOrZero Long totalTokens
+        @PositiveOrZero Long totalTokens,
+        JsonNode agentContext
 ) {
     public RepairTaskPipelineCompletionRequest(
             String workerId, UUID leaseToken, String patchSummary, String patchArtifactPath,
@@ -38,7 +40,7 @@ public record RepairTaskPipelineCompletionRequest(
     ) {
         this(workerId, leaseToken, null, null, patchSummary, patchArtifactPath, validationSummary,
                 evaluationStatus, failToPassPassed, failToPassFailed, passToPassPassed, passToPassFailed,
-                evaluationSummary, harnessLogPath, modelName, durationMs, promptTokens, completionTokens, totalTokens);
+                evaluationSummary, harnessLogPath, modelName, durationMs, promptTokens, completionTokens, totalTokens, null);
     }
     public long effectiveStageSequence(long current) { return stageSequence == null ? current : stageSequence; }
     public long effectiveLeaseEpoch(long current) { return leaseEpoch == null ? current : leaseEpoch; }

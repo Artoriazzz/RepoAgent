@@ -1,0 +1,66 @@
+def test_baseline_observation_isolated_and_bounded(monkeypatch):
+    from types import SimpleNamespace
+    from repo_agent.core import coordinator
+
+    commands = []
+    monkeypatch.setenv("REPO_AGENT_VERIFY_DOCKER_IMAGE", "sweb.eval.x86_64.example:latest")
+
+    def run(cmd, **kwargs):
+        commands.append(cmd)
+        return SimpleNamespace(stdout=b"observation", returncode=0)
+
+    monkeypatch.setattr(coordinator.subprocess, "run", run)
+    tool = coordinator._baseline_observation_tool({})
+    assert tool.run_with_timing({"code": "print(1)"}).data["baseline_only"]
+    assert tool.run_with_timing({"code": "print(2)"}).error["code"] == "BASELINE_RETRY_REASON_REQUIRED"
+    assert len(commands) == 1
+    assert {"--read-only", "--network", "none"} <= set(commands[0])
+    assert "-v" not in commands[0]
+
+
+def test_baseline_retry_does_not_refill_source_budget(monkeypatch):
+    from types import SimpleNamespace
+    from repo_agent.core import coordinator
+
+    monkeypatch.setenv("REPO_AGENT_VERIFY_DOCKER_IMAGE", "sweb.eval.x86_64.example:latest")
+    monkeypatch.setattr(coordinator.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout=b"trace", returncode=1))
+    state = {}
+    tool = coordinator._baseline_observation_tool(state)
+    tool.run_with_timing({"code": "print(1)"})
+    assert state["baseline_followup_reads"] == 2
+    state["baseline_followup_reads"] = 0
+    retry = {"code": "print(2)", "retry_kind": "input_mismatch", "retry_reason": "First input had positive=True; issue uses an unconstrained symbol."}
+    assert tool.run_with_timing(retry).status == "success"
+    assert state["baseline_followup_reads"] == 0
+    assert tool.run_with_timing(retry).error["code"] == "BASELINE_OBSERVATION_EXHAUSTED"
+
+
+def test_baseline_followup_is_two_reads_not_searches():
+    from repo_agent.core import coordinator
+
+    state = {"required_transition": "implement", "baseline_followup_reads": 2}
+    def wrap(name):
+        return coordinator._budgeted_read_only_tool(
+            build_tool(name=name, description="test", parameters=[], handler=lambda _: ToolResponse.success("source")),
+            budget_state=state, read_budget_before_worker=12,
+            read_budget_after_research_before_implement=2, read_budget_after_failed_research=2,
+            swebench_profile=True,
+        )
+    assert coordinator._remaining_coordinator_read_queries(state, swebench_profile=True) == 2
+    assert wrap("search_repo").run_with_timing({}).status == "error"
+    read = wrap("read_file")
+    assert read.run_with_timing({}).status == "success"
+    assert read.run_with_timing({}).status == "success"
+    assert coordinator._remaining_coordinator_read_queries(state, swebench_profile=True) == 0
+    assert read.run_with_timing({}).status == "error"
+
+
+def test_baseline_container_failure_does_not_grant_reads(monkeypatch):
+    from types import SimpleNamespace
+    from repo_agent.core import coordinator
+
+    monkeypatch.setenv("REPO_AGENT_VERIFY_DOCKER_IMAGE", "sweb.eval.x86_64.example:latest")
+    monkeypatch.setattr(coordinator.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout=b"docker error", returncode=125))
+    state = {}
+    coordinator._baseline_observation_tool(state).run_with_timing({"code": "print(1)"})
+    assert "baseline_followup_reads" not in state

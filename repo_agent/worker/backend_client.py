@@ -32,6 +32,8 @@ class WorkerLease:
     token: UUID
     stage_sequence: int
     lease_epoch: int
+    own_context: dict[str, Any] | None = None
+    incoming_context: dict[str, Any] | None = None
 
 
 class BackendClient:
@@ -60,6 +62,7 @@ class BackendClient:
                     "leaseSeconds": lease_seconds,
                     "stage": None if stage is None else stage.value,
                     "stageSequence": stage_sequence,
+                    "includeAgentContext": stage is not None,
                 },
             )
         except BackendRequestError as error:
@@ -70,6 +73,8 @@ class BackendClient:
             UUID(str(payload["leaseToken"])),
             int(payload.get("stageSequence") or 0),
             int(payload.get("leaseEpoch") or 0),
+            payload.get("ownContext"),
+            payload.get("incomingContext"),
         )
 
     @staticmethod
@@ -94,6 +99,8 @@ class BackendClient:
         worker_id: str,
         lease_token: UUID,
         message: str,
+        *,
+        agent_context: dict | None = None,
     ) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -104,6 +111,7 @@ class BackendClient:
                 "workerId": worker_id,
                 **self._lease_fields(lease_token),
                 "message": message,
+                "agentContext": agent_context,
             },
         )
 
@@ -128,6 +136,7 @@ class BackendClient:
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
+        agent_context: dict | None = None,
     ) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -150,6 +159,7 @@ class BackendClient:
                 "promptTokens": prompt_tokens,
                 "completionTokens": completion_tokens,
                 "totalTokens": total_tokens,
+                "agentContext": agent_context,
             },
         )
 

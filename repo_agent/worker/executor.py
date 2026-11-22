@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from repo_agent.core.experience import constraints_from_patch
+from repo_agent.core.failure_feedback_format import render_failure_handoff
+from repo_agent.core.stage_history import child_environment
 from repo_agent.worker.models import AgentRunResult, PatchArtifacts, RecalledMemory, RepairTaskContext
 
 if TYPE_CHECKING:
@@ -62,6 +64,7 @@ class RepoAgentExecutor:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            env=child_environment(output_dir),
         )
         last_stage = ""
         while process.poll() is None:
@@ -221,6 +224,7 @@ class RepoAgentExecutor:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            env=child_environment(output_dir),
         )
         while process.poll() is None:
             if should_cancel is not None and should_cancel():
@@ -344,11 +348,11 @@ class RepoAgentExecutor:
         public_task = context.issue_body or context.issue_title
         return (
             f"## Public Task\n{public_task}\n\n"
-            f"## FailureFeedback\n{json.dumps(feedback, ensure_ascii=False, indent=2)}\n\n"
+            f"## FailureFeedback\n{render_failure_handoff(feedback)}\n\n"
             f"## Current Failed Patch\n```diff\n{failed_patch}\n```\n\n"
             "The worktree already contains Current Failed Patch. Correct it in place exactly once; do not run a new "
-            "Coordinator and do not solve the task from scratch. Every edit must be authorized by the direct evidence "
-            "referenced in correction_evidence_ids. Preserve regression_guards and every hunk not invalidated by that "
+            "Coordinator and do not solve the task from scratch. Follow repair.edits. Every edit must be authorized by the direct evidence "
+            "referenced in evidence.used_ids. Preserve repair.preserve and every hunk not invalidated by that "
             "evidence. Do not search, run commands, edit tests, recall memory, or expand the enforced scope."
         )
 

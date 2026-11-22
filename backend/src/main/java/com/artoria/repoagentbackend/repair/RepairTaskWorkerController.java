@@ -41,7 +41,7 @@ public class RepairTaskWorkerController {
             @Valid @RequestBody RepairTaskClaimRequest request
     ) {
         verifyToken(token);
-        return taskService.claim(taskId, request);
+        return taskService.loadClaimedContexts(taskService.claim(taskId, request));
     }
 
     @PostMapping("/{taskId}/stage-handoffs")

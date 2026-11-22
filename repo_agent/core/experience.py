@@ -7,6 +7,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from repo_agent.core.failure_feedback_format import flatten_failure_feedback, format_failure_handoff
 from repo_agent.core.memory import (
     MAX_SEMANTIC_INSIGHTS_PER_ROLE,
     MemoryStore,
@@ -14,7 +15,7 @@ from repo_agent.core.memory import (
     RecalledMemory,
 )
 from repo_agent.core.semantic_evidence import extract_json_object
-from repo_agent.core.subagent import WorkerConstraints
+from repo_agent.core.subagent import WorkerConstraints, _validate_failure_feedback_fields
 from repo_agent.core.verification import assess_verification_result, verification_command_safety_reason
 
 
@@ -98,21 +99,18 @@ class FailureFeedback:
     """
 
     failure_stage: str
-    issue_contract: tuple[str, ...]
     observed_failure: tuple[str, ...]
     failure_observation_quality: str
     root_cause: str
-    invalidated_assumption: str
-    required_correction: str
     evidence_ledger: tuple[FailureEvidence, ...]
     correction_evidence_ids: tuple[str, ...]
     scope_expansion: tuple[str, ...]
     regression_guards: tuple[str, ...]
     correction_readiness: str
-    next_evidence_source: str
-    confidence: float
     replan_reason: str = ""
     required_edits: tuple[dict[str, Any], ...] = ()
+    stop_reason: str = ""
+    test_revision_request: str = ""
 
     @property
     def requires_coordinator_replan(self) -> bool:
@@ -120,6 +118,11 @@ class FailureFeedback:
 
     @property
     def correction_route(self) -> str:
+        if (self.failure_stage == "invalid_test" and self.test_revision_request
+                and not self.required_edits and not self.scope_expansion
+                and self.failure_observation_quality not in {"failure_only", "environment_only"}
+                and self._has_authorizing_correction_evidence(require_task_context=False)):
+            return "test_regeneration"
         if self.failure_stage in {"complete", "invalid_test"}:
             return "none"
         if (self.correction_readiness == "needs_replan" and self.replan_reason
@@ -156,22 +159,19 @@ class FailureFeedback:
     def to_dict(self) -> dict[str, Any]:
         return {
             "failure_stage": self.failure_stage,
-            "issue_contract": list(self.issue_contract),
             "observed_failure": list(self.observed_failure),
             "failure_observation_quality": self.failure_observation_quality,
             "root_cause": self.root_cause,
-            "invalidated_assumption": self.invalidated_assumption,
-            "required_correction": self.required_correction,
             "required_edits": list(self.required_edits),
             "evidence_ledger": [item.to_dict() for item in self.evidence_ledger],
             "correction_evidence_ids": list(self.correction_evidence_ids),
             "scope_expansion": list(self.scope_expansion),
             "regression_guards": list(self.regression_guards),
             "correction_readiness": self.correction_readiness,
-            "next_evidence_source": self.next_evidence_source,
             "correction_route": self.correction_route,
             "replan_reason": self.replan_reason,
-            "confidence": self.confidence,
+            "stop_reason": self.stop_reason,
+            "test_revision_request": self.test_revision_request,
         }
 
 
@@ -571,6 +571,7 @@ def build_failure_review_prompt(
 ```
 
 ## Validation Summary
+{"本次公开测试由独立测试 Agent 设计；可请求一次重新生成。" if isinstance(validation, dict) and validation.get("generated_test_revision_available") else "本次不提供测试重生成，测试无效时选择 stop。"}
 {_clip(validation_text, 10_000)}
 
 ## Previous Failure Constraints
@@ -578,26 +579,26 @@ def build_failure_review_prompt(
 {_clip(json.dumps((validation or {}).get('previous_failure_constraints', {}) if isinstance(validation, dict) else {}, ensure_ascii=False, indent=2), 6_000)}
 
 ## 输出 Schema
-包含下列字段；枚举列表用 | 分隔，输出时选择单个值。
+只返回下列四个对象；枚举用 | 分隔，输出时只填其中一个值。
 {{
-  "failure_stage": "complete|invalid_test|localization|problem_contract|implementation_semantics|regression|validation_environment|insufficient_evidence",
-  "issue_contract": ["Public Task 直接规定的行为"],
-  "observed_failure": ["patch 后直接观察到的失败；未知部分明确写 unknown"],
-  "failure_observation_quality": "expected_actual|exception_detail|behavior_delta|failure_only|environment_only",
-  "root_cause": "失败的首个因果点；证据不足时明确说明未知",
-  "invalidated_assumption": "原 patch 中被失败证据实际否定的假设",
-  "required_correction": "由证据支持的精确修正义务；证据不足时写唯一缺失事实",
-  "required_edits": [{{"path": "生产源码路径", "start_line": 1, "end_line": 20, "change": "该位置的必要修改；使用当前源码行号"}}],
-  "evidence_ledger": [
-    {{"id": "E1", "source": "public_task|failed_patch|implementation_report|failure_log|validation_summary|semantic_evidence|repository_code", "fact": "输入或受限源码读取中可核对的事实", "support": "direct|inference|unknown", "round": 0}}
-  ],
-  "correction_evidence_ids": ["E1"],
-  "scope_expansion": ["超出题意且不是修复已观察失败所必需的新需求；没有则为 []"],
-  "regression_guards": ["修正时必须保持的、由公开事实支持的相邻行为"],
-  "correction_readiness": "not_needed|actionable|needs_replan|insufficient_evidence",
-  "replan_reason": "需要 Coordinator 确认的源码事实或调整的文件范围；无需重规划时为空字符串",
-  "next_evidence_source": "none|repository_code|public_test|public_documentation|environment",
-  "confidence": 0.0
+  "failure": {{
+    "kind": "complete|invalid_test|localization|problem_contract|implementation_semantics|regression|validation_environment|insufficient_evidence",
+    "observations": ["写日志的实际值、预期值或异常；只有失败测试名时不要猜输入"],
+    "quality": "expected_actual|exception_detail|behavior_delta|failure_only|environment_only",
+    "cause": "写哪个函数的哪个操作造成上述结果；未确认时写缺少的事实"
+  }},
+  "repair": {{
+    "edits": [{{"path": "仓库相对路径", "start_line": 1, "end_line": 20, "change": "写当前代码做什么、应改成什么；当前行号包含两端"}}],
+    "preserve": ["写相邻的合法输入及应保持的输出或副作用"]
+  }},
+  "evidence": {{
+    "items": [{{"id": "E1", "source": "public_task|failed_patch|implementation_report|failure_log|validation_summary|semantic_evidence|repository_code", "support": "direct|inference|unknown", "fact": "写可核对的日志内容或源码位置；历史项可另加 round"}}],
+    "used_ids": ["E1"]
+  }},
+  "decision": {{
+    "action": "correct|replan|regenerate_tests|stop",
+    "request": "replan：写待查位置和缺失事实；regenerate_tests：写测试错误、日志依据及改法；stop：写原因；correct：填空"
+  }}
 }}
 """
 
@@ -605,6 +606,12 @@ def build_failure_review_prompt(
 def parse_failure_feedback(text: str) -> FailureFeedback | None:
     payload = extract_json_object(text)
     if not isinstance(payload, dict):
+        return None
+    is_structured = "failure" in payload
+    payload = flatten_failure_feedback(payload)
+    if payload is None:
+        return None
+    if is_structured and _validate_failure_feedback_fields(payload):
         return None
     stage = str(payload.get("failure_stage") or "").strip()
     allowed_stages = {
@@ -648,15 +655,8 @@ def parse_failure_feedback(text: str) -> FailureFeedback | None:
         "environment_only",
     }:
         return None
-    next_evidence_source = str(payload.get("next_evidence_source") or "none").strip()
-    if next_evidence_source not in {
-        "none",
-        "repository_code",
-        "public_test",
-        "public_documentation",
-        "environment",
-    }:
-        return None
+    # Historical artifacts can carry a source that explicitly disallows source replanning.
+    legacy_source = payload.get("next_evidence_source", "repository_code")
     if not readiness:
         readiness = "insufficient_evidence"
     if readiness not in {
@@ -668,10 +668,8 @@ def parse_failure_feedback(text: str) -> FailureFeedback | None:
         return None
     if stage in {"complete", "invalid_test"}:
         readiness = "not_needed"
-        next_evidence_source = "none"
     elif stage == "validation_environment":
         readiness = "insufficient_evidence"
-        next_evidence_source = "environment"
     elif stage == "insufficient_evidence" and readiness != "needs_replan":
         readiness = "insufficient_evidence"
     elif scope_expansion or (stage in {"localization", "problem_contract"} and readiness != "needs_replan"):
@@ -692,36 +690,28 @@ def parse_failure_feedback(text: str) -> FailureFeedback | None:
     if readiness in {"actionable", "needs_replan"} and not has_authorizing_correction_evidence:
         readiness = "insufficient_evidence"
     replan_reason = str(payload.get("replan_reason") or "").strip()
-    if readiness == "needs_replan" and (not replan_reason or next_evidence_source != "repository_code"):
+    if readiness == "needs_replan" and (not replan_reason or legacy_source != "repository_code"):
         readiness = "insufficient_evidence"
     if readiness == "actionable" and (
         observation_quality == "environment_only"
         or (observation_quality == "failure_only" and "repository_code" not in direct_sources)
+        or (not payload.get("required_edits") and not payload.get("required_correction"))
     ):
         readiness = "insufficient_evidence"
-    if readiness == "actionable":
-        next_evidence_source = "none"
-    try:
-        confidence = min(1.0, max(0.0, float(payload.get("confidence") or 0.0)))
-    except (TypeError, ValueError):
-        confidence = 0.0
     return FailureFeedback(
         failure_stage=stage,
-        issue_contract=_string_tuple(payload.get("issue_contract")),
         observed_failure=_string_tuple(payload.get("observed_failure")),
         failure_observation_quality=observation_quality,
         root_cause=str(payload.get("root_cause") or "").strip(),
-        invalidated_assumption=str(payload.get("invalidated_assumption") or "").strip(),
-        required_correction=str(payload.get("required_correction") or "").strip(),
         evidence_ledger=evidence_ledger,
         correction_evidence_ids=correction_evidence_ids,
         scope_expansion=scope_expansion,
         regression_guards=_string_tuple(payload.get("regression_guards")),
         correction_readiness=readiness,
-        next_evidence_source=next_evidence_source,
-        confidence=confidence,
         replan_reason=replan_reason,
         required_edits=tuple(payload.get("required_edits") or []),
+        stop_reason=str(payload.get("stop_reason") or ""),
+        test_revision_request=str(payload.get("test_revision_request") or "").strip(),
     )
 
 
@@ -838,7 +828,7 @@ def build_experience_curator_prompt(
 
 ## Failure Feedback
 ```json
-{json.dumps(feedback_data, ensure_ascii=False, indent=2)}
+{json.dumps(format_failure_handoff(feedback_data) if feedback_data else {}, ensure_ascii=False, indent=2)}
 ```
 
 ## Successful Patch

@@ -15,6 +15,61 @@ def load_batch_module():
     return module
 
 
+def test_statement_move_is_not_a_whitespace_only_patch():
+    batch = load_batch_module()
+    patch = (
+        "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n"
+        "@@ -1,2 +1,2 @@\n+append_options()\n append_database()\n-append_options()\n"
+    )
+    assert not batch.patch_change_stats(patch)["whitespace_only"]
+
+
+def test_regenerated_public_suite_returns_to_review_without_spending_code_budget(tmp_path, monkeypatch):
+    batch = load_batch_module()
+    old = {"plan": {"files": [{"path": "tests/test_generated.py", "content": "old"}]},
+           "validation": {"feedback_eligible": True}}
+    (tmp_path / "public_validation.json").write_text(json.dumps(old))
+    calls = []
+
+    def review(row, repo, out, task, patch, validation, report, args, env):
+        calls.append((out.name, patch, validation["generated_test_revision_available"]))
+        return {"route": "test_regeneration", "attempted": False, "feedback": {"test_revision_request": "Use unique usernames"}}
+
+    def regenerate(row, repo, out, task, artifact, feedback, args, env, image):
+        assert artifact["plan"]["files"][0]["content"] == "old"
+        assert feedback["test_revision_request"] == "Use unique usernames"
+        return {"plan": {"cases": [{"id": "target"}]}}
+
+    monkeypatch.setattr(batch, "run_experience_correction", review)
+    monkeypatch.setattr(batch, "regenerate_public_suite", regenerate)
+    monkeypatch.setattr(batch, "evaluate_public_plan", lambda *a: {"status": "failed", "feedback_eligible": True})
+    summary = {}
+    assert batch.run_public_test_corrections({}, tmp_path, tmp_path, "issue", "patch", summary, SimpleNamespace(), {}) == "patch"
+    assert calls == [("public-correction-1", "patch", True), ("public-correction-1-revised-suite", "patch", False)]
+    assert summary["public_test_regeneration"]["status"] == "evaluated"
+
+
+def test_generated_fixture_error_routes_to_test_agent_only():
+    from repo_agent.core.experience import parse_failure_feedback
+
+    batch = load_batch_module()
+    payload = {
+        "failure": {"kind": "invalid_test", "quality": "exception_detail",
+                    "observations": ["setUpTestData raised IntegrityError before any assertions"],
+                    "cause": "Both fixtures created the same unique username."},
+        "repair": {"edits": [], "preserve": []},
+        "evidence": {"items": [{"id": "E1", "source": "failure_log", "support": "direct",
+                                "fact": "UNIQUE constraint failed: auth_user.username; Ran 0 tests"}],
+                     "used_ids": ["E1"]},
+        "decision": {"action": "regenerate_tests", "request": "Give each User a different username."},
+    }
+    feedback = parse_failure_feedback(json.dumps(payload))
+    assert feedback is not None
+    assert batch.validated_failure_feedback_route(feedback.to_dict()) == "test_regeneration"
+    payload["evidence"]["items"][0]["support"] = "inference"
+    assert parse_failure_feedback(json.dumps(payload)) is None
+
+
 def test_api_failure_is_not_an_invalid_patch(tmp_path):
     batch = load_batch_module()
     stdout = "Traceback (most recent call last):\nopenai.APITimeoutError: Request timed out.\n"
@@ -347,6 +402,7 @@ def test_batch_correction_accepts_direct_source_evidence_without_redundant_task_
         "failure_stage": "implementation_semantics",
         "correction_route": "corrective_implement", "correction_readiness": "actionable",
         "failure_observation_quality": quality, "scope_expansion": [],
+        "required_edits": [{"path": "value.py", "start_line": 10, "end_line": 12, "change": "Restore hashing consistent with equality."}],
         "evidence_ledger": [
             {"id": "E1", "source": "failure_log", "support": "direct", "fact": "hash(value) raises TypeError"},
             {"id": "E2", "source": context_source, "support": "direct", "fact": "The class defines __eq__ without __hash__"},

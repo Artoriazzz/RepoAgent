@@ -1,0 +1,142 @@
+--- current-coordinator.py
++++ historical-coordinator.py
+@@ -1,7 +1,6 @@
+ from __future__ import annotations
+ 
+ import json
+-import os
+ import re
+ import subprocess
+ from pathlib import Path
+@@ -39,51 +38,6 @@
+     public_assertion_contract_reason,
+     verification_command_safety_reason,
+ )
+-
+-
+-def _baseline_observation_tool(state: dict) -> Tool:
+-    def observe(inp: dict) -> ToolResponse:
+-        image = os.getenv("REPO_AGENT_VERIFY_DOCKER_IMAGE", "")
+-        if not re.fullmatch(r"sweb\.eval\.[A-Za-z0-9_.-]+:latest", image):
+-            return ToolResponse.failure("BASELINE_IMAGE_UNAVAILABLE", "An isolated instance image is required.")
+-        calls = state.get("baseline_observation_calls", 0)
+-        if calls >= 2:
+-            return ToolResponse.failure("BASELINE_OBSERVATION_EXHAUSTED", "Both baseline observations were used; report the remaining unknown if repair is still unclear.")
+-        if calls and (inp.get("retry_kind") not in {"execution_error", "input_mismatch", "new_unknown"}
+-                      or not inp.get("retry_reason", "").strip()):
+-            return ToolResponse.failure("BASELINE_RETRY_REASON_REQUIRED", "Name the execution error, mismatched issue input, or new decision-changing unknown from the first observation.")
+-        code = inp["code"]
+-        if not code.strip() or len(code) > 3000:
+-            return ToolResponse.failure("INVALID_BASELINE_OBSERVATION", "Provide a short Python observation (max 3000 characters).")
+-        state["baseline_observation_calls"] = calls + 1
+-        try:
+-            result = subprocess.run(
+-                ["docker", "run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL",
+-                 "--security-opt", "no-new-privileges", "--pids-limit", "64", "--memory", "1g",
+-                 "--tmpfs", "/tmp:rw,size=32m", "-w", "/testbed", "-e", "PYTHONDONTWRITEBYTECODE=1",
+-                 image, "timeout", "-k", "2", "20", "/opt/miniconda3/envs/testbed/bin/python", "-c", code],
+-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=35, check=False,
+-            )
+-        except (OSError, subprocess.TimeoutExpired):
+-            return ToolResponse.failure("BASELINE_OBSERVATION_UNAVAILABLE", "Isolated observation could not complete.")
+-        # 非零退出也可能给出关键 traceback；容器启动失败不赠送源码预算。
+-        if result.returncode not in {125, 126, 127, 137, 124}:
+-            state.setdefault("baseline_followup_reads", 2)
+-        return ToolResponse.success(result.stdout[-2000:].decode(errors="replace"),
+-                                    {"exit_code": result.returncode, "baseline_only": True,
+-                                     "observations_remaining": 1 - calls,
+-                                     "reserved_source_reads": state.get("baseline_followup_reads", 0)})
+-
+-    return build_tool(
+-        name="observe_baseline",
+-        description="Observe the unchanged repository offline. Compare key intermediate values in one run to locate the first divergence; this is localization evidence, not repair validation.",
+-        parameters=[
+-            ToolParameter("code", "string", "Short Python snippet using only the public issue and repository code."),
+-            ToolParameter("retry_kind", "string", "Second call only: execution_error, input_mismatch, or new_unknown.", required=False),
+-            ToolParameter("retry_reason", "string", "Second call only: cite the first observation and explain what this changed probe will distinguish.", required=False),
+-        ],
+-        handler=observe, is_read_only=True, is_concurrency_safe=False,
+-    )
+ from repo_agent.tools.agent_tools import build_agent_tools, reset_agent_tool_state
+ 
+ 
+@@ -615,9 +569,6 @@
+             )
+         )
+         self._coordinator_budget_state = budget_state
+-        recovery_enabled = swebench_profile and os.getenv("REPO_AGENT_LOCALIZATION_RECOVERY") == "1"
+-        if recovery_enabled:
+-            coordinator_tools.register(_baseline_observation_tool(budget_state))
+         if isinstance(llm, ChatLLM):
+             llm.remaining_queries_provider = lambda: _remaining_coordinator_read_queries(
+                 budget_state, swebench_profile=swebench_profile
+@@ -628,14 +579,6 @@
+             system_prompt=coordinator_system_prompt(
+                 swebench_profile=swebench_profile,
+                 repair_mode=self.repair_mode,
+-            ) + (
+-                "\n\n# 定位恢复\n修法不明确时，先说明哪个观测能区分候选原因，再用 observe_baseline 一次打印关键中间值，找出首次偏离的位置。"
+-                "观察后常规读取耗尽，可再用两次 read_file 确认指向的源码。输入未复现时先核对 Issue 条件，不能据此否定问题；"
+-                "执行错误、输入不符或出现影响修法的新疑点时，可说明依据修正观察一次。"
+-                "确认出错操作、修改方向和须保留的行为后即可派发；仍不确定就说明缺失证据，不强行修改。"
+-                "如果实现报告关键反证或缺少只读证据，撤回旧前提，做最多两次定向补读，按新证据重派一次；"
+-                "不自动扩大写权限，证据仍不足时明确停止。"
+-                if recovery_enabled else ""
+             ),
+             max_steps=max_steps,
+             output_dir=self.output_dir,
+@@ -1128,8 +1071,6 @@
+                 budget_state["required_transition"] = "implement"
+             if agent_type == "implement":
+                 budget_state["implement_calls"] = budget_state.get("implement_calls", 0) + 1
+-                if response.data.get("localization_replan_required"):
+-                    budget_state["localization_replan_reads"] = 2
+                 budget_state["required_transition"] = "implement" if response.data.get("delivery_retry_required") else ""
+             if agent_type == "patch_review":
+                 budget_state["patch_review_calls"] = budget_state.get("patch_review_calls", 0) + 1
+@@ -1172,19 +1113,16 @@
+ 
+ 
+ def _remaining_coordinator_read_queries(budget_state: dict, *, swebench_profile: bool) -> int | None:
+-    if "localization_replan_reads" in budget_state:
+-        return max(0, budget_state["localization_replan_reads"])
+-    reserved = 0 if budget_state.get("implement_calls") else max(0, budget_state.get("baseline_followup_reads", 0))
+     if budget_state.get("required_transition"):
+-        return reserved
++        return 0
+     if budget_state.get("research_failed"):
+         if swebench_profile and not budget_state.get("implement_calls"):
+-            return max(0, 2 - budget_state.get("post_failed_research_read_calls", 0)) + reserved
++            return max(0, 2 - budget_state.get("post_failed_research_read_calls", 0))
+         return 0
+     if budget_state.get("research_calls") and not budget_state.get("implement_calls"):
+-        return max(0, 2 - budget_state.get("post_research_read_calls", 0)) + reserved
++        return max(0, 2 - budget_state.get("post_research_read_calls", 0))
+     if not budget_state.get("worker_calls"):
+-        return max(0, 12 - budget_state.get("read_calls_before_worker", 0)) + reserved
++        return max(0, 12 - budget_state.get("read_calls_before_worker", 0))
+     return None
+ 
+ 
+@@ -1226,21 +1164,7 @@
+     budgeted_names = {"list_files", "read_file", "search_repo"}
+ 
+     def handler(inp: dict, original: Tool = tool) -> ToolResponse:
+-        if original.name in budgeted_names and "localization_replan_reads" in budget_state:
+-            remaining = budget_state["localization_replan_reads"]
+-            if remaining <= 0:
+-                return ToolResponse.failure("LOCALIZATION_REPLAN_BUDGET_EXHAUSTED", "Return the revised EditBrief or report the missing fact.")
+-            budget_state["localization_replan_reads"] = remaining - 1
+-            return original.run_with_timing(inp)
+         required_transition = str(budget_state.get("required_transition") or "")
+-        if (original.name == "read_file" and required_transition
+-                and not budget_state.get("implement_calls")
+-                and budget_state.get("baseline_followup_reads", 0) > 0):
+-            budget_state["baseline_followup_reads"] -= 1
+-            response = original.run_with_timing(inp)
+-            response.text += (f"\n观察后剩余源码补读：{budget_state['baseline_followup_reads']} 次。"
+-                              "仅确认观察指向的代码；修法明确后即可派发。")
+-            return response
+         if original.name in budgeted_names and required_transition:
+             return ToolResponse.failure(
+                 "COORDINATOR_TRANSITION_REQUIRED",

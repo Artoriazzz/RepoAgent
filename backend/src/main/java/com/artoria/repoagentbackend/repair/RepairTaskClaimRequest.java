@@ -9,8 +9,13 @@ public record RepairTaskClaimRequest(
         @NotBlank @Size(max = 255) String workerId,
         @Min(30) @Max(600) Integer leaseSeconds,
         RepairPipelineStage stage,
-        Long stageSequence
+        Long stageSequence,
+        Boolean includeAgentContext
 ) {
+    public RepairTaskClaimRequest(String workerId, Integer leaseSeconds, RepairPipelineStage stage, Long stageSequence) {
+        this(workerId, leaseSeconds, stage, stageSequence, false);
+    }
+
     public int effectiveLeaseSeconds() {
         return leaseSeconds == null ? 90 : leaseSeconds;
     }

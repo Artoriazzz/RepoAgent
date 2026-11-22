@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 import uuid
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
@@ -181,11 +182,17 @@ class ChatLLM:
         )
         self.max_retries = int(os.getenv("REPO_AGENT_LLM_MAX_RETRIES", DEFAULT_LLM_MAX_RETRIES))
         self._request_state = threading.local()
+        endpoint = urlsplit(self.base_url or "")
+        go_headers = {}
+        if (endpoint.scheme == "https" and endpoint.hostname == "opencode.ai"
+                and endpoint.path.rstrip("/") == "/inference/go/openai/v1"):
+            go_headers = {"User-Agent": "RepoAgent/1.0", "x-opencode-session": uuid.uuid4().hex}
         self.client = OpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
             timeout=self.timeout,
             max_retries=self.max_retries,
+            default_headers=go_headers,
             http_client=httpx.Client(event_hooks={
                 "request": [self._log_http_attempt],
                 "response": [self._log_http_response],

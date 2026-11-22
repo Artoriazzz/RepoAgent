@@ -1,0 +1,1086 @@
+{
+  "scope": "119 selected SWE-bench Lite instances; paired original and resume runs; retry summary supersedes the earlier API error for the same ID",
+  "wsl_root": "/home/artoria/workspace/SWE-bench",
+  "counts": {
+    "selected": 119,
+    "confirmed_failure": 25,
+    "outside_confirmed_failure": 94,
+    "resolved": 9,
+    "pending_followup_or_first_run": 85,
+    "not_started": 29,
+    "environment_preparation_failed": 6,
+    "completed_without_confirmed_outcome": 50
+  },
+  "cleanup": {
+    "deleted_instance_image_tags": 25,
+    "deleted_classification": "confirmed_failure",
+    "image_entries_are_pre_cleanup": true
+  },
+  "followup_plan": {
+    "start_from_issue_total": 38,
+    "not_started": 29,
+    "fix_environment_then_start": 6,
+    "no_usable_patch": {
+      "django__django-16820": "empty patch",
+      "pydata__xarray-4493": "empty patch",
+      "pytest-dev__pytest-5103": "rejected patch has a Python syntax error"
+    },
+    "reuse_saved_patch_first": 47,
+    "timeout_with_patch_applicable_to_base": "django__django-15695",
+    "harness_anomaly_patches_applicable_to_base": 8
+  },
+  "criteria": "Only remove verified instance image tags for nonempty applied patches with matching prediction artifacts and explicit matching raw test failures; retain runtime/tool anomalies and report mismatches for re-evaluation.",
+  "environment_preparation_failures": {
+    "astropy__astropy-14182": {
+      "reason": "AssertionError(['8771b4c3126f1b5429f83c108cc00f74936faf2e', 'a5917978be39d13cd90b517e1de4e7a539ffaa48', '0bf2827d72c7237bf8cc157fa59bb25279a995ce', 'a57acf6d460c5dcec2ddc1f4ff59dd7008e4b4c4'])",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "build_log": "agent_work/runs/lite-remaining119-public-behavior-20261119/cases/astropy__astropy-14182/build.log",
+      "detail": [],
+      "diagnosis": "镜像源码树与数据集基线提交的源码树不同"
+    },
+    "astropy__astropy-7746": {
+      "reason": "RuntimeError('The command \\'/bin/sh -c /bin/bash -c \"source ~/.bashrc && /root/setup_env.sh\"\\' returned a non-zero code: 1')",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "build_log": "agent_work/runs/lite-remaining119-public-behavior-20261119/cases/astropy__astropy-7746/build.log",
+      "detail": [
+        "PackagesNotFoundError: The following packages are not available from current channels:"
+      ],
+      "diagnosis": "Conda 当前渠道缺少 setuptools==38.2.4"
+    },
+    "matplotlib__matplotlib-22711": {
+      "reason": "RuntimeError('The command \\'/bin/sh -c /bin/bash -c \"source ~/.bashrc && /root/setup_env.sh\"\\' returned a non-zero code: 134')",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "build_log": "agent_work/runs/lite-remaining119-public-behavior-20261119/cases/matplotlib__matplotlib-22711/build.log",
+      "detail": [
+        "Solving environment: ...working... python: /croot/libsolv-suite_1694099463309/work/src/rules.c:261: solver_addrule: Assertion `!p2 && d > 0' failed.",
+        "/opt/miniconda3/etc/profile.d/conda.sh: line 1:    13 Aborted                 (core dumped) ( \"$CONDA_EXE\" $_CE_M $_CE_CONDA \"$@\" )"
+      ],
+      "diagnosis": "Conda 求解阶段 libsolv 断言失败并中止（退出码 134）"
+    },
+    "matplotlib__matplotlib-22835": {
+      "reason": "RuntimeError('The command \\'/bin/sh -c /bin/bash -c \"source ~/.bashrc && /root/setup_env.sh\"\\' returned a non-zero code: 134')",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "build_log": "agent_work/runs/lite-remaining119-public-behavior-20261119/cases/matplotlib__matplotlib-22835/build.log",
+      "detail": [
+        "Solving environment: ...working... python: /croot/libsolv-suite_1694099463309/work/src/rules.c:261: solver_addrule: Assertion `!p2 && d > 0' failed.",
+        "/opt/miniconda3/etc/profile.d/conda.sh: line 1:    13 Aborted                 (core dumped) ( \"$CONDA_EXE\" $_CE_M $_CE_CONDA \"$@\" )"
+      ],
+      "diagnosis": "Conda 求解阶段 libsolv 断言失败并中止（退出码 134）"
+    },
+    "matplotlib__matplotlib-23562": {
+      "reason": "RuntimeError('The command \\'/bin/sh -c /bin/bash -c \"source ~/.bashrc && /root/setup_env.sh\"\\' returned a non-zero code: 134')",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "build_log": "agent_work/runs/lite-remaining119-public-behavior-20261119/cases/matplotlib__matplotlib-23562/build.log",
+      "detail": [
+        "Solving environment: ...working... python: /croot/libsolv-suite_1694099463309/work/src/rules.c:261: solver_addrule: Assertion `!p2 && d > 0' failed.",
+        "/opt/miniconda3/etc/profile.d/conda.sh: line 1:    13 Aborted                 (core dumped) ( \"$CONDA_EXE\" $_CE_M $_CE_CONDA \"$@\" )"
+      ],
+      "diagnosis": "Conda 求解阶段 libsolv 断言失败并中止（退出码 134）"
+    },
+    "matplotlib__matplotlib-23563": {
+      "reason": "RuntimeError('The command \\'/bin/sh -c /bin/bash -c \"source ~/.bashrc && /root/setup_env.sh\"\\' returned a non-zero code: 134')",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "build_log": "agent_work/runs/lite-remaining119-public-behavior-20261119/cases/matplotlib__matplotlib-23563/build.log",
+      "detail": [
+        "Solving environment: ...working... python: /croot/libsolv-suite_1694099463309/work/src/rules.c:261: solver_addrule: Assertion `!p2 && d > 0' failed.",
+        "/opt/miniconda3/etc/profile.d/conda.sh: line 1:    13 Aborted                 (core dumped) ( \"$CONDA_EXE\" $_CE_M $_CE_CONDA \"$@\" )"
+      ],
+      "diagnosis": "Conda 求解阶段 libsolv 断言失败并中止（退出码 134）"
+    }
+  },
+  "instances": {
+    "astropy__astropy-14182": {
+      "classification": "environment_preparation_failed"
+    },
+    "astropy__astropy-7746": {
+      "classification": "environment_preparation_failed"
+    },
+    "django__django-11283": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-11283-r0/repoagent-glm-5.3-flash/django__django-11283/test_output.txt",
+      "explicit_failures": [
+        "test_migrate_with_existing_target_permission (auth_tests.test_migrations.ProxyModelWithSameAppLabelTests)"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.django__django-11283:latest"
+      ]
+    },
+    "django__django-11564": {
+      "classification": "keep_report_unconfirmed",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-11564-r0/repoagent-glm-5.3-flash/django__django-11564/test_output.txt",
+      "unconfirmed_failure_count": 2,
+      "images": [
+        "sweb.eval.x86_64.django__django-11564:latest"
+      ]
+    },
+    "django__django-11630": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-11630-r0/repoagent-glm-5.3-flash/django__django-11630/test_output.txt",
+      "explicit_failures": [
+        "test_collision_across_apps_database_routers_installed (check_framework.test_model_checks.DuplicateDBTableTests)",
+        "test_collision_in_same_app_database_routers_installed (check_framework.test_model_checks.DuplicateDBTableTests)"
+      ],
+      "explicit_failure_count": 2,
+      "images": [
+        "sweb.eval.x86_64.django__django-11630:latest"
+      ]
+    },
+    "django__django-11742": {
+      "classification": "keep_report_unconfirmed",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-11742-r0/repoagent-glm-5.3-flash/django__django-11742/test_output.txt",
+      "unconfirmed_failure_count": 2,
+      "images": [
+        "sweb.eval.x86_64.django__django-11742:latest"
+      ]
+    },
+    "django__django-11905": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-11905-r0/repoagent-glm-5.3-flash/django__django-11905/test_output.txt",
+      "unconfirmed_failure_count": 1,
+      "runtime_signal": "ERROR: test_isnull_non_boolean_value (lookup.tests.LookupTests)",
+      "images": [
+        "sweb.eval.x86_64.django__django-11905:latest"
+      ]
+    },
+    "django__django-12308": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-12308-r0/repoagent-glm-5.3-flash/django__django-12308/test_output.txt",
+      "unconfirmed_failure_count": 2,
+      "runtime_signal": "ERROR: test_json_display_for_field (admin_utils.tests.UtilsTests) (value={('a', 'b'): 'c'})",
+      "images": [
+        "sweb.eval.x86_64.django__django-12308:latest"
+      ]
+    },
+    "django__django-13220": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-13220-r0/repoagent-glm-5.3-flash/django__django-13220/test_output.txt",
+      "explicit_failures": [
+        "test_eq (test_exceptions.test_validation_error.TestValidationError)",
+        "test_hash (test_exceptions.test_validation_error.TestValidationError)",
+        "test_hash_nested (test_exceptions.test_validation_error.TestValidationError)"
+      ],
+      "explicit_failure_count": 3,
+      "images": [
+        "sweb.eval.x86_64.django__django-13220:latest"
+      ]
+    },
+    "django__django-13265": {
+      "classification": "keep_report_unconfirmed",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-13265-r0/repoagent-glm-5.3-flash/django__django-13265/test_output.txt",
+      "unconfirmed_failure_count": 2,
+      "images": [
+        "sweb.eval.x86_64.django__django-13265:latest"
+      ]
+    },
+    "django__django-13321": {
+      "classification": "keep_report_unconfirmed",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-13321-r0/repoagent-glm-5.3-flash/django__django-13321/test_output.txt",
+      "unconfirmed_failure_count": 18,
+      "images": [
+        "sweb.eval.x86_64.django__django-13321:latest"
+      ]
+    },
+    "django__django-13448": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-13448-r0/repoagent-glm-5.3-flash/django__django-13448/test_output.txt",
+      "explicit_failures": [
+        "test_migrate_test_setting_false (backends.base.test_creation.TestDbCreationTests)"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.django__django-13448:latest"
+      ]
+    },
+    "django__django-13660": {
+      "classification": "resolved",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-13660-r0/repoagent-glm-5.3-flash/django__django-13660/test_output.txt"
+    },
+    "django__django-13768": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-13768-r0/repoagent-glm-5.3-flash/django__django-13768/test_output.txt",
+      "explicit_failures": [
+        "test_send_robust_fail (dispatch.tests.DispatcherTests)"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.django__django-13768:latest"
+      ]
+    },
+    "django__django-14155": {
+      "classification": "keep_report_unconfirmed",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-14155-r0/repoagent-glm-5.3-flash/django__django-14155/test_output.txt",
+      "explicit_failures": [
+        "test_repr (urlpatterns_reverse.tests.ResolverMatchTests)"
+      ],
+      "explicit_failure_count": 1,
+      "unconfirmed_failure_count": 2,
+      "images": [
+        "sweb.eval.x86_64.django__django-14155:latest"
+      ]
+    },
+    "django__django-14411": {
+      "classification": "resolved",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-14411-r0/repoagent-glm-5.3-flash/django__django-14411/test_output.txt"
+    },
+    "django__django-14534": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-14534-r0/repoagent-glm-5.3-flash/django__django-14534/test_output.txt",
+      "unconfirmed_failure_count": 1,
+      "runtime_signal": "ERROR: test_iterable_boundfield_select (forms_tests.tests.test_forms.FormsTestCase)",
+      "images": [
+        "sweb.eval.x86_64.django__django-14534:latest"
+      ]
+    },
+    "django__django-14667": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-14667-r0/repoagent-glm-5.3-flash/django__django-14667/test_output.txt",
+      "explicit_failures": [
+        "test_defer_only_chaining (defer.tests.DeferTests)",
+        "test_defer_only_clear (defer.tests.DeferTests)"
+      ],
+      "explicit_failure_count": 2,
+      "images": [
+        "sweb.eval.x86_64.django__django-14667:latest"
+      ]
+    },
+    "django__django-14730": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-14730-r0/repoagent-glm-5.3-flash/django__django-14730/test_output.txt",
+      "unconfirmed_failure_count": 1,
+      "runtime_signal": "ERROR: test_many_to_many_with_useless_related_name (invalid_models_tests.test_relative_fields.RelativeFieldTests)",
+      "images": [
+        "sweb.eval.x86_64.django__django-14730:latest"
+      ]
+    },
+    "django__django-15061": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-15061-r0/repoagent-glm-5.3-flash/django__django-15061/test_output.txt",
+      "explicit_failures": [
+        "test_form_as_table (forms_tests.field_tests.test_multivaluefield.MultiValueFieldTest)",
+        "test_form_as_table_data (forms_tests.field_tests.test_multivaluefield.MultiValueFieldTest)",
+        "test_form_as_table (forms_tests.field_tests.test_splitdatetimefield.SplitDateTimeFieldTest)"
+      ],
+      "explicit_failure_count": 3,
+      "images": [
+        "sweb.eval.x86_64.django__django-15061:latest"
+      ]
+    },
+    "django__django-15202": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-15202-r0/repoagent-glm-5.3-flash/django__django-15202/test_output.txt",
+      "unconfirmed_failure_count": 2,
+      "runtime_signal": "ERROR: test_urlfield_clean_invalid (forms_tests.field_tests.test_urlfield.URLFieldTest) (value='#@A.bO')",
+      "images": [
+        "sweb.eval.x86_64.django__django-15202:latest"
+      ]
+    },
+    "django__django-15252": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-15252-r0/repoagent-glm-5.3-flash/django__django-15252/test_output.txt",
+      "explicit_failures": [
+        "test_migrate_test_setting_false_ensure_schema (backends.base.test_creation.TestDbCreationTests)"
+      ],
+      "explicit_failure_count": 1,
+      "unconfirmed_failure_count": 1,
+      "runtime_signal": "ERROR: test_migrate_skips_schema_creation (migrations.test_executor.ExecutorTests)",
+      "images": [
+        "sweb.eval.x86_64.django__django-15252:latest"
+      ]
+    },
+    "django__django-15320": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-15320-r0/repoagent-glm-5.3-flash/django__django-15320/test_output.txt",
+      "explicit_failures": [
+        "test_subquery_sql (expressions.tests.BasicExpressionsTests)"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.django__django-15320:latest"
+      ]
+    },
+    "django__django-15400": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-15400-r0/repoagent-glm-5.3-flash/django__django-15400/test_output.txt",
+      "unconfirmed_failure_count": 1,
+      "runtime_signal": "ERROR: test_pickle_model (utils_tests.test_lazyobject.SimpleLazyObjectPickleTestCase)",
+      "images": [
+        "sweb.eval.x86_64.django__django-15400:latest"
+      ]
+    },
+    "django__django-15695": {
+      "classification": "keep_timeout",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "images": [
+        "sweb.eval.x86_64.django__django-15695:latest"
+      ]
+    },
+    "django__django-15789": {
+      "classification": "keep_report_unconfirmed",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-15789-r0/repoagent-glm-5.3-flash/django__django-15789/test_output.txt",
+      "unconfirmed_failure_count": 2,
+      "images": [
+        "sweb.eval.x86_64.django__django-15789:latest"
+      ]
+    },
+    "django__django-15819": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-15819-r0/repoagent-glm-5.3-flash/django__django-15819/test_output.txt",
+      "explicit_failures": [
+        "test_same_relations (inspectdb.tests.InspectDBTestCase)",
+        "test_attribute_name_not_python_keyword (inspectdb.tests.InspectDBTestCase)"
+      ],
+      "explicit_failure_count": 2,
+      "images": [
+        "sweb.eval.x86_64.django__django-15819:latest"
+      ]
+    },
+    "django__django-16229": {
+      "classification": "resolved",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-16229-r0/repoagent-glm-5.3-flash/django__django-16229/test_output.txt"
+    },
+    "django__django-16816": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-django__django-16816-r0/repoagent-glm-5.3-flash/django__django-16816/test_output.txt",
+      "explicit_failures": [
+        "test_invalid_m2m_related_name (modeladmin.test_checks.ListDisplayTests.test_invalid_m2m_related_name)",
+        "test_invalid_related_field (modeladmin.test_checks.ListDisplayTests.test_invalid_related_field)"
+      ],
+      "explicit_failure_count": 2,
+      "images": [
+        "sweb.eval.x86_64.django__django-16816:latest"
+      ]
+    },
+    "django__django-16820": {
+      "classification": "keep_invalid_patch",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "images": [
+        "sweb.eval.x86_64.django__django-16820:latest"
+      ]
+    },
+    "matplotlib__matplotlib-18869": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-matplotlib__matplotlib-18869-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-18869/test_output.txt",
+      "explicit_failures": [
+        "lib/matplotlib/tests/test_matplotlib.py::test_parse_to_version_info[3.5.0-version_tuple0]",
+        "lib/matplotlib/tests/test_matplotlib.py::test_parse_to_version_info[3.5.0rc2-version_tuple1]",
+        "lib/matplotlib/tests/test_matplotlib.py::test_parse_to_version_info[3.5.0.dev820+g6768ef8c4c-version_tuple2]"
+      ],
+      "explicit_failure_count": 4,
+      "images": [
+        "sweb.eval.x86_64.matplotlib__matplotlib-18869:latest"
+      ]
+    },
+    "matplotlib__matplotlib-22711": {
+      "classification": "environment_preparation_failed"
+    },
+    "matplotlib__matplotlib-22835": {
+      "classification": "environment_preparation_failed"
+    },
+    "matplotlib__matplotlib-23299": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-matplotlib__matplotlib-23299-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-23299/test_output.txt",
+      "explicit_failures": [
+        "lib/matplotlib/tests/test_rcparams.py::test_no_backend_reset_rccontext"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.matplotlib__matplotlib-23299:latest"
+      ]
+    },
+    "matplotlib__matplotlib-23562": {
+      "classification": "environment_preparation_failed"
+    },
+    "matplotlib__matplotlib-23563": {
+      "classification": "environment_preparation_failed"
+    },
+    "matplotlib__matplotlib-23964": {
+      "classification": "keep_report_unconfirmed",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-matplotlib__matplotlib-23964-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-23964/test_output.txt",
+      "explicit_failures": [
+        "lib/matplotlib/tests/test_backend_ps.py::test_empty_line",
+        "lib/matplotlib/tests/test_backend_ps.py::test_savefig_to_stringio[ps-portrait]",
+        "lib/matplotlib/tests/test_backend_ps.py::test_savefig_to_stringio[ps-landscape]"
+      ],
+      "explicit_failure_count": 15,
+      "unconfirmed_failure_count": 2,
+      "images": [
+        "sweb.eval.x86_64.matplotlib__matplotlib-23964:latest"
+      ]
+    },
+    "matplotlib__matplotlib-24265": {
+      "classification": "keep_harness_or_patch_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-matplotlib__matplotlib-24265-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-24265/test_output.txt",
+      "explicit_failures": [
+        "lib/matplotlib/tests/test_style.py::test_invalid_rc_warning_includes_filename"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.matplotlib__matplotlib-24265:latest"
+      ]
+    },
+    "matplotlib__matplotlib-25442": {
+      "classification": "keep_harness_or_patch_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-matplotlib__matplotlib-25442-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-25442/test_output.txt",
+      "explicit_failures": [
+        "lib/matplotlib/tests/test_offsetbox.py::test_offsetbox_clipping[png]",
+        "lib/matplotlib/tests/test_offsetbox.py::test_offsetbox_clipping[pdf]",
+        "lib/matplotlib/tests/test_offsetbox.py::test_picking[data-image]"
+      ],
+      "explicit_failure_count": 8,
+      "images": [
+        "sweb.eval.x86_64.matplotlib__matplotlib-25442:latest"
+      ]
+    },
+    "matplotlib__matplotlib-25498": {
+      "classification": "keep_harness_or_patch_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-matplotlib__matplotlib-25498-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-25498/test_output.txt",
+      "explicit_failures": [
+        "lib/matplotlib/tests/test_colorbar.py::test_colorbar_extension_shape[png]",
+        "lib/matplotlib/tests/test_colorbar.py::test_colorbar_extension_length[png]",
+        "lib/matplotlib/tests/test_colorbar.py::test_colorbar_positioning[png-True]"
+      ],
+      "explicit_failure_count": 19,
+      "images": [
+        "sweb.eval.x86_64.matplotlib__matplotlib-25498:latest"
+      ]
+    },
+    "matplotlib__matplotlib-26011": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-matplotlib__matplotlib-26011-r0/repoagent-glm-5.3-flash/matplotlib__matplotlib-26011/test_output.txt",
+      "explicit_failures": [
+        "lib/matplotlib/tests/test_axes.py::test_invisible_axes[png]",
+        "lib/matplotlib/tests/test_axes.py::test_label_loc_vertical[png]",
+        "lib/matplotlib/tests/test_axes.py::test_label_loc_vertical[pdf]"
+      ],
+      "explicit_failure_count": 309,
+      "unconfirmed_failure_count": 13,
+      "runtime_signal": "except ImportError as _e:  # pragma: no cover",
+      "images": [
+        "sweb.eval.x86_64.matplotlib__matplotlib-26011:latest"
+      ]
+    },
+    "mwaskom__seaborn-3190": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-mwaskom__seaborn-3190-r0/repoagent-glm-5.3-flash/mwaskom__seaborn-3190/test_output.txt",
+      "explicit_failures": [
+        "tests/_core/test_scales.py::TestContinuous::test_interval_with_bools"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.mwaskom__seaborn-3190:latest"
+      ]
+    },
+    "mwaskom__seaborn-3407": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-mwaskom__seaborn-3407-r0/repoagent-glm-5.3-flash/mwaskom__seaborn-3407/test_output.txt",
+      "explicit_failures": [
+        "tests/test_axisgrid.py::TestPairGrid::test_pairplot_column_multiindex"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.mwaskom__seaborn-3407:latest"
+      ]
+    },
+    "pallets__flask-4045": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-pallets__flask-4045-r0/repoagent-glm-5.3-flash/pallets__flask-4045/test_output.txt",
+      "explicit_failures": [
+        "tests/test_blueprints.py::test_route_decorator_custom_endpoint_with_dots"
+      ],
+      "explicit_failure_count": 1,
+      "runtime_signal": "except ImportError:",
+      "images": [
+        "sweb.eval.x86_64.pallets__flask-4045:latest"
+      ]
+    },
+    "pallets__flask-4992": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-pallets__flask-4992-r0/repoagent-glm-5.3-flash/pallets__flask-4992/test_output.txt",
+      "explicit_failures": [
+        "tests/test_config.py::test_config_from_file_toml"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.pallets__flask-4992:latest"
+      ]
+    },
+    "pallets__flask-5063": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-pallets__flask-5063-r0/repoagent-glm-5.3-flash/pallets__flask-5063/test_output.txt",
+      "explicit_failures": [
+        "tests/test_cli.py::TestRoutes::test_subdomain",
+        "tests/test_cli.py::TestRoutes::test_host",
+        "tests/test_cli.py::TestRoutes::test_simple"
+      ],
+      "explicit_failure_count": 4,
+      "images": [
+        "sweb.eval.x86_64.pallets__flask-5063:latest"
+      ]
+    },
+    "psf__requests-1963": {
+      "classification": "keep_harness_or_patch_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-psf__requests-1963-r0/repoagent-glm-5.3-flash/psf__requests-1963/test_output.txt",
+      "images": [
+        "sweb.eval.x86_64.psf__requests-1963:latest"
+      ]
+    },
+    "psf__requests-2148": {
+      "classification": "keep_harness_or_patch_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-psf__requests-2148-r0/repoagent-glm-5.3-flash/psf__requests-2148/test_output.txt",
+      "images": [
+        "sweb.eval.x86_64.psf__requests-2148:latest"
+      ]
+    },
+    "psf__requests-2317": {
+      "classification": "keep_harness_or_patch_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-psf__requests-2317-r0/repoagent-glm-5.3-flash/psf__requests-2317/test_output.txt",
+      "images": [
+        "sweb.eval.x86_64.psf__requests-2317:latest"
+      ]
+    },
+    "psf__requests-2674": {
+      "classification": "keep_harness_or_patch_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-psf__requests-2674-r0/repoagent-glm-5.3-flash/psf__requests-2674/test_output.txt",
+      "images": [
+        "sweb.eval.x86_64.psf__requests-2674:latest"
+      ]
+    },
+    "psf__requests-863": {
+      "classification": "keep_harness_or_patch_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-psf__requests-863-r0/repoagent-glm-5.3-flash/psf__requests-863/test_output.txt",
+      "images": [
+        "sweb.eval.x86_64.psf__requests-863:latest"
+      ]
+    },
+    "pydata__xarray-3364": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-pydata__xarray-3364-r0/repoagent-glm-5.3-flash/pydata__xarray-3364/test_output.txt",
+      "explicit_failures": [
+        "xarray/tests/test_combine.py::TestAutoCombineOldAPI::test_auto_combine_with_new_variables",
+        "xarray/tests/test_concat.py::TestConcatDataset::test_concat_merge_variables_present_in_some_datasets",
+        "xarray/tests/test_combine.py::TestAutoCombineOldAPI::test_auto_combine"
+      ],
+      "explicit_failure_count": 4,
+      "images": [
+        "sweb.eval.x86_64.pydata__xarray-3364:latest"
+      ]
+    },
+    "pydata__xarray-4248": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-pydata__xarray-4248-r0/repoagent-glm-5.3-flash/pydata__xarray-4248/test_output.txt",
+      "explicit_failures": [
+        "xarray/tests/test_formatting.py::test_inline_variable_array_repr_custom_repr"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.pydata__xarray-4248:latest"
+      ]
+    },
+    "pydata__xarray-4493": {
+      "classification": "keep_invalid_patch",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "images": [
+        "sweb.eval.x86_64.pydata__xarray-4493:latest"
+      ]
+    },
+    "pylint-dev__pylint-6506": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-pylint-dev__pylint-6506-r0/repoagent-glm-5.3-flash/pylint-dev__pylint-6506/test_output.txt",
+      "explicit_failures": [
+        "tests/config/test_config.py::test_unknown_option_name",
+        "tests/config/test_config.py::test_unknown_short_option_name",
+        "tests/config/test_config.py::test_can_read_toml_env_variable"
+      ],
+      "explicit_failure_count": 8,
+      "images": [
+        "sweb.eval.x86_64.pylint-dev__pylint-6506:latest"
+      ]
+    },
+    "pylint-dev__pylint-7114": {
+      "classification": "resolved",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-pylint-dev__pylint-7114-r0/repoagent-glm-5.3-flash/pylint-dev__pylint-7114/test_output.txt"
+    },
+    "pylint-dev__pylint-7228": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-pylint-dev__pylint-7228-r0/repoagent-glm-5.3-flash/pylint-dev__pylint-7228/test_output.txt",
+      "explicit_failures": [
+        "tests/config/test_config.py::test_regex_error",
+        "tests/config/test_config.py::test_csv_regex_error"
+      ],
+      "explicit_failure_count": 2,
+      "images": [
+        "sweb.eval.x86_64.pylint-dev__pylint-7228:latest"
+      ]
+    },
+    "pytest-dev__pytest-11143": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-pytest-dev__pytest-11143-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-11143/test_output.txt",
+      "unconfirmed_failure_count": 115,
+      "runtime_signal": "ERROR: /testbed/pyproject.toml: 'minversion' requires pytest-2.0, actual pytest-0.1.dev15132+g26aa83906.d20261119'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-11143:latest"
+      ]
+    },
+    "pytest-dev__pytest-11148": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-pytest-dev__pytest-11148-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-11148/test_output.txt",
+      "unconfirmed_failure_count": 131,
+      "runtime_signal": "ERROR: /testbed/pyproject.toml: 'minversion' requires pytest-2.0, actual pytest-0.1.dev15125+g06c6719b2.d20261119'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-11148:latest"
+      ]
+    },
+    "pytest-dev__pytest-5103": {
+      "classification": "keep_invalid_patch",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-5103:latest"
+      ]
+    },
+    "pytest-dev__pytest-5221": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-pytest-dev__pytest-5221-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-5221/test_output.txt",
+      "unconfirmed_failure_count": 172,
+      "runtime_signal": "ERROR: /testbed/tox.ini:143: requires pytest-2.0, actual pytest-0.1.dev10158+gde039f1f0.d20261119'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-5221:latest"
+      ]
+    },
+    "pytest-dev__pytest-5227": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-pytest-dev__pytest-5227-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-5227/test_output.txt",
+      "unconfirmed_failure_count": 37,
+      "runtime_signal": "ERROR: /testbed/tox.ini:143: requires pytest-2.0, actual pytest-0.1.dev10160+g0c0c814d6.d20261119'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-5227:latest"
+      ]
+    },
+    "pytest-dev__pytest-5413": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-20261119",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-20261119-pytest-dev__pytest-5413-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-5413/test_output.txt",
+      "unconfirmed_failure_count": 93,
+      "runtime_signal": "ERROR: /testbed/tox.ini:123: requires pytest-2.0, actual pytest-0.1.dev10439+gda177355b.d20261119'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-5413:latest"
+      ]
+    },
+    "pytest-dev__pytest-5495": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-pytest-dev__pytest-5495-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-5495/test_output.txt",
+      "unconfirmed_failure_count": 88,
+      "runtime_signal": "ERROR: /testbed/tox.ini:120: requires pytest-2.0, actual pytest-0.1.dev10511+g856331af1.d20261120'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-5495:latest"
+      ]
+    },
+    "pytest-dev__pytest-5692": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-pytest-dev__pytest-5692-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-5692/test_output.txt",
+      "unconfirmed_failure_count": 70,
+      "runtime_signal": "ERROR: /testbed/tox.ini:118: requires pytest-2.0, actual pytest-0.1.dev10783+g588511be7.d20261120'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-5692:latest"
+      ]
+    },
+    "pytest-dev__pytest-6116": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-pytest-dev__pytest-6116-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-6116/test_output.txt",
+      "unconfirmed_failure_count": 71,
+      "runtime_signal": "ERROR: /testbed/tox.ini:128: requires pytest-2.0, actual pytest-0.1.dev11246+g82d2e4c4f.d20261120'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-6116:latest"
+      ]
+    },
+    "pytest-dev__pytest-7168": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-pytest-dev__pytest-7168-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-7168/test_output.txt",
+      "unconfirmed_failure_count": 11,
+      "runtime_signal": "ERROR: /testbed/tox.ini:157: requires pytest-2.0, actual pytest-0.1.dev12222+g02acb29cd.d20261120'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-7168:latest"
+      ]
+    },
+    "pytest-dev__pytest-7220": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-pytest-dev__pytest-7220-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-7220/test_output.txt",
+      "unconfirmed_failure_count": 12,
+      "runtime_signal": "ERROR: /testbed/tox.ini:158: requires pytest-2.0, actual pytest-0.1.dev12407+gadb71ecf7.d20261120'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-7220:latest"
+      ]
+    },
+    "pytest-dev__pytest-7373": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-pytest-dev__pytest-7373-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-7373/test_output.txt",
+      "unconfirmed_failure_count": 82,
+      "runtime_signal": "ERROR: /testbed/pyproject.toml: 'minversion' requires pytest-2.0, actual pytest-0.1.dev12549+gd6ca63320.d20261120'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-7373:latest"
+      ]
+    },
+    "pytest-dev__pytest-7432": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-pytest-dev__pytest-7432-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-7432/test_output.txt",
+      "unconfirmed_failure_count": 78,
+      "runtime_signal": "ERROR: /testbed/pyproject.toml: 'minversion' requires pytest-2.0, actual pytest-0.1.dev12620+g13195c444.d20261120'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-7432:latest"
+      ]
+    },
+    "pytest-dev__pytest-7490": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-pytest-dev__pytest-7490-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-7490/test_output.txt",
+      "unconfirmed_failure_count": 80,
+      "runtime_signal": "ERROR: /testbed/pyproject.toml: 'minversion' requires pytest-2.0, actual pytest-0.1.dev12691+gd81ec707b.d20261120'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-7490:latest"
+      ]
+    },
+    "pytest-dev__pytest-8365": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-pytest-dev__pytest-8365-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-8365/test_output.txt",
+      "unconfirmed_failure_count": 33,
+      "runtime_signal": "except (ImportError, KeyError):",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-8365:latest"
+      ]
+    },
+    "pytest-dev__pytest-8906": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-pytest-dev__pytest-8906-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-8906/test_output.txt",
+      "unconfirmed_failure_count": 85,
+      "runtime_signal": "ERROR: /testbed/pyproject.toml: 'minversion' requires pytest-2.0, actual pytest-0.1.dev13810+g9bbb6323e.d20261120'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-8906:latest"
+      ]
+    },
+    "pytest-dev__pytest-9359": {
+      "classification": "keep_runtime_anomaly",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-pytest-dev__pytest-9359-r0/repoagent-glm-5.3-flash/pytest-dev__pytest-9359/test_output.txt",
+      "unconfirmed_failure_count": 55,
+      "runtime_signal": "ERROR: /testbed/pyproject.toml: 'minversion' requires pytest-2.0, actual pytest-0.1.dev14106+gc2f570fe8.d20261120'",
+      "images": [
+        "sweb.eval.x86_64.pytest-dev__pytest-9359:latest"
+      ]
+    },
+    "scikit-learn__scikit-learn-10297": {
+      "classification": "resolved",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-scikit-learn__scikit-learn-10297-r0/repoagent-glm-5.3-flash/scikit-learn__scikit-learn-10297/test_output.txt"
+    },
+    "scikit-learn__scikit-learn-10508": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-scikit-learn__scikit-learn-10508-r0/repoagent-glm-5.3-flash/scikit-learn__scikit-learn-10508/test_output.txt",
+      "explicit_failures": [
+        "sklearn/preprocessing/tests/test_label.py::test_label_encoder_errors",
+        "sklearn/preprocessing/tests/test_label.py::test_label_encoder_empty_array"
+      ],
+      "explicit_failure_count": 2,
+      "images": [
+        "sweb.eval.x86_64.scikit-learn__scikit-learn-10508:latest"
+      ]
+    },
+    "scikit-learn__scikit-learn-10949": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-scikit-learn__scikit-learn-10949-r0/repoagent-glm-5.3-flash/scikit-learn__scikit-learn-10949/test_output.txt",
+      "explicit_failures": [
+        "sklearn/utils/tests/test_validation.py::test_check_dataframe_warns_on_dtype"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.scikit-learn__scikit-learn-10949:latest"
+      ]
+    },
+    "scikit-learn__scikit-learn-11040": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-scikit-learn__scikit-learn-11040-r0/repoagent-glm-5.3-flash/scikit-learn__scikit-learn-11040/test_output.txt",
+      "explicit_failures": [
+        "sklearn/neighbors/tests/test_neighbors.py::test_n_neighbors_datatype"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.scikit-learn__scikit-learn-11040:latest"
+      ]
+    },
+    "scikit-learn__scikit-learn-13497": {
+      "classification": "resolved",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-scikit-learn__scikit-learn-13497-r0/repoagent-glm-5.3-flash/scikit-learn__scikit-learn-13497/test_output.txt"
+    },
+    "scikit-learn__scikit-learn-14983": {
+      "classification": "resolved",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-scikit-learn__scikit-learn-14983-r0/repoagent-glm-5.3-flash/scikit-learn__scikit-learn-14983/test_output.txt"
+    },
+    "scikit-learn__scikit-learn-25500": {
+      "classification": "resolved",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-scikit-learn__scikit-learn-25500-r0/repoagent-glm-5.3-flash/scikit-learn__scikit-learn-25500/test_output.txt"
+    },
+    "scikit-learn__scikit-learn-25570": {
+      "classification": "resolved",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-scikit-learn__scikit-learn-25570-r0/repoagent-glm-5.3-flash/scikit-learn__scikit-learn-25570/test_output.txt"
+    },
+    "scikit-learn__scikit-learn-25638": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-scikit-learn__scikit-learn-25638-r0/repoagent-glm-5.3-flash/scikit-learn__scikit-learn-25638/test_output.txt",
+      "explicit_failures": [
+        "sklearn/utils/tests/test_multiclass.py::test_type_of_target_pandas_nullable"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.scikit-learn__scikit-learn-25638:latest"
+      ]
+    },
+    "scikit-learn__scikit-learn-25747": {
+      "classification": "confirmed_failure",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-scikit-learn__scikit-learn-25747-r0/repoagent-glm-5.3-flash/scikit-learn__scikit-learn-25747/test_output.txt",
+      "explicit_failures": [
+        "sklearn/utils/tests/test_set_output.py::test_set_output_pandas_keep_index"
+      ],
+      "explicit_failure_count": 1,
+      "images": [
+        "sweb.eval.x86_64.scikit-learn__scikit-learn-25747:latest"
+      ]
+    },
+    "sphinx-doc__sphinx-10451": {
+      "classification": "keep_report_unconfirmed",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-sphinx-doc__sphinx-10451-r0/repoagent-glm-5.3-flash/sphinx-doc__sphinx-10451/test_output.txt",
+      "explicit_failures": [
+        "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description_with_documented_init",
+        "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description_with_documented_init_no_undoc",
+        "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description_with_documented_init_no_undoc_doc_rtype"
+      ],
+      "explicit_failure_count": 3,
+      "unconfirmed_failure_count": 79,
+      "images": [
+        "sweb.eval.x86_64.sphinx-doc__sphinx-10451:latest"
+      ]
+    },
+    "sphinx-doc__sphinx-7686": {
+      "classification": "keep_report_unconfirmed",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-sphinx-doc__sphinx-7686-r0/repoagent-glm-5.3-flash/sphinx-doc__sphinx-7686/test_output.txt",
+      "explicit_failures": [
+        "tests/test_ext_autosummary.py::test_autosummary_generate_content_for_module",
+        "tests/test_ext_autosummary.py::test_autosummary_generate_content_for_module_skipped"
+      ],
+      "explicit_failure_count": 2,
+      "unconfirmed_failure_count": 15,
+      "images": [
+        "sweb.eval.x86_64.sphinx-doc__sphinx-7686:latest"
+      ]
+    },
+    "sphinx-doc__sphinx-7738": {
+      "classification": "keep_report_unconfirmed",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-sphinx-doc__sphinx-7738-r0/repoagent-glm-5.3-flash/sphinx-doc__sphinx-7738/test_output.txt",
+      "explicit_failures": [
+        "tests/test_ext_napoleon_docstring.py::NumpyDocstringTest::test_underscore_in_attribute"
+      ],
+      "explicit_failure_count": 1,
+      "unconfirmed_failure_count": 30,
+      "images": [
+        "sweb.eval.x86_64.sphinx-doc__sphinx-7738:latest"
+      ]
+    },
+    "sphinx-doc__sphinx-8273": {
+      "classification": "keep_report_unconfirmed",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-sphinx-doc__sphinx-8273-r0/repoagent-glm-5.3-flash/sphinx-doc__sphinx-8273/test_output.txt",
+      "explicit_failures": [
+        "tests/test_build_manpage.py::test_man_make_section_directory"
+      ],
+      "explicit_failure_count": 1,
+      "unconfirmed_failure_count": 3,
+      "images": [
+        "sweb.eval.x86_64.sphinx-doc__sphinx-8273:latest"
+      ]
+    },
+    "sphinx-doc__sphinx-8282": {
+      "classification": "keep_report_unconfirmed",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-sphinx-doc__sphinx-8282-r0/repoagent-glm-5.3-flash/sphinx-doc__sphinx-8282/test_output.txt",
+      "explicit_failures": [
+        "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_none_for_overload"
+      ],
+      "explicit_failure_count": 1,
+      "unconfirmed_failure_count": 16,
+      "images": [
+        "sweb.eval.x86_64.sphinx-doc__sphinx-8282:latest"
+      ]
+    },
+    "sphinx-doc__sphinx-8506": {
+      "classification": "keep_report_unconfirmed",
+      "run": "lite-remaining119-public-behavior-resume-20261120",
+      "harness_log": "/home/artoria/workspace/SWE-bench/logs/run_evaluation/lite-remaining119-public-behavior-resume-20261120-sphinx-doc__sphinx-8506-r0/repoagent-glm-5.3-flash/sphinx-doc__sphinx-8506/test_output.txt",
+      "explicit_failures": [
+        "tests/test_domain_std.py::test_cmd_option_starting_with_bracket"
+      ],
+      "explicit_failure_count": 1,
+      "unconfirmed_failure_count": 14,
+      "images": [
+        "sweb.eval.x86_64.sphinx-doc__sphinx-8506:latest"
+      ]
+    },
+    "sympy__sympy-11400": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-11870": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-12171": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-12454": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-13043": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-13177": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-13437": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-13773": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-13895": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-14308": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-14317": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-15308": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-15678": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-16106": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-17630": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-17655": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-18057": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-18199": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-18835": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-19007": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-19254": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-19487": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-20049": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-20639": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-21171": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-21612": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-22840": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-24102": {
+      "classification": "not_started"
+    },
+    "sympy__sympy-24909": {
+      "classification": "not_started"
+    }
+  }
+}

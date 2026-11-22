@@ -1,5 +1,6 @@
 package com.artoria.repoagentbackend.repair;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -14,7 +15,8 @@ public record RepairTaskStageHandoffRequest(
         @NotNull UUID leaseToken,
         Long stageSequence,
         Long leaseEpoch,
-        @Size(max = 20_000) String message
+        @Size(max = 20_000) String message,
+        JsonNode agentContext
 ) {
     public long effectiveStageSequence(long current) { return stageSequence == null ? current : stageSequence; }
     public long effectiveLeaseEpoch(long current) { return leaseEpoch == null ? current : leaseEpoch; }

@@ -1,0 +1,1369 @@
+{
+  "count": 194,
+  "expected_count": 194,
+  "missing_historical_evidence": [],
+  "single_version_score": false,
+  "instances": {
+    "astropy__astropy-12907": {
+      "instance_id": "astropy__astropy-12907",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first10-public-baseline-feedback-20261111/parallel2/lane-0/results/astropy__astropy-12907/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "astropy__astropy-14365": {
+      "instance_id": "astropy__astropy-14365",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-final-harness-parser-reeval-20261116/repoagent-glm-5.3-flash.lite-final-harness-parser-reeval-20261116-remaining.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first10-public-baseline-feedback-20261111/parallel2/lane-0/results/astropy__astropy-14365/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "astropy__astropy-14995": {
+      "instance_id": "astropy__astropy-14995",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-final-harness-parser-reeval-20261116/repoagent-glm-5.3-flash.lite-final-harness-parser-reeval-20261116-remaining.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first10-public-baseline-feedback-20261111/parallel2/lane-0/results/astropy__astropy-14995/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "astropy__astropy-6938": {
+      "instance_id": "astropy__astropy-6938",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first10-public-baseline-feedback-20261111/parallel2/lane-0/results/astropy__astropy-6938/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-10914": {
+      "instance_id": "django__django-10914",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first10-public-baseline-feedback-20261111/parallel2/lane-5/results/django__django-10914/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-10924": {
+      "instance_id": "django__django-10924",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first10-public-baseline-feedback-20261111/parallel2/lane-5/results/django__django-10924/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11001": {
+      "instance_id": "django__django-11001",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first10-public-baseline-feedback-20261111/parallel2/lane-5/results/django__django-11001/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11039": {
+      "instance_id": "django__django-11039",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-11039/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11049": {
+      "instance_id": "django__django-11049",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-11049/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11099": {
+      "instance_id": "django__django-11099",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-11099/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11133": {
+      "instance_id": "django__django-11133",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-11133/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11179": {
+      "instance_id": "django__django-11179",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-11179/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11422": {
+      "instance_id": "django__django-11422",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-11422/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11583": {
+      "instance_id": "django__django-11583",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-11583/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11620": {
+      "instance_id": "django__django-11620",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-11620/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11815": {
+      "instance_id": "django__django-11815",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-11815/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11848": {
+      "instance_id": "django__django-11848",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-11848/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11910": {
+      "instance_id": "django__django-11910",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-11910/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11964": {
+      "instance_id": "django__django-11964",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-11964/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-11999": {
+      "instance_id": "django__django-11999",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-11999/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12113": {
+      "instance_id": "django__django-12113",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-12113/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12125": {
+      "instance_id": "django__django-12125",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-12125/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12184": {
+      "instance_id": "django__django-12184",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-12184/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12284": {
+      "instance_id": "django__django-12284",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-12284/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12286": {
+      "instance_id": "django__django-12286",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-12286/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12453": {
+      "instance_id": "django__django-12453",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-12453/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12470": {
+      "instance_id": "django__django-12470",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-12470/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12497": {
+      "instance_id": "django__django-12497",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-12497/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12700": {
+      "instance_id": "django__django-12700",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-10/results/django__django-12700/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12708": {
+      "instance_id": "django__django-12708",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-1/results/django__django-12708/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12747": {
+      "instance_id": "django__django-12747",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-2/results/django__django-12747/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12856": {
+      "instance_id": "django__django-12856",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-1/results/django__django-12856/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12908": {
+      "instance_id": "django__django-12908",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-2/results/django__django-12908/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12915": {
+      "instance_id": "django__django-12915",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-1/results/django__django-12915/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-12983": {
+      "instance_id": "django__django-12983",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-2/results/django__django-12983/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13028": {
+      "instance_id": "django__django-13028",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-1/results/django__django-13028/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13033": {
+      "instance_id": "django__django-13033",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-2/results/django__django-13033/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13158": {
+      "instance_id": "django__django-13158",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-1/results/django__django-13158/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13230": {
+      "instance_id": "django__django-13230",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-1/results/django__django-13230/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13315": {
+      "instance_id": "django__django-13315",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-1/results/django__django-13315/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13401": {
+      "instance_id": "django__django-13401",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-1/results/django__django-13401/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13447": {
+      "instance_id": "django__django-13447",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-13447/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13551": {
+      "instance_id": "django__django-13551",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-13551/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13590": {
+      "instance_id": "django__django-13590",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-13590/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13658": {
+      "instance_id": "django__django-13658",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-13658/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13710": {
+      "instance_id": "django__django-13710",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-13710/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13757": {
+      "instance_id": "django__django-13757",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-13757/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13925": {
+      "instance_id": "django__django-13925",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-13925/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13933": {
+      "instance_id": "django__django-13933",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-13933/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-13964": {
+      "instance_id": "django__django-13964",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-13964/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-14016": {
+      "instance_id": "django__django-14016",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-14016/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-14017": {
+      "instance_id": "django__django-14017",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-14017/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-14238": {
+      "instance_id": "django__django-14238",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-14238/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-14382": {
+      "instance_id": "django__django-14382",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-14382/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-14580": {
+      "instance_id": "django__django-14580",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-14580/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-14608": {
+      "instance_id": "django__django-14608",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-14608/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-14672": {
+      "instance_id": "django__django-14672",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-14672/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-14752": {
+      "instance_id": "django__django-14752",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-14752/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-14787": {
+      "instance_id": "django__django-14787",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-14787/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-14855": {
+      "instance_id": "django__django-14855",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-14855/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-14915": {
+      "instance_id": "django__django-14915",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-14915/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-14999": {
+      "instance_id": "django__django-14999",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-14999/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-15213": {
+      "instance_id": "django__django-15213",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-15213/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-15347": {
+      "instance_id": "django__django-15347",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-11to100-public-baseline-feedback-20261111/lane-55/results/django__django-15347/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-15388": {
+      "instance_id": "django__django-15388",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-2/results/django__django-15388/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-15498": {
+      "instance_id": "django__django-15498",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-2/results/django__django-15498/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-15781": {
+      "instance_id": "django__django-15781",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-1/results/django__django-15781/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-15790": {
+      "instance_id": "django__django-15790",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-1/results/django__django-15790/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-15814": {
+      "instance_id": "django__django-15814",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-first100-api-timeout-retry-no-curator-20261112/lane-2/results/django__django-15814/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-15902": {
+      "instance_id": "django__django-15902",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-offline-retry-20261113/cases/django__django-15902/results/django__django-15902/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-15996": {
+      "instance_id": "django__django-15996",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-public-no-memory-20261112/lane-100/results/django__django-15996/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-16041": {
+      "instance_id": "django__django-16041",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-offline-retry-20261113/cases/django__django-16041/results/django__django-16041/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-16046": {
+      "instance_id": "django__django-16046",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-offline-retry-20261113/cases/django__django-16046/results/django__django-16046/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-16139": {
+      "instance_id": "django__django-16139",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-offline-retry-20261113/cases/django__django-16139/results/django__django-16139/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-16255": {
+      "instance_id": "django__django-16255",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-offline-retry-20261113/cases/django__django-16255/results/django__django-16255/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-16379": {
+      "instance_id": "django__django-16379",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-conda-retry-20261113/cases/django__django-16379/results/django__django-16379/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-16408": {
+      "instance_id": "django__django-16408",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-conda-retry-20261113/cases/django__django-16408/results/django__django-16408/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-16527": {
+      "instance_id": "django__django-16527",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-offline-retry-20261113/cases/django__django-16527/results/django__django-16527/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-16595": {
+      "instance_id": "django__django-16595",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-public-no-memory-20261112/lane-100/results/django__django-16595/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-16873": {
+      "instance_id": "django__django-16873",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-public-no-memory-20261112/lane-100/results/django__django-16873/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-16910": {
+      "instance_id": "django__django-16910",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-conda-retry-20261113/cases/django__django-16910/results/django__django-16910/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-17051": {
+      "instance_id": "django__django-17051",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-public-no-memory-20261112/lane-100/results/django__django-17051/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "django__django-17087": {
+      "instance_id": "django__django-17087",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-public-no-memory-20261112/lane-100/results/django__django-17087/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "matplotlib__matplotlib-23314": {
+      "instance_id": "matplotlib__matplotlib-23314",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-offline-retry-20261113/cases/matplotlib__matplotlib-23314/results/matplotlib__matplotlib-23314/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "matplotlib__matplotlib-23987": {
+      "instance_id": "matplotlib__matplotlib-23987",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-public-no-memory-20261112/lane-125/results/matplotlib__matplotlib-23987/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "matplotlib__matplotlib-24149": {
+      "instance_id": "matplotlib__matplotlib-24149",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-offline-retry-20261113/cases/matplotlib__matplotlib-24149/results/matplotlib__matplotlib-24149/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "matplotlib__matplotlib-24970": {
+      "instance_id": "matplotlib__matplotlib-24970",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-offline-retry-20261113/cases/matplotlib__matplotlib-24970/results/matplotlib__matplotlib-24970/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "matplotlib__matplotlib-25311": {
+      "instance_id": "matplotlib__matplotlib-25311",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-offline-retry-20261113/cases/matplotlib__matplotlib-25311/results/matplotlib__matplotlib-25311/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "matplotlib__matplotlib-25332": {
+      "instance_id": "matplotlib__matplotlib-25332",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-offline-retry-20261113/cases/matplotlib__matplotlib-25332/results/matplotlib__matplotlib-25332/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "matplotlib__matplotlib-25433": {
+      "instance_id": "matplotlib__matplotlib-25433",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-public-no-memory-20261112/lane-125/results/matplotlib__matplotlib-25433/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "matplotlib__matplotlib-26020": {
+      "instance_id": "matplotlib__matplotlib-26020",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-public-no-memory-20261112/lane-125/results/matplotlib__matplotlib-26020/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "mwaskom__seaborn-2848": {
+      "instance_id": "mwaskom__seaborn-2848",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-public-no-memory-20261112/lane-125/results/mwaskom__seaborn-2848/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "mwaskom__seaborn-3010": {
+      "instance_id": "mwaskom__seaborn-3010",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-101to150-public-no-memory-20261112/lane-125/results/mwaskom__seaborn-3010/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "psf__requests-3362": {
+      "instance_id": "psf__requests-3362",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-public-no-memory-20261113/cases/psf__requests-3362/results/psf__requests-3362/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "pydata__xarray-4094": {
+      "instance_id": "pydata__xarray-4094",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-public-no-memory-20261113/cases/pydata__xarray-4094/results/pydata__xarray-4094/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "pydata__xarray-5131": {
+      "instance_id": "pydata__xarray-5131",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-glm-retry-20261114/cases/pydata__xarray-5131/results/pydata__xarray-5131/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "pylint-dev__pylint-5859": {
+      "instance_id": "pylint-dev__pylint-5859",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-public-no-memory-20261113/cases/pylint-dev__pylint-5859/results/pylint-dev__pylint-5859/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "pylint-dev__pylint-7080": {
+      "instance_id": "pylint-dev__pylint-7080",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-public-no-memory-20261113/cases/pylint-dev__pylint-7080/results/pylint-dev__pylint-7080/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "scikit-learn__scikit-learn-11281": {
+      "instance_id": "scikit-learn__scikit-learn-11281",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-public-no-memory-20261113/cases/scikit-learn__scikit-learn-11281/results/scikit-learn__scikit-learn-11281/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "scikit-learn__scikit-learn-12471": {
+      "instance_id": "scikit-learn__scikit-learn-12471",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-glm-retry-20261114/cases/scikit-learn__scikit-learn-12471/results/scikit-learn__scikit-learn-12471/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "scikit-learn__scikit-learn-13241": {
+      "instance_id": "scikit-learn__scikit-learn-13241",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-glm-retry-20261114/cases/scikit-learn__scikit-learn-13241/results/scikit-learn__scikit-learn-13241/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "scikit-learn__scikit-learn-13439": {
+      "instance_id": "scikit-learn__scikit-learn-13439",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-glm-retry-20261114/cases/scikit-learn__scikit-learn-13439/results/scikit-learn__scikit-learn-13439/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "scikit-learn__scikit-learn-13496": {
+      "instance_id": "scikit-learn__scikit-learn-13496",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-glm-retry-20261114/cases/scikit-learn__scikit-learn-13496/results/scikit-learn__scikit-learn-13496/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "scikit-learn__scikit-learn-13584": {
+      "instance_id": "scikit-learn__scikit-learn-13584",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-glm-retry-20261114/cases/scikit-learn__scikit-learn-13584/results/scikit-learn__scikit-learn-13584/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "scikit-learn__scikit-learn-13779": {
+      "instance_id": "scikit-learn__scikit-learn-13779",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-glm-retry-20261114/cases/scikit-learn__scikit-learn-13779/results/scikit-learn__scikit-learn-13779/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "scikit-learn__scikit-learn-14087": {
+      "instance_id": "scikit-learn__scikit-learn-14087",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-public-no-memory-20261113/cases/scikit-learn__scikit-learn-14087/results/scikit-learn__scikit-learn-14087/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "scikit-learn__scikit-learn-14092": {
+      "instance_id": "scikit-learn__scikit-learn-14092",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-glm-retry-20261114/cases/scikit-learn__scikit-learn-14092/results/scikit-learn__scikit-learn-14092/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "scikit-learn__scikit-learn-14894": {
+      "instance_id": "scikit-learn__scikit-learn-14894",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-151to200-glm-retry-20261114/cases/scikit-learn__scikit-learn-14894/results/scikit-learn__scikit-learn-14894/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "scikit-learn__scikit-learn-15512": {
+      "instance_id": "scikit-learn__scikit-learn-15512",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-public-no-memory-20261114/cases/scikit-learn__scikit-learn-15512/results/scikit-learn__scikit-learn-15512/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "scikit-learn__scikit-learn-15535": {
+      "instance_id": "scikit-learn__scikit-learn-15535",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-public-no-memory-20261114/cases/scikit-learn__scikit-learn-15535/results/scikit-learn__scikit-learn-15535/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sphinx-doc__sphinx-10325": {
+      "instance_id": "sphinx-doc__sphinx-10325",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-final-harness-parser-reeval-20261116/repoagent-glm-5.3-flash.lite-final-harness-parser-reeval-20261116-pilot.json"
+      ],
+      "stage": "historical154"
+    },
+    "sphinx-doc__sphinx-11445": {
+      "instance_id": "sphinx-doc__sphinx-11445",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-final-harness-parser-reeval-20261116/repoagent-glm-5.3-flash.lite-final-harness-parser-reeval-20261116-remaining.json"
+      ],
+      "stage": "historical154"
+    },
+    "sphinx-doc__sphinx-7975": {
+      "instance_id": "sphinx-doc__sphinx-7975",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-final-harness-parser-reeval-20261116/repoagent-glm-5.3-flash.lite-final-harness-parser-reeval-20261116-remaining.json"
+      ],
+      "stage": "historical154"
+    },
+    "sphinx-doc__sphinx-8435": {
+      "instance_id": "sphinx-doc__sphinx-8435",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-final-harness-parser-reeval-20261116/repoagent-glm-5.3-flash.lite-final-harness-parser-reeval-20261116-remaining.json"
+      ],
+      "stage": "historical154"
+    },
+    "sphinx-doc__sphinx-8595": {
+      "instance_id": "sphinx-doc__sphinx-8595",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-final-harness-parser-reeval-20261116/repoagent-glm-5.3-flash.lite-final-harness-parser-reeval-20261116-remaining.json"
+      ],
+      "stage": "historical154"
+    },
+    "sphinx-doc__sphinx-8627": {
+      "instance_id": "sphinx-doc__sphinx-8627",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-final-harness-parser-reeval-20261116/repoagent-glm-5.3-flash.lite-final-harness-parser-reeval-20261116-remaining.json"
+      ],
+      "stage": "historical154"
+    },
+    "sphinx-doc__sphinx-8713": {
+      "instance_id": "sphinx-doc__sphinx-8713",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-final-harness-parser-reeval-20261116/repoagent-glm-5.3-flash.lite-final-harness-parser-reeval-20261116-remaining.json"
+      ],
+      "stage": "historical154"
+    },
+    "sphinx-doc__sphinx-8721": {
+      "instance_id": "sphinx-doc__sphinx-8721",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-final-harness-parser-reeval-20261116/repoagent-glm-5.3-flash.lite-final-harness-parser-reeval-20261116-remaining.json"
+      ],
+      "stage": "historical154"
+    },
+    "sphinx-doc__sphinx-8801": {
+      "instance_id": "sphinx-doc__sphinx-8801",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-final-harness-parser-reeval-20261116/repoagent-glm-5.3-flash.lite-final-harness-parser-reeval-20261116-remaining.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-12419": {
+      "instance_id": "sympy__sympy-12419",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-public-no-memory-20261114/cases/sympy__sympy-12419/results/sympy__sympy-12419/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-12481": {
+      "instance_id": "sympy__sympy-12481",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-public-no-memory-20261114/cases/sympy__sympy-12481/results/sympy__sympy-12481/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-13471": {
+      "instance_id": "sympy__sympy-13471",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-public-no-memory-20261114/cases/sympy__sympy-13471/results/sympy__sympy-13471/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-13480": {
+      "instance_id": "sympy__sympy-13480",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-public-no-memory-20261114/cases/sympy__sympy-13480/results/sympy__sympy-13480/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-13647": {
+      "instance_id": "sympy__sympy-13647",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-public-no-memory-20261114/cases/sympy__sympy-13647/results/sympy__sympy-13647/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-13971": {
+      "instance_id": "sympy__sympy-13971",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-13971/results/sympy__sympy-13971/summary.json",
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-public-no-memory-20261114/cases/sympy__sympy-13971/results/sympy__sympy-13971/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-14396": {
+      "instance_id": "sympy__sympy-14396",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-14396/results/sympy__sympy-14396/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-14774": {
+      "instance_id": "sympy__sympy-14774",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-14774/results/sympy__sympy-14774/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-14817": {
+      "instance_id": "sympy__sympy-14817",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-14817/results/sympy__sympy-14817/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-15011": {
+      "instance_id": "sympy__sympy-15011",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-15011/results/sympy__sympy-15011/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-15345": {
+      "instance_id": "sympy__sympy-15345",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-15345/results/sympy__sympy-15345/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-15609": {
+      "instance_id": "sympy__sympy-15609",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-15609/results/sympy__sympy-15609/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-16503": {
+      "instance_id": "sympy__sympy-16503",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-16503/results/sympy__sympy-16503/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-16792": {
+      "instance_id": "sympy__sympy-16792",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-16792/results/sympy__sympy-16792/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-16988": {
+      "instance_id": "sympy__sympy-16988",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-16988/results/sympy__sympy-16988/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-17022": {
+      "instance_id": "sympy__sympy-17022",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-17022/results/sympy__sympy-17022/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-17139": {
+      "instance_id": "sympy__sympy-17139",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-17139/results/sympy__sympy-17139/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-18189": {
+      "instance_id": "sympy__sympy-18189",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-18189/results/sympy__sympy-18189/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-18532": {
+      "instance_id": "sympy__sympy-18532",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-18532/results/sympy__sympy-18532/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-18621": {
+      "instance_id": "sympy__sympy-18621",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-18621/results/sympy__sympy-18621/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-18698": {
+      "instance_id": "sympy__sympy-18698",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-18698/results/sympy__sympy-18698/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-20154": {
+      "instance_id": "sympy__sympy-20154",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-20154/results/sympy__sympy-20154/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-20212": {
+      "instance_id": "sympy__sympy-20212",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-20212/results/sympy__sympy-20212/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-20442": {
+      "instance_id": "sympy__sympy-20442",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-20442/results/sympy__sympy-20442/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-21055": {
+      "instance_id": "sympy__sympy-21055",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-21055/results/sympy__sympy-21055/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-21614": {
+      "instance_id": "sympy__sympy-21614",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-21614/results/sympy__sympy-21614/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-21847": {
+      "instance_id": "sympy__sympy-21847",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-21847/results/sympy__sympy-21847/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-22005": {
+      "instance_id": "sympy__sympy-22005",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-22005/results/sympy__sympy-22005/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-22714": {
+      "instance_id": "sympy__sympy-22714",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-22714/results/sympy__sympy-22714/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-23117": {
+      "instance_id": "sympy__sympy-23117",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-23117/results/sympy__sympy-23117/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-23191": {
+      "instance_id": "sympy__sympy-23191",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-23191/results/sympy__sympy-23191/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-23262": {
+      "instance_id": "sympy__sympy-23262",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-23262/results/sympy__sympy-23262/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-24066": {
+      "instance_id": "sympy__sympy-24066",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-24066/results/sympy__sympy-24066/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-24152": {
+      "instance_id": "sympy__sympy-24152",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-24152/results/sympy__sympy-24152/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "sympy__sympy-24213": {
+      "instance_id": "sympy__sympy-24213",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-201to300-opencode-go/cases/sympy__sympy-24213/results/sympy__sympy-24213/summary.json"
+      ],
+      "stage": "historical154"
+    },
+    "pylint-dev__pylint-7993": {
+      "instance_id": "pylint-dev__pylint-7993",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-invalid27-localization-recovery/cases/pylint-dev__pylint-7993/results/pylint-dev__pylint-7993/summary.json"
+      ],
+      "stage": "diagnostic7"
+    },
+    "django__django-15851": {
+      "instance_id": "django__django-15851",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-invalid27-localization-recovery/cases/django__django-15851/results/django__django-15851/summary.json"
+      ],
+      "stage": "diagnostic7"
+    },
+    "sympy__sympy-20590": {
+      "instance_id": "sympy__sympy-20590",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-invalid27-localization-recovery/cases/sympy__sympy-20590/results/sympy__sympy-20590/summary.json"
+      ],
+      "stage": "diagnostic7"
+    },
+    "sympy__sympy-21379": {
+      "instance_id": "sympy__sympy-21379",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-invalid27-localization-recovery/cases/sympy__sympy-21379/results/sympy__sympy-21379/summary.json"
+      ],
+      "stage": "diagnostic7"
+    },
+    "scikit-learn__scikit-learn-13142": {
+      "instance_id": "scikit-learn__scikit-learn-13142",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-invalid27-localization-recovery/cases/scikit-learn__scikit-learn-13142/results/scikit-learn__scikit-learn-13142/summary.json"
+      ],
+      "stage": "diagnostic7"
+    },
+    "sympy__sympy-14024": {
+      "instance_id": "sympy__sympy-14024",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-invalid12-observation-followup/cases/sympy__sympy-14024/results/sympy__sympy-14024/summary.json"
+      ],
+      "stage": "diagnostic7"
+    },
+    "django__django-11797": {
+      "instance_id": "django__django-11797",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-invalid12-observation-followup/cases/django__django-11797/results/django__django-11797/summary.json"
+      ],
+      "stage": "diagnostic7"
+    },
+    "django__django-13660": {
+      "instance_id": "django__django-13660",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-remaining119-public-behavior-20261119/cases/django__django-13660/results/django__django-13660/summary.json"
+      ],
+      "stage": "recovery_to171"
+    },
+    "pylint-dev__pylint-7114": {
+      "instance_id": "pylint-dev__pylint-7114",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-remaining119-public-behavior-20261119/cases/pylint-dev__pylint-7114/results/pylint-dev__pylint-7114/summary.json"
+      ],
+      "stage": "recovery_to171"
+    },
+    "django__django-14411": {
+      "instance_id": "django__django-14411",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-remaining119-public-behavior-20261119/cases/django__django-14411/results/django__django-14411/summary.json"
+      ],
+      "stage": "recovery_to171"
+    },
+    "django__django-16229": {
+      "instance_id": "django__django-16229",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-remaining119-public-behavior-20261119/cases/django__django-16229/results/django__django-16229/summary.json"
+      ],
+      "stage": "recovery_to171"
+    },
+    "scikit-learn__scikit-learn-25500": {
+      "instance_id": "scikit-learn__scikit-learn-25500",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-remaining119-public-behavior-resume-20261120/cases/scikit-learn__scikit-learn-25500/results/scikit-learn__scikit-learn-25500/summary.json"
+      ],
+      "stage": "recovery_to171"
+    },
+    "scikit-learn__scikit-learn-10297": {
+      "instance_id": "scikit-learn__scikit-learn-10297",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-remaining119-public-behavior-resume-20261120/cases/scikit-learn__scikit-learn-10297/results/scikit-learn__scikit-learn-10297/summary.json"
+      ],
+      "stage": "recovery_to171"
+    },
+    "scikit-learn__scikit-learn-14983": {
+      "instance_id": "scikit-learn__scikit-learn-14983",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-remaining119-public-behavior-resume-20261120/cases/scikit-learn__scikit-learn-14983/results/scikit-learn__scikit-learn-14983/summary.json"
+      ],
+      "stage": "recovery_to171"
+    },
+    "scikit-learn__scikit-learn-13497": {
+      "instance_id": "scikit-learn__scikit-learn-13497",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-remaining119-public-behavior-resume-20261120/cases/scikit-learn__scikit-learn-13497/results/scikit-learn__scikit-learn-13497/summary.json"
+      ],
+      "stage": "recovery_to171"
+    },
+    "scikit-learn__scikit-learn-25570": {
+      "instance_id": "scikit-learn__scikit-learn-25570",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-remaining119-public-behavior-resume-20261120/cases/scikit-learn__scikit-learn-25570/results/scikit-learn__scikit-learn-25570/summary.json"
+      ],
+      "stage": "recovery_to171"
+    },
+    "sympy__sympy-18057": {
+      "instance_id": "sympy__sympy-18057",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite119-infra-recovery-20261121/cases/sympy__sympy-18057/results/sympy__sympy-18057/summary.json"
+      ],
+      "stage": "recovery_to171"
+    },
+    "matplotlib__matplotlib-23562": {
+      "instance_id": "matplotlib__matplotlib-23562",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-23562-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "matplotlib__matplotlib-23563": {
+      "instance_id": "matplotlib__matplotlib-23563",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-23563-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "matplotlib__matplotlib-23964": {
+      "instance_id": "matplotlib__matplotlib-23964",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-23964-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "matplotlib__matplotlib-24265": {
+      "instance_id": "matplotlib__matplotlib-24265",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-24265-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "matplotlib__matplotlib-25079": {
+      "instance_id": "matplotlib__matplotlib-25079",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-followup-matplotlib-matplotlib-25079/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "matplotlib__matplotlib-25442": {
+      "instance_id": "matplotlib__matplotlib-25442",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-25442-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "matplotlib__matplotlib-25498": {
+      "instance_id": "matplotlib__matplotlib-25498",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite-envfix-matplotlib-matplotlib-25498-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "matplotlib__matplotlib-26011": {
+      "instance_id": "matplotlib__matplotlib-26011",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-followup-matplotlib-matplotlib-26011/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "psf__requests-1963": {
+      "instance_id": "psf__requests-1963",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-connect-final-1963/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "psf__requests-2148": {
+      "instance_id": "psf__requests-2148",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-service-v3-2148/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "psf__requests-2317": {
+      "instance_id": "psf__requests-2317",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-service-v2-2317/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "psf__requests-2674": {
+      "instance_id": "psf__requests-2674",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/lite42-requests-service-v2-2674/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "psf__requests-863": {
+      "instance_id": "psf__requests-863",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/requests863-local-httpbin-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "pytest-dev__pytest-11143": {
+      "instance_id": "pytest-dev__pytest-11143",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-11143-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "pytest-dev__pytest-5103": {
+      "instance_id": "pytest-dev__pytest-5103",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-5103-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "pytest-dev__pytest-5227": {
+      "instance_id": "pytest-dev__pytest-5227",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-5227-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "pytest-dev__pytest-5495": {
+      "instance_id": "pytest-dev__pytest-5495",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-5495-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "pytest-dev__pytest-5692": {
+      "instance_id": "pytest-dev__pytest-5692",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-5692-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "pytest-dev__pytest-6116": {
+      "instance_id": "pytest-dev__pytest-6116",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-6116-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "pytest-dev__pytest-7168": {
+      "instance_id": "pytest-dev__pytest-7168",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-7168-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "pytest-dev__pytest-7373": {
+      "instance_id": "pytest-dev__pytest-7373",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-7373-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "pytest-dev__pytest-7432": {
+      "instance_id": "pytest-dev__pytest-7432",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-7432-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    },
+    "pytest-dev__pytest-9359": {
+      "instance_id": "pytest-dev__pytest-9359",
+      "evidence": [
+        "/home/artoria/workspace/SWE-bench/agent_work/runs/pytest-version-fix-9359-20261122/result.json"
+      ],
+      "stage": "environment_recovery42"
+    }
+  }
+}

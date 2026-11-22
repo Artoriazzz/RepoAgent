@@ -19,16 +19,23 @@ from repo_agent.core.verification import (
 )
 
 
-PUBLIC_VALIDATION_PROMPT = """你负责为软件修复设计独立的公开测试，检查目标问题及直接相关的既有行为。依据仅限本次公开 Issue、修改前源码、文档和已有测试。
+PUBLIC_VALIDATION_PROMPT = """你负责为公开 Issue 编写独立测试。用 Issue 原文、修改前的仓库源码、公开文档和已有测试确定预期。
 
-1. 明确预期：区分外部行为要求与报告者建议的修法。读取实际入口和相邻测试，必要时查阅定义或调用者。断言须有公开依据，不把当前缺陷或内部修法当成正确契约；无法确定的细节写入 unknowns。
-2. 编写测试：沿用仓库的合法输入、测试基类、fixture、初始化和原生入口。优先复用已有测试，新增用例检查完整的可观察结果及相关回归，不扩大到无关需求。
-3. 检查运行反馈：可用 run_baseline_tests 在未应用补丁的原始代码上试跑 files 和 commands。区分目标缺陷、测试编写错误和环境阻塞；测试写错就修正，不要求生产代码迁就测试。跳过或未执行不算通过；异常不能证明其后尚未执行的断言正确。试跑不会自动进入最终方案，需在最终 JSON 保留所选用例。
-4. 分类并保留：修复前因本题缺陷违反公开预期的标为 target；修复前已通过且仍应成立的标为 regression。原拟目标已通过时，可保留为 regression，但不能声称复现问题，也不能保留 Issue 要求改变的旧行为。两类分开执行，混合命令应拆分。
-5. 输出方案：执行器提供一次修复前反馈复核，沿用当前会话修正测试或分类，再在原始代码上复跑。随后冻结测试、命令和预期，在补丁上重跑，不迎合补丁改变断言。只有回归用例也可返回 ready，但说明目标未复现；没有有效用例才返回 unavailable。测试通过仅说明覆盖的行为通过。
+从 Issue 给出的用户入口和调用顺序开始。先确认：传什么输入、原来哪里出错、修好后用户应看到什么。缺少初始化、夹具或运行命令时，找一个同模块的已有测试照着写。能写出第一个目标用例后就停止搜索，不必先定位根因。
 
-不修改生产代码、不安装依赖、不联网，不读取历史经验、官方评测报告或隐藏测试。不掩盖退出码或吞掉异常。这些是自行设计的公开检查，不是官方 F2P/P2P 清单。
-默认 execution_mode=native。files 最多六个新增 test_*.py 的相对路径和完整内容，不覆盖旧文件或测试配置。命令从仓库根目录经原生入口运行；仅确认无需框架初始化时用 inline 并提供 inline_reason。cases 最多六项，id 唯一，basis 写明公开依据、已读文件位置及已有运行观察。
+写好第一个目标用例后，下一步调用 run_baseline_tests，传完整 files 和实际 commands。
+- 目标调用出现 Issue 描述的错误：记录为复现。
+- 导入、收集或夹具初始化失败：先修测试；环境无法解决时记录阻塞。
+- 异常发生在断言之前，只记录复现了异常。后续断言仍需单独说明依据。
+
+断言应检查用户可观察的行为。如果另一种实现同样满足 Issue，这条断言会误判吗？会的话，改为检查两种实现都应满足的结果；找不到依据就删掉该断言。
+
+交付核心目标用例，再补直接相关的回归；有公开依据时才补不同入口或边界。通常 3–5 条，不为凑数重复检查。target 检查 Issue 要求；regression 检查应保留的已有行为。两类命令分开执行。
+
+每条 case 给出可执行命令、预期行为和依据；basis 分开写公开依据与实际基线结果。来不及试跑时，保留有依据的用例和命令，在 unknowns 注明未经验证。有可运行用例返回 ready，否则返回 unavailable。
+
+不修改生产代码、不安装依赖、不联网，不读取历史经验、官方评测报告或隐藏测试。不掩盖退出码或吞掉异常。
+默认 execution_mode=native。files 最多六个新增 test_*.py 的相对路径和完整内容，不覆盖旧文件或测试配置。命令从仓库根目录经原生入口运行；仅确认无需框架初始化时用 inline 并提供 inline_reason。cases 最多六项，id 唯一。
 最终只输出完整 JSON：
 {"status":"ready|unavailable","execution_mode":"native","files":[{"path":"tests/test_public_repair.py","content":"完整测试模块内容"}],"cases":[{"id":"case_1","kind":"target|regression","command":"python -m pytest tests/test_public_repair.py::test_behavior","expected_behavior":"公开预期","basis":"依据、文件位置及已有基线观察"}],"unknowns":["未确定的预期、未复现的目标或环境阻塞"]}
 """
@@ -334,9 +341,13 @@ class PublicValidationAgent:
                     prompt=("你之前为当前 Issue 生成了一组测试。执行器已在尚未应用修复补丁的原始仓库中运行这些测试。"
                             "沿用当前会话的测试方案、源码和执行记录，结合下方反馈进行唯一一次复核。"
                             "优先修正已观察到的导入、fixture、节点或断言错误，区分测试问题、目标缺陷与环境阻塞。"
+                            "逐条核对断言：它检查的具体结果，能否从 Issue 原文、公开 API 文档或仓库已有测试中找到依据？"
+                            "如果两种实现都满足公开要求，但断言只允许其中一种，改为检查两者都应满足的可观察结果；改不了就删掉该断言。"
+                            "基线在断言前报错，只记录复现了异常，不把它当成后续断言的依据。"
                             "已通过且仍应保留的目标用例改为 regression；因本题缺陷失败的用例标为 target。"
                             "保留有效覆盖，不扩大无关范围，不翻转断言迎合运行结果。"
-                            "必要时使用剩余试跑机会确认修改；未执行或跳过不算通过。"
+                            "若改了测试路径、内容或命令，必须用剩余的 run_baseline_tests 机会试跑修改版；"
+                            "若 remaining_probes 为 0，在 unknowns 注明哪些修改尚未试跑，不沿用旧版结果。"
                             "返回完整方案 JSON，无法确认的事项写入 unknowns；无需修改时返回原方案。\n" + json.dumps({
                                 "public_issue": extract_public_problem_statement(task),
                                 "plan_error": plan_error, "baseline_mismatches": mismatches,
@@ -356,6 +367,31 @@ class PublicValidationAgent:
                     self.worker[key] += previous_worker[key]
                 self.worker["baseline_repair"] = {"attempts": 1, "initial_output_dir": previous_worker["output_dir"],
                                                   "reason": "baseline_mismatch" if plan_error or mismatches else "coverage_review"}
+        return self.save()
+
+    def revise(self, task: str, previous: dict, feedback: dict) -> dict:
+        """Repair a generated suite once, with baseline execution and no production patch context."""
+        self.context = {}
+        self.baseline_probes = []
+        result = self.runner.run(
+            agent_type="public_validation",
+            description="Repair generated public tests after failure review",
+            test_design_tool=self._baseline_probe_tool(),
+            prompt=(
+                "你会收到上一版测试、失败日志和修订建议。只处理日志指出的问题，保留其他有效用例。\n"
+                "先用 Issue、公开文档或已有测试核对失败断言。区分日志直接证明了什么，以及断言额外要求了什么。"
+                "如果测试只因内部数据、调用参数或呈现方式不同而失败，把断言改为检查用户可观察的结果；"
+                "没有依据就删掉该断言，必要时删除整条用例。\n"
+                "若反馈指出日志没有测到所怀疑的公开行为，选择能直接观察该行为的输入和条件。"
+                "如果不同实现产生同样的公开结果，用例应同样通过；不要要求特定的数组长度、布局或内部调用。\n"
+                "修订建议是线索，不是新需求。不要为了让当前补丁通过，就在测试里要求采用它的实现方式。"
+                "修改后用最终的完整 files 和实际 commands 调用 run_baseline_tests；基线未复现则如实记录。返回完整测试方案 JSON。\n"
+                + json.dumps({"public_issue": extract_public_problem_statement(task),
+                              "previous_plan": previous.get("plan", {}),
+                              "failure_review": feedback}, ensure_ascii=False)
+            ),
+        )
+        self._prepare_baseline(result)
         return self.save()
 
     def _prepare_baseline(self, result) -> str | None:

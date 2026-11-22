@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -844,6 +845,7 @@ def build_agent_tools(
             elif not state["implementation_done"]:
                 state["last_chance_required"] = False
                 state["ready_to_implement"] = False
+        localization_replan_required = False
         if result.type == "implement" and review_policy == "conditional":
             delivery_issues = [issue for issue in state.get("static_issues", [])
                                if issue.startswith("python_syntax_error:")]
@@ -859,8 +861,18 @@ def build_agent_tools(
                 state["workflow_terminal_reason"] = "delivery_retry_failed"
                 state["workflow_terminal_completed"] = False
             elif not result.changed_files:
-                state["workflow_terminal_reason"] = "implementation_delivery_incomplete"
-                state["workflow_terminal_completed"] = False
+                report = _extract_json_object(result.text) or {}
+                if (os.getenv("REPO_AGENT_LOCALIZATION_RECOVERY") == "1"
+                        and not state.get("localization_replan_used")
+                        and report.get("status") == "blocked"
+                        and str(report.get("block_reason") or "").strip()):
+                    state["localization_replan_used"] = True
+                    localization_replan_required = True
+                    result_text += ("\n\n未交付补丁。按上面的反证撤回旧前提，最多补读两次，"
+                                    "基于新证据重写 EditBrief 后重新派发一次；证据不足则停止。")
+                else:
+                    state["workflow_terminal_reason"] = "implementation_delivery_incomplete"
+                    state["workflow_terminal_completed"] = False
         if result.type == "patch_review":
             state["patch_review_done"] = True
             state["patch_review_completed"] = result.completed
@@ -938,6 +950,7 @@ def build_agent_tools(
             "total_tokens": result.total_tokens,
             "changed_files": list(result.changed_files),
             "delivery_retry_required": bool(state.get("delivery_retry_required")),
+            "localization_replan_required": localization_replan_required,
             "delivery_retry_used": bool(state.get("delivery_retry_used")),
         }
         if terminal_reason:
