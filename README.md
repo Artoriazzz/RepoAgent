@@ -42,11 +42,10 @@ RepoAgent 是面向软件仓库的多 Agent 程序修复平台，将公开 Issue
 | --- | --- | --- |
 | **MemoryQueryAgent：经验查询** | 从公开 Issue 提取问题描述与使用场景，形成独立的检索查询 | `problem_description`、`usage_scenario` |
 | **Coordinator：定位与决策** | 结合召回经验、当前题意和源码，确认错误操作，决定修复方案与编辑范围 | Problem Contract、源码证据、EditBrief、授权文件与行范围 |
-| **Initial Implement：首次实现** | 按照 EditBrief 在授权范围内完成修改，报告直接反证与已知风险 | 初始 patch、完成状态、风险说明 |
+| **TestDesigner：测试用例** | 根据公开 Issue、源码和已有测试设计用例；能够在修复前的基线上试跑，确保用例覆盖修复和回归场景 | 提供内部测试用例，帮助agent检验修复结果 |
+| **Implement：首次实现** | 按照 EditBrief 在授权范围内完成修改，报告直接反证与已知风险 | 初始 patch、完成状态、风险说明 |
 | **FailureReview：失败归因** | 分析验证失败事实和允许读取的源码，识别语义错误、遗漏路径或环境故障 | 证据清单、失效假设、纠正建议、范围调整需求 |
-| **Corrective Implement：纠正实现** | 根据归因结果和当前授权，对已有 patch 进行定向修正 | 纠正 patch、修改说明、剩余风险 |
 | **ExperienceCurator：经验整理** | 在独立验证成功后抽象知识，查重并维护已有经验 | 全局经验、仓库经验及新增/合并/不保存决策 |
-
 
 ## 运行流程
 
