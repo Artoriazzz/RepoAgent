@@ -26,6 +26,16 @@ The complete platform is on the [full-stack-integration branch](https://github.c
 
 ## Why Multiple Agents
 
+Program repair involves diagnosis, implementation, testing, failure analysis, and experience curation. RepoAgent assigns specialized roles to these stages so that context, model cost, and execution flow can be managed independently.
+
+1. **Separate contexts**: Each role has its own session containing only the source, task, and upstream artifacts needed for its current stage. This reduces interference from unrelated history and helps control context length.
+2. **Use lower-cost models for simpler work**: Query extraction and experience curation can use lower-cost models, while complex diagnosis and code repair can use more capable models. Models are selected per role through runtime configuration.
+3. **Support pipelines and parallel scheduling**: Explicit handoffs make it easier for the backend to queue stages, apply rate limits, and allocate resources. Independent work or separate tasks can run concurrently, while dependent stages remain ordered. Actual concurrency depends on model limits and execution resources.
+4. **Specialize stages and iterate independently**: Coordinator handles diagnosis and decisions, Implement changes code, TestDesigner designs tests, and FailureReview analyzes failures. Prompts, tools, budgets, and validation mechanisms can be adjusted per stage, with their effects checked across the workflow.
+5. **Keep the repair flow controllable**: When one model handles every step, decisions about when to search, edit, validate, or stop can shift with its current reasoning. Explicit stages and routing let the program manage execution order, authorization scope, correction limits, and stopping conditions while models make decisions within their assigned responsibilities.
+
+### Collaboration in Practice
+
 | Common Challenge | RepoAgent's Approach |
 | --- | --- |
 | Reading a lot of code still leaves the edit location unclear | The Coordinator investigates key unknowns and produces a behavior contract and an EditBrief |
