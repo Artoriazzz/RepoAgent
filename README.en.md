@@ -40,7 +40,7 @@ Program repair involves diagnosis, implementation, testing, failure analysis, an
 | --- | --- |
 | Reading a lot of code still leaves the edit location unclear | Coordinator investigates key unknowns and produces a behavior contract and an EditBrief |
 | How can we tell whether a patch fixes the issue? | TestDesigner generates tests from the issue and source, then runs them against the original code to check bug-reproduction and regression scenarios |
-| Removing an exception introduces regressions on valid inputs | Existing behavior to preserve is handed to the implementer; independent validation checks the target behavior and regressions |
+| Removing an exception introduces regressions on valid inputs | Existing behavior to preserve is handed to the implementer, while TestDesigner designs regression tests for independent validation to check whether the repair affects previously valid behavior |
 | Long failure logs lead to shifting correction strategies | FailureReview extracts concrete failures, invalidated assumptions, and actionable correction evidence |
 | Similar problems require repeated investigation | Global and repository experience is retrieved for Coordinator to check against the current source |
 | Concurrent repair tasks compete for resources or mix contexts | Stage queues schedule work, stateless runtimes reuse clients, and independent sessions isolate task state |
