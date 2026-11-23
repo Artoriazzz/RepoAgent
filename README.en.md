@@ -56,7 +56,7 @@ The complete platform is on the [full-stack-integration branch](https://github.c
 
 The Coordinator delivers an EditBrief, Implement produces the initial patch, and independent validation executes the frozen TestDesigner-generated cases. Failure or insufficient validation triggers a budget check. FailureReview routes actionable code defects to Implement, broader scope or localization changes to the Coordinator, and generated-test defects to TestDesigner for one revision and a new baseline run. Every corrected patch returns to the same validation stage.
 
-![RepoAgent workflow with TestDesigner and three failure-routing paths; Chinese captions](docs/assets/repair-workflow-testdesigner-v7.png)
+![RepoAgent workflow with TestDesigner and three failure-routing paths; Chinese captions](docs/assets/repair-workflow-testdesigner-v8.png)
 
 This diagram describes the TestDesigner-generated-test workflow. Test revisions record a new suite version and baseline; ordinary code corrections reuse frozen tests. Insufficient validation is not counted as success. Retrieval, curation, and correction budgets depend on configuration. Official Harness scores do not feed corrections in this workflow. TestDesigner is integrated with the CLI and SWE-bench batch runner; backend stage-queue integration is still pending. See the [runtime guide](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md#运行流程与入口) for entry points and budgets.
 
