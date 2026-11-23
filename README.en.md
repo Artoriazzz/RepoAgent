@@ -56,25 +56,7 @@ The complete platform is on the [full-stack-integration branch](https://github.c
 
 The Coordinator delivers an EditBrief, Implement produces the initial patch, and independent validation executes the frozen public tests. Failure or insufficient validation triggers a budget check. FailureReview routes actionable code defects to Implement, broader scope or localization changes to the Coordinator, and generated-test defects to TestDesigner for one revision and a new baseline run. Every corrected patch returns to the same validation stage.
 
-```mermaid
-flowchart LR
-    A["Public issue"] --> T["TestDesigner<br/>Design tests · Run baseline"]
-    T --> C["Coordinator<br/>Localize · EditBrief"]
-    M["MemoryQueryAgent<br/>Optional retrieval"] -.-> C
-    C --> I["Implement<br/>Initial repair / Correction"]
-    I --> V["Independent validation<br/>Execute public tests"]
-    V -->|Pass| E["ExperienceCurator<br/>Optional experience curation"]
-    E --> Z(["Finish task"])
-    V -->|Fail / Insufficient| B{"Budget remaining?"}
-    B -->|No| Z
-    B -->|Yes| F["FailureReview<br/>Diagnose · Route"]
-    F -->|Code fix within scope| I
-    F -->|Broader scope / Re-localize| C
-    F -->|Test defect · One revision| R["TestDesigner<br/>Revise tests · Rerun baseline"]
-    R --> V
-    F -->|Environment blocked / No action| Z
-    Z -. Final patch · No feedback .-> H["Official Harness<br/>Independent final scoring"]
-```
+![RepoAgent workflow with TestDesigner and three failure-routing paths; Chinese captions](docs/assets/repair-workflow-testdesigner-v6.png)
 
 This diagram describes the public-test-driven workflow. Test revisions record a new suite version and baseline; ordinary code corrections reuse frozen tests. Insufficient validation is not counted as success. Retrieval, curation, and correction budgets depend on configuration. Official Harness scores do not feed corrections in this workflow. TestDesigner is integrated with the CLI and SWE-bench batch runner; backend stage-queue integration is still pending. See the [runtime guide](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md#运行流程与入口) for entry points and budgets.
 
