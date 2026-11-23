@@ -54,25 +54,7 @@ RepoAgent 是面向软件仓库的多 Agent 程序修复平台，将公开 Issue
 
 Coordinator 交付 EditBrief 后，由 Implement 完成首次修复，再执行冻结的公开测试。失败或验证不足时检查剩余预算：耗尽则结束，否则交给 FailureReview。归因后有三条路：授权范围内的代码问题交给 Implement 定向纠正；需要扩展范围或重新定位时回到 Coordinator；生成测试有问题时，把失败证据和建议交给 TestDesigner 修订并重新试跑基线，再验证当前补丁。纠正后的代码都回到同一个独立验证环节。
 
-```mermaid
-flowchart LR
-    A["公开 Issue"] --> T["TestDesigner<br/>设计测试 · 基线试跑"]
-    T --> C["Coordinator<br/>定位 · EditBrief"]
-    M["MemoryQueryAgent<br/>可选经验召回"] -.-> C
-    C --> I["Implement<br/>首次实现 / 定向纠正"]
-    I --> V["独立验证<br/>执行公开测试"]
-    V -->|通过| E["ExperienceCurator<br/>按需沉淀经验"]
-    E --> Z(["结束任务"])
-    V -->|失败 / 验证不足| B{"预算还有剩余？"}
-    B -->|否| Z
-    B -->|是| F["FailureReview<br/>分析失败 · 决定路由"]
-    F -->|授权范围内修代码| I
-    F -->|扩大范围 / 重新定位| C
-    F -->|测试缺陷 · 至多修订一次| R["TestDesigner<br/>修订用例 · 重跑基线"]
-    R --> V
-    F -->|环境阻塞 / 无法行动| Z
-    Z -. 最终补丁 · 评分不回传 .-> H["官方 Harness<br/>独立最终评分"]
-```
+![RepoAgent 修复协作流程：TestDesigner 基线测试、失败归因与三路纠正](docs/assets/repair-workflow-testdesigner-v6.png)
 
 图中展示公开测试驱动的协作流程。测试修订会记录新版本与基线结果，正常代码纠正复用冻结用例；验证不足不会被当作修复成功。经验召回、经验生成与纠正次数由运行配置控制；官方 Harness 仅作最终评分，不向该流程提供纠正反馈。CLI 与 SWE-bench 批处理已接入，后端阶段队列对 TestDesigner 的接入仍待完成。具体入口与预算见 [运行说明](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md#运行流程与入口)。
 
