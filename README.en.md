@@ -42,6 +42,7 @@ The complete platform is on the [full-stack-integration branch](https://github.c
 | --- | --- | --- |
 | **MemoryQueryAgent: Experience Query** | Extracts the problem description and usage scenario from a public Issue to form an independent retrieval query | `problem_description`, `usage_scenario` |
 | **Coordinator: Diagnosis and Decisions** | Combines retrieved experience, the current Issue, and source code to identify the faulty operation and decide the repair strategy and edit scope | Problem Contract, source evidence, EditBrief, authorized files and line ranges |
+| **TestDesigner: Test Design** | Designs issue-driven tests independently from the repair plan, runs the original baseline, and revises faulty generated cases when routed by FailureReview | Executable cases, baseline results, frozen suite versions, patched results |
 | **Initial Implement: First Repair** | Applies the EditBrief within the authorized scope and reports direct counterevidence and known risks | Initial patch, completion status, risk notes |
 | **FailureReview: Failure Analysis** | Examines validation failures and authorized source code to identify semantic errors, missed paths, or environment failures | Evidence, invalidated assumptions, correction suggestions, scope adjustment needs |
 | **Corrective Implement: Targeted Correction** | Revises the existing patch using the failure analysis and current authorization | Corrected patch, change notes, remaining risks |
@@ -49,11 +50,31 @@ The complete platform is on the [full-stack-integration branch](https://github.c
 
 ## Repair Workflow
 
-A task retrieves experience, then proceeds through coordination, implementation, and independent validation. Successful validation leads to experience curation and task completion. On failure, the remaining budget is checked: an exhausted budget ends the task; otherwise, failure analysis begins. The next step depends on the required edit scope: corrections within the current authorization go directly to Corrective Implement, while changes requiring a broader scope return to the Coordinator for replanning and authorization. Corrected patches return to the same independent validation stage until they pass or the budget is exhausted.
+**TestDesigner prepares tests independently before any code changes.** It uses the public issue, unmodified source, and existing repository tests to design cases, runs them on the original baseline, and freezes usable tests. Test preparation is decoupled from the Coordinator: initial test results are not injected into its context. Optional memory retrieval goes only to the Coordinator.
 
-![Memory-augmented multi-agent repair loop; role names are shown in English alongside Chinese labels](docs/assets/repair-workflow-v5.png)
+The Coordinator delivers an EditBrief, Implement produces the initial patch, and independent validation executes the frozen public tests. Failure or insufficient validation triggers a budget check. FailureReview routes actionable code defects to Implement, broader scope or localization changes to the Coordinator, and generated-test defects to TestDesigner for one revision and a new baseline run. Every corrected patch returns to the same validation stage.
 
-The diagram shows the unified collaboration design. See the [runtime guide](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md#运行流程与入口) for the scheduling paths, retrieval switches, and correction budgets supported by each entry point.
+```mermaid
+flowchart LR
+    A["Public issue"] --> T["TestDesigner<br/>Design tests · Run baseline"]
+    T --> C["Coordinator<br/>Localize · EditBrief"]
+    M["MemoryQueryAgent<br/>Optional retrieval"] -.-> C
+    C --> I["Implement<br/>Initial repair / Correction"]
+    I --> V["Independent validation<br/>Execute public tests"]
+    V -->|Pass| E["ExperienceCurator<br/>Optional experience curation"]
+    E --> Z(["Finish task"])
+    V -->|Fail / Insufficient| B{"Budget remaining?"}
+    B -->|No| Z
+    B -->|Yes| F["FailureReview<br/>Diagnose · Route"]
+    F -->|Code fix within scope| I
+    F -->|Broader scope / Re-localize| C
+    F -->|Test defect · One revision| R["TestDesigner<br/>Revise tests · Rerun baseline"]
+    R --> V
+    F -->|Environment blocked / No action| Z
+    Z -. Final patch · No feedback .-> H["Official Harness<br/>Independent final scoring"]
+```
+
+This diagram describes the public-test-driven workflow. Test revisions record a new suite version and baseline; ordinary code corrections reuse frozen tests. Insufficient validation is not counted as success. Retrieval, curation, and correction budgets depend on configuration. Official Harness scores do not feed corrections in this workflow. TestDesigner is integrated with the CLI and SWE-bench batch runner; backend stage-queue integration is still pending. See the [runtime guide](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md#运行流程与入口) for entry points and budgets.
 
 Three handoffs keep responsibilities explicit:
 

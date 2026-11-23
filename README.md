@@ -50,11 +50,31 @@ RepoAgent 是面向软件仓库的多 Agent 程序修复平台，将公开 Issue
 
 ## 运行流程
 
-任务先检索经验，再进入协调、实现和独立验证。验证通过后沉淀经验并结束任务；验证失败时检查剩余预算，耗尽则结束，否则进入失败归因。归因后按修改范围路由：当前授权范围内可修复的，直接进入定向纠正；需要扩大修改范围的，回到 Coordinator 重新规划与授权。纠正后的 patch 回到同一个独立验证环节，持续循环直至通过或预算耗尽。
+**TestDesigner 先独立准备测试，再开始修改代码。** 它根据公开 Issue、修改前源码和仓库已有测试设计用例，在原始基线上试跑后冻结可用测试。测试准备与 Coordinator 解耦，初始测试结果不注入 Coordinator；可选的经验召回只进入 Coordinator，帮助定位与决策。
 
-![经验召回驱动的多 Agent 修复闭环](docs/assets/repair-workflow-v5.png)
+Coordinator 交付 EditBrief 后，由 Implement 完成首次修复，再执行冻结的公开测试。失败或验证不足时检查剩余预算：耗尽则结束，否则交给 FailureReview。归因后有三条路：授权范围内的代码问题交给 Implement 定向纠正；需要扩展范围或重新定位时回到 Coordinator；生成测试有问题时，把失败证据和建议交给 TestDesigner 修订并重新试跑基线，再验证当前补丁。纠正后的代码都回到同一个独立验证环节。
 
-上图展示统一协作设计。各运行入口当前支持的调度路径、召回开关和纠正预算见 [运行说明](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md#运行流程与入口)。
+```mermaid
+flowchart LR
+    A["公开 Issue"] --> T["TestDesigner<br/>设计测试 · 基线试跑"]
+    T --> C["Coordinator<br/>定位 · EditBrief"]
+    M["MemoryQueryAgent<br/>可选经验召回"] -.-> C
+    C --> I["Implement<br/>首次实现 / 定向纠正"]
+    I --> V["独立验证<br/>执行公开测试"]
+    V -->|通过| E["ExperienceCurator<br/>按需沉淀经验"]
+    E --> Z(["结束任务"])
+    V -->|失败 / 验证不足| B{"预算还有剩余？"}
+    B -->|否| Z
+    B -->|是| F["FailureReview<br/>分析失败 · 决定路由"]
+    F -->|授权范围内修代码| I
+    F -->|扩大范围 / 重新定位| C
+    F -->|测试缺陷 · 至多修订一次| R["TestDesigner<br/>修订用例 · 重跑基线"]
+    R --> V
+    F -->|环境阻塞 / 无法行动| Z
+    Z -. 最终补丁 · 评分不回传 .-> H["官方 Harness<br/>独立最终评分"]
+```
+
+图中展示公开测试驱动的协作流程。测试修订会记录新版本与基线结果，正常代码纠正复用冻结用例；验证不足不会被当作修复成功。经验召回、经验生成与纠正次数由运行配置控制；官方 Harness 仅作最终评分，不向该流程提供纠正反馈。CLI 与 SWE-bench 批处理已接入，后端阶段队列对 TestDesigner 的接入仍待完成。具体入口与预算见 [运行说明](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md#运行流程与入口)。
 
 整个过程中保留三个明确的交接点：
 
