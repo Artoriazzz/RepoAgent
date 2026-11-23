@@ -58,6 +58,17 @@ Program repair involves diagnosis, implementation, testing, failure analysis, an
 | **Corrective Implement: Targeted Correction** | Revises the existing patch using the failure analysis and current authorization | Corrected patch, change notes, remaining risks |
 | **ExperienceCurator: Experience Curation** | Abstracts knowledge after successful independent validation, checks for duplicates, and maintains existing experience | Global and repository experience, with add/merge/no-change decisions |
 
+### Clear Responsibilities, Room for Independent Judgment
+
+Each agent has a defined task, along with tools and room to check its own reasoning. Conclusions from an earlier stage can still be examined, questioned, and revised by the next role.
+
+- **TestDesigner: Write tests, then check the tests themselves.** It can run its generated cases against the unmodified code to see whether they reproduce the reported bug and whether the fixtures, setup, and assertions are sound. Cases that already pass and have a supported expectation can be retained to check that the repair preserves existing behavior.
+- **Coordinator: Propose a repair, then try out the idea.** During diagnosis, it can run a small reproduction on the original code or temporarily try a candidate change to check whether the observations support its explanation. Once the cause is established, it hands Implement the edit location, repair direction, and behavior to preserve.
+- **Implement: Work within scope and report what it discovers.** It chooses implementation details within the scope authorized by Coordinator. If it finds an omission, an affected neighboring branch, or an assumption contradicted by the source, it can report its findings, unfinished work, and known risks alongside the patch.
+- **FailureReview: Identify what went wrong, then route it to the right role.** It examines logs, source, and prior deliverables. Faulty test setup or assertions go back to TestDesigner with evidence and revision suggestions. A broader edit scope or a new diagnosis goes to Coordinator. A sound plan that was implemented incorrectly goes to Implement for correction.
+
+Every stage can check its ideas against actual results. When a problem is found, there is an explicit path for handing the evidence to the role that can address it.
+
 ## Repair Workflow
 
 **TestDesigner prepares tests independently before any code changes.** It uses the public issue, unmodified source, and existing repository tests to design cases, runs them on the original baseline, and freezes usable tests. Test preparation is decoupled from the Coordinator: initial test results are not injected into its context. Optional memory retrieval goes only to the Coordinator.
