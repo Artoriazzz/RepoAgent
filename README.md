@@ -55,11 +55,11 @@ RepoAgent 是面向软件仓库的多 Agent 程序修复平台，将公开 Issue
 
 **TestDesigner 先独立准备测试，再开始修改代码。** 它根据公开 Issue、修改前源码和仓库已有测试设计用例，在原始基线上试跑后冻结可用测试。测试准备与 Coordinator 解耦，初始测试结果不注入 Coordinator；可选的经验召回只进入 Coordinator，帮助定位与决策。
 
-Coordinator 交付 EditBrief 后，由 Implement 完成首次修复，再执行冻结的公开测试。失败或验证不足时检查剩余预算：耗尽则结束，否则交给 FailureReview。归因后有三条路：授权范围内的代码问题交给 Implement 定向纠正；需要扩展范围或重新定位时回到 Coordinator；生成测试有问题时，把失败证据和建议交给 TestDesigner 修订并重新试跑基线，再验证当前补丁。纠正后的代码都回到同一个独立验证环节。
+Coordinator 交付 EditBrief 后，由 Implement 完成首次修复，再执行冻结的 TestDesigner 生成用例。失败或验证不足时检查剩余预算：耗尽则结束，否则交给 FailureReview。归因后有三条路：授权范围内的代码问题交给 Implement 定向纠正；需要扩展范围或重新定位时回到 Coordinator；生成测试有问题时，把失败证据和建议交给 TestDesigner 修订并重新试跑基线，再验证当前补丁。纠正后的代码都回到同一个独立验证环节。
 
-![RepoAgent 修复协作流程：TestDesigner 基线测试、失败归因与三路纠正](docs/assets/repair-workflow-testdesigner-v6.png)
+![RepoAgent 修复协作流程：TestDesigner 基线测试、失败归因与三路纠正](docs/assets/repair-workflow-testdesigner-v7.png)
 
-图中展示公开测试驱动的协作流程。测试修订会记录新版本与基线结果，正常代码纠正复用冻结用例；验证不足不会被当作修复成功。经验召回、经验生成与纠正次数由运行配置控制；官方 Harness 仅作最终评分，不向该流程提供纠正反馈。CLI 与 SWE-bench 批处理已接入，后端阶段队列对 TestDesigner 的接入仍待完成。具体入口与预算见 [运行说明](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md#运行流程与入口)。
+图中展示TestDesigner 生成用例驱动的协作流程。测试修订会记录新版本与基线结果，正常代码纠正复用冻结用例；验证不足不会被当作修复成功。经验召回、经验生成与纠正次数由运行配置控制；官方 Harness 仅作最终评分，不向该流程提供纠正反馈。CLI 与 SWE-bench 批处理已接入，后端阶段队列对 TestDesigner 的接入仍待完成。具体入口与预算见 [运行说明](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md#运行流程与入口)。
 
 整个过程中保留三个明确的交接点：
 
