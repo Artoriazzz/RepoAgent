@@ -172,7 +172,7 @@ Local development records on 300 SWE-bench Lite problems:
 
 | Repair Setting | Resolved | Resolve Rate |
 | --- | ---: | ---: |
-| **Initial repair without experience** | 194 / 300 | **64.67%** |
+| **Initial repair without experience** | 196 / 300 | **65.33%** |
 | **Initial repair with experience** | 211 / 300 | **70.33%** |
 
 ## Explore the Code
