@@ -177,28 +177,34 @@ Local development records on 300 SWE-bench Lite problems:
 
 ## Explore the Code
 
-Directory structure on the full-stack branch:
+Current layout on `main` (key files):
 
 ```text
-repo_agent/                 Python Agent Runtime and workers
+repo_agent/                    Python Agent Runtime and service components
+├── cli.py                     CLI entry points and repair workflows
 ├── core/
-│   ├── coordinator.py      Decisions, handoffs, and scheduling constraints
-│   ├── subagent.py         Role definitions, prompts, and tool permissions
-│   ├── query_engine.py     Session lifecycle and context
-│   ├── query_loop.py       Model calls and tool execution loop
-│   ├── memory_query.py     Independent query extraction
-│   └── runtime_pool.py     Stateless role pools
-├── tools/                  Declarative tools and repository operations
-└── worker/                 Stage consumers, backend callbacks, evaluation, and experience proposals
-backend/                    Spring Boot backend
-└── frontend/               Vue monitoring frontend
-scripts/                    Batch runners, vector experiments, and environment tools
-tests/                      Python unit and offline integration tests
+│   ├── coordinator.py         Diagnosis, EditBrief handoffs, and routing
+│   ├── subagent.py            Role prompts, tool permissions, and execution
+│   ├── prompts.py             Shared system prompt and project instructions
+│   ├── public_validation.py   TestDesigner prompt, baseline runs, and test plans
+│   ├── query_engine.py        Session lifecycle and context management
+│   ├── query_loop.py          Streaming model calls and tool execution loop
+│   ├── context.py             Context budgeting and compression
+│   ├── memory_query.py        Independent retrieval-query extraction
+│   ├── repair_memory.py       Repair experience retrieval and maintenance
+│   ├── runtime_pool.py        Stateless role runtime pools
+│   └── verification.py        Validation command execution and results
+├── tools/                     Tool registration, repository, GitHub, and memory tools
+├── worker/                    Stage queues, backend callbacks, and worktree management
+└── benchmark/                 Task submission and pipeline scheduling benchmarks
+docs/assets/                   Illustrations used by the READMEs
+pyproject.toml                 Package metadata, dependencies, and CLI commands
+.env.example                   Model API and worker configuration examples
 ```
 
-- [Quick Start](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md) · [WSL Deployment and Development](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/full-stack-development.md)
-- [Coordinator Prompt](docs/prompts/Coordinator.md) · [Implement Prompt](docs/prompts/Implement.md)
-- [FailureReview Prompt](docs/prompts/FailureReview.md) · [ExperienceCurator Prompt](docs/prompts/ExperienceCurator.md)
+- Start with the [CLI](repo_agent/cli.py), then follow [Coordinator](repo_agent/core/coordinator.py) and the [model/tool loop](repo_agent/core/query_loop.py).
+- Role prompts for Implement, FailureReview, and ExperienceCurator live in [subagent.py](repo_agent/core/subagent.py). The TestDesigner prompt and baseline workflow live in [public_validation.py](repo_agent/core/public_validation.py).
+- The Spring Boot backend, Vue frontend, and full-platform deployment guides are on [full-stack-integration](https://github.com/Artoriazzz/RepoAgent/tree/full-stack-integration): [Quick Start](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md) · [WSL Development](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/full-stack-development.md).
 
 ## License
 

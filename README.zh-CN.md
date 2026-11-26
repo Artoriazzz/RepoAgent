@@ -181,28 +181,34 @@ Coordinator、Implement、验证、失败归因和经验整理通过独立阶段
 
 ## 深入代码
 
-全栈分支的目录结构：
+`main` 分支当前目录结构（列出主要文件）：
 
 ```text
-repo_agent/                 Python Agent Runtime 与 Worker
+repo_agent/                    Python Agent Runtime 与服务组件
+├── cli.py                     CLI 入口与修复流程
 ├── core/
-│   ├── coordinator.py      决策、交接与调度约束
-│   ├── subagent.py         角色定义、Prompt、工具权限
-│   ├── query_engine.py     会话生命周期与上下文
-│   ├── query_loop.py       模型调用与工具执行循环
-│   ├── memory_query.py     独立查询提取
-│   └── runtime_pool.py     无状态角色池
-├── tools/                  声明式工具与仓库操作
-└── worker/                 阶段消费、后端回调、评测与经验提案
-backend/                    Spring Boot 业务后端
-└── frontend/               Vue 监控前端
-scripts/                    批处理、向量实验和环境工具
-tests/                      Python 单元与离线集成测试
+│   ├── coordinator.py         问题定位、EditBrief 交接与路由
+│   ├── subagent.py            角色提示词、工具权限与执行
+│   ├── prompts.py             共享系统提示词与项目指令加载
+│   ├── public_validation.py   TestDesigner 提示词、基线试跑与测试方案
+│   ├── query_engine.py        会话生命周期与上下文管理
+│   ├── query_loop.py          流式模型调用与工具执行循环
+│   ├── context.py             上下文预算与压缩
+│   ├── memory_query.py        独立检索查询提取
+│   ├── repair_memory.py       修复经验检索与维护
+│   ├── runtime_pool.py        无状态角色 Runtime 池
+│   └── verification.py        验证命令执行与结果处理
+├── tools/                     工具注册、仓库操作、GitHub 与记忆工具
+├── worker/                    阶段队列、后端回调与 worktree 管理
+└── benchmark/                 任务提交与流水线调度基准
+docs/assets/                   README 使用的图片
+pyproject.toml                 包配置、依赖与 CLI 命令
+.env.example                   模型 API 与 Worker 配置示例
 ```
 
-- [快速开始](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md) · [WSL 部署与开发](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/full-stack-development.md)
-- [Coordinator Prompt](docs/prompts/Coordinator.md) · [Implement Prompt](docs/prompts/Implement.md)
-- [FailureReview Prompt](docs/prompts/FailureReview.md) · [ExperienceCurator Prompt](docs/prompts/ExperienceCurator.md)
+- 从 [CLI 入口](repo_agent/cli.py) 开始，继续查看 [Coordinator](repo_agent/core/coordinator.py) 和[模型与工具执行循环](repo_agent/core/query_loop.py)。
+- Implement、FailureReview、ExperienceCurator 的角色提示词位于 [subagent.py](repo_agent/core/subagent.py)；TestDesigner 提示词与基线试跑流程位于 [public_validation.py](repo_agent/core/public_validation.py)。
+- Spring Boot 后端、Vue 前端及完整平台部署文档位于 [full-stack-integration](https://github.com/Artoriazzz/RepoAgent/tree/full-stack-integration) 分支：[快速开始](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/quickstart.md) · [WSL 部署与开发](https://github.com/Artoriazzz/RepoAgent/blob/full-stack-integration/docs/full-stack-development.md)。
 
 ## License
 
