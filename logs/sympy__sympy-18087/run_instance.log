@@ -1,0 +1,108 @@
+2026-11-24 16:47:32,088 - INFO - Environment image sweb.env.py.x86_64.c795f4b88616b8462021ed:latest found for sympy__sympy-18087
+Building instance image sweb.eval.x86_64.sympy__sympy-18087:latest for sympy__sympy-18087
+2026-11-24 16:47:32,113 - INFO - Image sweb.eval.x86_64.sympy__sympy-18087:latest already exists, skipping build.
+2026-11-24 16:47:32,113 - INFO - Creating container for sympy__sympy-18087...
+2026-11-24 16:47:32,152 - INFO - Container for sympy__sympy-18087 created: 10a398dc97f0c32753abf0d0921248078bc0b42c66cda911c0ba089d0272dd20
+2026-11-24 16:47:32,225 - INFO - Container for sympy__sympy-18087 started: 10a398dc97f0c32753abf0d0921248078bc0b42c66cda911c0ba089d0272dd20
+2026-11-24 16:47:32,225 - INFO - Intermediate patch for sympy__sympy-18087 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-18087/repoagent-glm-5.3-flash/sympy__sympy-18087/patch.diff, now applying to container...
+2026-11-24 16:47:32,342 - INFO - >>>>> Applied Patch:
+Checking patch sympy/simplify/trigsimp.py...
+Applied patch sympy/simplify/trigsimp.py cleanly.
+
+2026-11-24 16:47:32,729 - INFO - Git diff before:
+diff --git a/sympy/simplify/trigsimp.py b/sympy/simplify/trigsimp.py
+index 7ca05f0304..8e26271468 100644
+--- a/sympy/simplify/trigsimp.py
++++ b/sympy/simplify/trigsimp.py
+@@ -1110,6 +1110,18 @@ def futrig(e, **kwargs):
+     return e
+ 
+ 
++def _trigpow_has_nonint_exp(e):
++    """True if e contains a Pow whose base contains a trig function
++    and whose exponent is not an integer."""
++    from sympy import Pow
++    for p in e.atoms(Pow):
++        if p.exp.is_Integer:
++            continue
++        if p.base.has(TrigonometricFunction):
++            return True
++    return False
++
++
+ def _futrig(e, **kwargs):
+     """Helper for futrig."""
+     from sympy.simplify.fu import (
+@@ -1134,16 +1146,16 @@ def _futrig(e, **kwargs):
+         TR3,  # canonical angles
+         TR1,  # sec-csc -> cos-sin
+         TR12,  # expand tan of sum
+-        lambda x: _eapply(factor, x, trigs),
++        lambda x: _eapply(factor, x, trigs) if not _trigpow_has_nonint_exp(x) else x,
+         TR2,  # tan-cot -> sin-cos
+         [identity, lambda x: _eapply(_mexpand, x, trigs)],
+         TR2i,  # sin-cos ratio -> tan
+-        lambda x: _eapply(lambda i: factor(i.normal()), x, trigs),
++        lambda x: _eapply(lambda i: factor(i.normal()), x, trigs) if not _trigpow_has_nonint_exp(x) else x,
+         TR14,  # factored identities
+         TR5,  # sin-pow -> cos_pow
+         TR10,  # sin-cos of sums -> sin-cos prod
+         TR11, TR6, # reduce double angles and rewrite cos pows
+-        lambda x: _eapply(factor, x, trigs),
++        lambda x: _eapply(factor, x, trigs) if not _trigpow_has_nonint_exp(x) else x,
+         TR14,  # factored powers of identities
+         [identity, lambda x: _eapply(_mexpand, x, trigs)],
+         TR10i,  # sin-cos products > sin-cos of sums
+2026-11-24 16:47:32,729 - INFO - Eval script for sympy__sympy-18087 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-18087/repoagent-glm-5.3-flash/sympy__sympy-18087/eval.sh; copying to container...
+2026-11-24 16:47:45,286 - INFO - Test runtime: 12.50 seconds
+2026-11-24 16:47:45,286 - INFO - Test output for sympy__sympy-18087 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-18087/repoagent-glm-5.3-flash/sympy__sympy-18087/test_output.txt
+2026-11-24 16:47:45,332 - INFO - Git diff after:
+diff --git a/sympy/simplify/trigsimp.py b/sympy/simplify/trigsimp.py
+index 7ca05f0304..8e26271468 100644
+--- a/sympy/simplify/trigsimp.py
++++ b/sympy/simplify/trigsimp.py
+@@ -1110,6 +1110,18 @@ def futrig(e, **kwargs):
+     return e
+ 
+ 
++def _trigpow_has_nonint_exp(e):
++    """True if e contains a Pow whose base contains a trig function
++    and whose exponent is not an integer."""
++    from sympy import Pow
++    for p in e.atoms(Pow):
++        if p.exp.is_Integer:
++            continue
++        if p.base.has(TrigonometricFunction):
++            return True
++    return False
++
++
+ def _futrig(e, **kwargs):
+     """Helper for futrig."""
+     from sympy.simplify.fu import (
+@@ -1134,16 +1146,16 @@ def _futrig(e, **kwargs):
+         TR3,  # canonical angles
+         TR1,  # sec-csc -> cos-sin
+         TR12,  # expand tan of sum
+-        lambda x: _eapply(factor, x, trigs),
++        lambda x: _eapply(factor, x, trigs) if not _trigpow_has_nonint_exp(x) else x,
+         TR2,  # tan-cot -> sin-cos
+         [identity, lambda x: _eapply(_mexpand, x, trigs)],
+         TR2i,  # sin-cos ratio -> tan
+-        lambda x: _eapply(lambda i: factor(i.normal()), x, trigs),
++        lambda x: _eapply(lambda i: factor(i.normal()), x, trigs) if not _trigpow_has_nonint_exp(x) else x,
+         TR14,  # factored identities
+         TR5,  # sin-pow -> cos_pow
+         TR10,  # sin-cos of sums -> sin-cos prod
+         TR11, TR6, # reduce double angles and rewrite cos pows
+-        lambda x: _eapply(factor, x, trigs),
++        lambda x: _eapply(factor, x, trigs) if not _trigpow_has_nonint_exp(x) else x,
+         TR14,  # factored powers of identities
+         [identity, lambda x: _eapply(_mexpand, x, trigs)],
+         TR10i,  # sin-cos products > sin-cos of sums
+2026-11-24 16:47:45,332 - INFO - Grading answer for sympy__sympy-18087...
+2026-11-24 16:47:45,332 - INFO - report: {'sympy__sympy-18087': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': False, 'tests_status': {'FAIL_TO_PASS': {'success': [], 'failure': ['test_Factors', 'test_fu']}, 'PASS_TO_PASS': {'success': ['test_decompose_power', 'test_Term', 'test_gcd_terms', 'test_factor_terms', 'test_xreplace', 'test_factor_nc', 'test_issue_6360', 'test_issue_7903', 'test_issue_8263', 'test_monotonic_sign', 'test_TR1', 'test_TR2', 'test_TR2i', 'test_TR3', 'test__TR56', 'test_TR5', 'test_TR6', 'test_TR7', 'test_TR8', 'test_TR9', 'test_TR10', 'test_TR10i', 'test_TR11', 'test_TR12', 'test_TR13', 'test_L', 'test_objective', 'test_process_common_addends', 'test_trig_split', 'test_TRmorrie', 'test_TRpower', 'test_hyper_as_trig', 'test_TR12i', 'test_TR14', 'test_TR15_16_17'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sympy__sympy-18087: resolved: False
+2026-11-24 16:47:45,332 - INFO - Attempting to stop container sweb.eval.sympy__sympy-18087.frozen-20261123-lite300-sympy__sympy-18087...
+2026-11-24 16:48:00,422 - INFO - Attempting to remove container sweb.eval.sympy__sympy-18087.frozen-20261123-lite300-sympy__sympy-18087...
+2026-11-24 16:48:00,482 - INFO - Container sweb.eval.sympy__sympy-18087.frozen-20261123-lite300-sympy__sympy-18087 removed.

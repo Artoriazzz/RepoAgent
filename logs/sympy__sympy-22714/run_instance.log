@@ -1,0 +1,48 @@
+2026-11-25 08:27:03,058 - INFO - Environment image sweb.env.py.x86_64.6066c7c15483c5fa2eebd6:latest found for sympy__sympy-22714
+Building instance image sweb.eval.x86_64.sympy__sympy-22714:latest for sympy__sympy-22714
+2026-11-25 08:27:03,078 - INFO - Image sweb.eval.x86_64.sympy__sympy-22714:latest already exists, skipping build.
+2026-11-25 08:27:03,078 - INFO - Creating container for sympy__sympy-22714...
+2026-11-25 08:27:03,104 - INFO - Container for sympy__sympy-22714 created: 8d49cc77cd61d512d00760b37ea830037e6620adbbad6a88d7da8e33b68663cb
+2026-11-25 08:27:03,190 - INFO - Container for sympy__sympy-22714 started: 8d49cc77cd61d512d00760b37ea830037e6620adbbad6a88d7da8e33b68663cb
+2026-11-25 08:27:03,190 - INFO - Intermediate patch for sympy__sympy-22714 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-22714/repoagent-glm-5.3-flash/sympy__sympy-22714/patch.diff, now applying to container...
+2026-11-25 08:27:03,281 - INFO - >>>>> Applied Patch:
+Checking patch sympy/geometry/point.py...
+Applied patch sympy/geometry/point.py cleanly.
+
+2026-11-25 08:27:03,497 - INFO - Git diff before:
+diff --git a/sympy/geometry/point.py b/sympy/geometry/point.py
+index 73c20334d0..73e50ffae3 100644
+--- a/sympy/geometry/point.py
++++ b/sympy/geometry/point.py
+@@ -152,7 +152,7 @@ def __new__(cls, *args, **kwargs):
+                         'warn' or 'ignore'.'''))
+         if any(coords[dim:]):
+             raise ValueError('Nonzero coordinates cannot be removed.')
+-        if any(a.is_number and im(a) for a in coords):
++        if any(a.is_number and im(a, evaluate=True) for a in coords):
+             raise ValueError('Imaginary coordinates are not permitted.')
+         if not all(isinstance(a, Expr) for a in coords):
+             raise TypeError('Coordinates must be valid SymPy expressions.')
+2026-11-25 08:27:03,497 - INFO - Eval script for sympy__sympy-22714 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-22714/repoagent-glm-5.3-flash/sympy__sympy-22714/eval.sh; copying to container...
+2026-11-25 08:27:07,498 - INFO - Test runtime: 3.94 seconds
+2026-11-25 08:27:07,498 - INFO - Test output for sympy__sympy-22714 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-22714/repoagent-glm-5.3-flash/sympy__sympy-22714/test_output.txt
+2026-11-25 08:27:07,543 - INFO - Git diff after:
+diff --git a/sympy/geometry/point.py b/sympy/geometry/point.py
+index 73c20334d0..73e50ffae3 100644
+--- a/sympy/geometry/point.py
++++ b/sympy/geometry/point.py
+@@ -152,7 +152,7 @@ def __new__(cls, *args, **kwargs):
+                         'warn' or 'ignore'.'''))
+         if any(coords[dim:]):
+             raise ValueError('Nonzero coordinates cannot be removed.')
+-        if any(a.is_number and im(a) for a in coords):
++        if any(a.is_number and im(a, evaluate=True) for a in coords):
+             raise ValueError('Imaginary coordinates are not permitted.')
+         if not all(isinstance(a, Expr) for a in coords):
+             raise TypeError('Coordinates must be valid SymPy expressions.')
+2026-11-25 08:27:07,543 - INFO - Grading answer for sympy__sympy-22714...
+2026-11-25 08:27:07,543 - INFO - report: {'sympy__sympy-22714': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['test_issue_22684'], 'failure': []}, 'PASS_TO_PASS': {'success': ['test_point', 'test_point3D', 'test_Point2D', 'test_issue_9214', 'test_issue_11617', 'test_transform', 'test_concyclic_doctest_bug', 'test_arguments', 'test_unit', 'test_dot', 'test__normalize_dimension'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sympy__sympy-22714: resolved: True
+2026-11-25 08:27:07,543 - INFO - Attempting to stop container sweb.eval.sympy__sympy-22714.frozen-20261123-lite300-sympy__sympy-22714...
+2026-11-25 08:27:22,623 - INFO - Attempting to remove container sweb.eval.sympy__sympy-22714.frozen-20261123-lite300-sympy__sympy-22714...
+2026-11-25 08:27:22,658 - INFO - Container sweb.eval.sympy__sympy-22714.frozen-20261123-lite300-sympy__sympy-22714 removed.

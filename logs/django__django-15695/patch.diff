@@ -1,0 +1,16 @@
+diff --git a/django/db/migrations/operations/models.py b/django/db/migrations/operations/models.py
+index d17232e4ec..a555d7a34c 100644
+--- a/django/db/migrations/operations/models.py
++++ b/django/db/migrations/operations/models.py
+@@ -953,6 +953,11 @@ class RenameIndex(IndexOperation):
+                         ", ".join(columns),
+                     )
+                 )
++            # If the index is already named new_name (e.g. after a backward
++            # pass that was a no-op for unnamed indexes), skip the rename to
++            # avoid renaming the index to its existing name.
++            if matching_index_name[0] == self.new_name:
++                return
+             old_index = models.Index(
+                 fields=self.old_fields,
+                 name=matching_index_name[0],

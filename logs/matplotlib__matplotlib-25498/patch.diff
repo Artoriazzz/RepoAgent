@@ -1,0 +1,21 @@
+diff --git a/lib/matplotlib/colorbar.py b/lib/matplotlib/colorbar.py
+index d3d53e3d98..c0f0154773 100644
+--- a/lib/matplotlib/colorbar.py
++++ b/lib/matplotlib/colorbar.py
+@@ -1102,8 +1102,14 @@ class Colorbar:
+ 
+         # transform from 0-1 to vmin-vmax:
+         if not self.norm.scaled():
+-            self.norm.vmin = 0
+-            self.norm.vmax = 1
++            # Auto-scale the norm to the data range of the mappable, so a
++            # newly set norm (e.g. LogNorm() without vmin/vmax) gets a valid
++            # range instead of the invalid default 0-1.
++            if self.mappable.get_array() is not None:
++                self.norm.autoscale_None(self.mappable.get_array())
++            if not self.norm.scaled():
++                self.norm.vmin = 0
++                self.norm.vmax = 1
+         self.norm.vmin, self.norm.vmax = mtransforms.nonsingular(
+             self.norm.vmin, self.norm.vmax, expander=0.1)
+         if (not isinstance(self.norm, colors.BoundaryNorm) and

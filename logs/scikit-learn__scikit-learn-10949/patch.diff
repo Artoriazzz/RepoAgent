@@ -1,0 +1,56 @@
+diff --git a/sklearn/utils/validation.py b/sklearn/utils/validation.py
+index fe1f7236eca..d1632fb3720 100644
+--- a/sklearn/utils/validation.py
++++ b/sklearn/utils/validation.py
+@@ -466,10 +466,23 @@ def check_array(array, accept_sparse=False, accept_large_sparse=True,
+         # not a data type (e.g. a column named dtype in a pandas DataFrame)
+         dtype_orig = None
+ 
++    if hasattr(array, "dtypes") and hasattr(array.dtypes, '__iter__'):
++        # make sure we only warn if the input is a pandas DataFrame
++        dtypes_orig = list(array.dtypes)
++        if not all(hasattr(dt, 'kind') for dt in dtypes_orig):
++            dtype_orig = None
++        else:
++            dtype_orig = dtypes_orig
++
+     if dtype_numeric:
+-        if dtype_orig is not None and dtype_orig.kind == "O":
+-            # if input is object, convert to float.
+-            dtype = np.float64
++        if dtype_orig is not None:
++            dtypes_iter = (dtype_orig if isinstance(dtype_orig, list)
++                           else [dtype_orig])
++            if all(dt.kind == "O" for dt in dtypes_iter):
++                # if input is object, convert to float.
++                dtype = np.float64
++            else:
++                dtype = None
+         else:
+             dtype = None
+ 
+@@ -573,10 +586,20 @@ def check_array(array, accept_sparse=False, accept_large_sparse=True,
+                              % (n_features, shape_repr, ensure_min_features,
+                                 context))
+ 
+-    if warn_on_dtype and dtype_orig is not None and array.dtype != dtype_orig:
+-        msg = ("Data with input dtype %s was converted to %s%s."
+-               % (dtype_orig, array.dtype, context))
+-        warnings.warn(msg, DataConversionWarning)
++    if warn_on_dtype and dtype_orig is not None:
++        if isinstance(dtype_orig, list):
++            converted = array.dtype not in dtype_orig
++            if dtype_orig and all(dt == dtype_orig[0] for dt in dtype_orig):
++                dtype_orig_str = str(dtype_orig[0])
++            else:
++                dtype_orig_str = ", ".join(str(dt) for dt in dtype_orig)
++        else:
++            converted = array.dtype != dtype_orig
++            dtype_orig_str = str(dtype_orig)
++        if converted:
++            msg = ("Data with input dtype %s was converted to %s%s."
++                   % (dtype_orig_str, array.dtype, context))
++            warnings.warn(msg, DataConversionWarning)
+ 
+     if copy and np.may_share_memory(array, array_orig):
+         array = np.array(array, dtype=dtype, order=order)

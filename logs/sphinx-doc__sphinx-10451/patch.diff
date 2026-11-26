@@ -1,0 +1,75 @@
+diff --git a/sphinx/ext/autodoc/typehints.py b/sphinx/ext/autodoc/typehints.py
+index d912cd7d50..c253da9155 100644
+--- a/sphinx/ext/autodoc/typehints.py
++++ b/sphinx/ext/autodoc/typehints.py
+@@ -27,7 +27,13 @@ def record_typehints(app: Sphinx, objtype: str, name: str, obj: Any,
+             sig = inspect.signature(obj, type_aliases=app.config.autodoc_type_aliases)
+             for param in sig.parameters.values():
+                 if param.annotation is not param.empty:
+-                    annotation[param.name] = typing.stringify(param.annotation, mode)
++                    if param.kind == inspect.Parameter.VAR_POSITIONAL:
++                        param_name = '*' + param.name
++                    elif param.kind == inspect.Parameter.VAR_KEYWORD:
++                        param_name = '**' + param.name
++                    else:
++                        param_name = param.name
++                    annotation[param_name] = typing.stringify(param.annotation, mode)
+             if sig.return_annotation is not sig.empty:
+                 annotation['return'] = typing.stringify(sig.return_annotation, mode)
+     except (TypeError, ValueError):
+@@ -96,16 +102,16 @@ def modify_field_list(node: nodes.field_list, annotations: Dict[str, str],
+         if parts[0] == 'param':
+             if len(parts) == 2:
+                 # :param xxx:
+-                arg = arguments.setdefault(parts[1], {})
++                arg = arguments.setdefault(parts[1].lstrip('*'), {})
+                 arg['param'] = True
+             elif len(parts) > 2:
+                 # :param xxx yyy:
+-                name = ' '.join(parts[2:])
++                name = ' '.join(parts[2:]).lstrip('*')
+                 arg = arguments.setdefault(name, {})
+                 arg['param'] = True
+                 arg['type'] = True
+         elif parts[0] == 'type':
+-            name = ' '.join(parts[1:])
++            name = ' '.join(parts[1:]).lstrip('*')
+             arg = arguments.setdefault(name, {})
+             arg['type'] = True
+         elif parts[0] == 'rtype':
+@@ -115,7 +121,7 @@ def modify_field_list(node: nodes.field_list, annotations: Dict[str, str],
+         if name == 'return':
+             continue
+ 
+-        arg = arguments.get(name, {})
++        arg = arguments.get(name.lstrip('*'), {})
+         if not arg.get('type'):
+             field = nodes.field()
+             field += nodes.field_name('', 'type ' + name)
+@@ -152,14 +158,14 @@ def augment_descriptions_with_types(
+         if parts[0] == 'param':
+             if len(parts) == 2:
+                 # :param xxx:
+-                has_description.add(parts[1])
++                has_description.add(parts[1].lstrip('*'))
+             elif len(parts) > 2:
+                 # :param xxx yyy:
+-                name = ' '.join(parts[2:])
++                name = ' '.join(parts[2:]).lstrip('*')
+                 has_description.add(name)
+                 has_type.add(name)
+         elif parts[0] == 'type':
+-            name = ' '.join(parts[1:])
++            name = ' '.join(parts[1:]).lstrip('*')
+             has_type.add(name)
+         elif parts[0] in ('return', 'returns'):
+             has_description.add('return')
+@@ -170,7 +176,7 @@ def augment_descriptions_with_types(
+     for name in annotations:
+         if name in ('return', 'returns'):
+             continue
+-        if name in has_description and name not in has_type:
++        if name.lstrip('*') in has_description and name.lstrip('*') not in has_type:
+             field = nodes.field()
+             field += nodes.field_name('', 'type ' + name)
+             field += nodes.field_body('', nodes.paragraph('', annotations[name]))

@@ -1,0 +1,59 @@
+diff --git a/sympy/assumptions/refine.py b/sympy/assumptions/refine.py
+index e1f97190c0..a063429008 100644
+--- a/sympy/assumptions/refine.py
++++ b/sympy/assumptions/refine.py
+@@ -350,6 +350,47 @@ def refine_sign(expr, assumptions):
+     return expr
+ 
+ 
++def refine_arg(expr, assumptions):
++    """
++    Handler for complex argument.
++
++    Explanation
++    ===========
++
++    For a positive real number the argument is always ``0``, for a negative
++    real number it is ``pi``, and for a purely imaginary number it is
++    ``pi/2`` or ``-pi/2`` depending on the sign of the imaginary part.
++
++    Examples
++    ========
++
++    >>> from sympy import Q, arg, im, Symbol
++    >>> from sympy.assumptions.refine import refine_arg
++    >>> from sympy.abc import x
++    >>> refine_arg(arg(x), Q.positive(x))
++    0
++    >>> refine_arg(arg(x), Q.negative(x))
++    pi
++    >>> y = Symbol('y', imaginary=True)
++    >>> refine_arg(arg(y), Q.positive(im(y)))
++    pi/2
++    >>> refine_arg(arg(y), Q.negative(im(y)))
++    -pi/2
++    """
++    arg = expr.args[0]
++    if ask(Q.positive(arg), assumptions):
++        return S.Zero
++    if ask(Q.negative(arg), assumptions):
++        return S.Pi
++    if ask(Q.imaginary(arg), assumptions):
++        arg_re, arg_im = arg.as_real_imag()
++        if ask(Q.positive(arg_im), assumptions):
++            return S.Pi/2
++        if ask(Q.negative(arg_im), assumptions):
++            return -S.Pi/2
++    return expr
++
++
+ def refine_matrixelement(expr, assumptions):
+     """
+     Handler for symmetric part.
+@@ -380,5 +421,6 @@ def refine_matrixelement(expr, assumptions):
+     're': refine_re,
+     'im': refine_im,
+     'sign': refine_sign,
++    'arg': refine_arg,
+     'MatrixElement': refine_matrixelement
+ }  # type: Dict[str, Callable[[Expr, Boolean], Expr]]

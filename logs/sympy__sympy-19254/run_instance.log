@@ -1,0 +1,124 @@
+2026-11-25 15:40:42,263 - INFO - Environment image sweb.env.py.x86_64.c795f4b88616b8462021ed:latest found for sympy__sympy-19254
+Building instance image sweb.eval.x86_64.sympy__sympy-19254:latest for sympy__sympy-19254
+2026-11-25 15:40:42,284 - INFO - Image sweb.eval.x86_64.sympy__sympy-19254:latest already exists, skipping build.
+2026-11-25 15:40:42,284 - INFO - Creating container for sympy__sympy-19254...
+2026-11-25 15:40:42,356 - INFO - Container for sympy__sympy-19254 created: 31886f20ca2d4514107b58228c0d2912f01a6e9d6c31870c6076e23985a1e593
+2026-11-25 15:40:42,481 - INFO - Container for sympy__sympy-19254 started: 31886f20ca2d4514107b58228c0d2912f01a6e9d6c31870c6076e23985a1e593
+2026-11-25 15:40:42,481 - INFO - Intermediate patch for sympy__sympy-19254 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-19254/repoagent-glm-5.3-flash/sympy__sympy-19254/patch.diff, now applying to container...
+2026-11-25 15:40:42,547 - INFO - >>>>> Applied Patch:
+Checking patch sympy/polys/factortools.py...
+Applied patch sympy/polys/factortools.py cleanly.
+
+2026-11-25 15:40:42,964 - INFO - Git diff before:
+diff --git a/sympy/polys/factortools.py b/sympy/polys/factortools.py
+index 93298f47e6..52b373ac5b 100644
+--- a/sympy/polys/factortools.py
++++ b/sympy/polys/factortools.py
+@@ -123,22 +123,38 @@ def dmp_trial_division(f, factors, u, K):
+     return _sort_factors(result)
+ 
+ 
++def _dmp_ground_coefficients(f, u):
++    """Collect all ground coefficients of ``f`` recursively. """
++    if u == 0:
++        return f
++    else:
++        return [c for g in f for c in _dmp_ground_coefficients(g, u - 1)]
++
++
+ def dup_zz_mignotte_bound(f, K):
+-    """Mignotte bound for univariate polynomials in `K[x]`. """
+-    a = dup_max_norm(f, K)
+-    b = abs(dup_LC(f, K))
++    """Knuth-Cohen bound for univariate polynomials in `K[x]`. """
+     n = dup_degree(f)
+ 
+-    return K.sqrt(K(n + 1))*2**n*a*b
++    if n < 0:
++        return K.zero
++
++    c = sum([coeff**2 for coeff in f])
++
++    return 2*K.sqrt(K(n + 1))*K.sqrt(K(c))
+ 
+ 
+ def dmp_zz_mignotte_bound(f, u, K):
+-    """Mignotte bound for multivariate polynomials in `K[X]`. """
+-    a = dmp_max_norm(f, u, K)
+-    b = abs(dmp_ground_LC(f, u, K))
++    """Knuth-Cohen bound for multivariate polynomials in `K[X]`. """
+     n = sum(dmp_degree_list(f, u))
+ 
+-    return K.sqrt(K(n + 1))*2**n*a*b
++    coeffs = _dmp_ground_coefficients(f, u)
++
++    if not coeffs:
++        return K.zero
++
++    c = sum([coeff**2 for coeff in coeffs])
++
++    return 2*K.sqrt(K(n + 1))*K.sqrt(K(c))
+ 
+ 
+ def dup_zz_hensel_step(m, f, g, h, s, t, K):
+2026-11-25 15:40:42,964 - INFO - Eval script for sympy__sympy-19254 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-19254/repoagent-glm-5.3-flash/sympy__sympy-19254/eval.sh; copying to container...
+2026-11-25 15:40:51,026 - INFO - Test runtime: 8.01 seconds
+2026-11-25 15:40:51,026 - INFO - Test output for sympy__sympy-19254 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-19254/repoagent-glm-5.3-flash/sympy__sympy-19254/test_output.txt
+2026-11-25 15:40:51,065 - INFO - Git diff after:
+diff --git a/sympy/polys/factortools.py b/sympy/polys/factortools.py
+index 93298f47e6..52b373ac5b 100644
+--- a/sympy/polys/factortools.py
++++ b/sympy/polys/factortools.py
+@@ -123,22 +123,38 @@ def dmp_trial_division(f, factors, u, K):
+     return _sort_factors(result)
+ 
+ 
++def _dmp_ground_coefficients(f, u):
++    """Collect all ground coefficients of ``f`` recursively. """
++    if u == 0:
++        return f
++    else:
++        return [c for g in f for c in _dmp_ground_coefficients(g, u - 1)]
++
++
+ def dup_zz_mignotte_bound(f, K):
+-    """Mignotte bound for univariate polynomials in `K[x]`. """
+-    a = dup_max_norm(f, K)
+-    b = abs(dup_LC(f, K))
++    """Knuth-Cohen bound for univariate polynomials in `K[x]`. """
+     n = dup_degree(f)
+ 
+-    return K.sqrt(K(n + 1))*2**n*a*b
++    if n < 0:
++        return K.zero
++
++    c = sum([coeff**2 for coeff in f])
++
++    return 2*K.sqrt(K(n + 1))*K.sqrt(K(c))
+ 
+ 
+ def dmp_zz_mignotte_bound(f, u, K):
+-    """Mignotte bound for multivariate polynomials in `K[X]`. """
+-    a = dmp_max_norm(f, u, K)
+-    b = abs(dmp_ground_LC(f, u, K))
++    """Knuth-Cohen bound for multivariate polynomials in `K[X]`. """
+     n = sum(dmp_degree_list(f, u))
+ 
+-    return K.sqrt(K(n + 1))*2**n*a*b
++    coeffs = _dmp_ground_coefficients(f, u)
++
++    if not coeffs:
++        return K.zero
++
++    c = sum([coeff**2 for coeff in coeffs])
++
++    return 2*K.sqrt(K(n + 1))*K.sqrt(K(c))
+ 
+ 
+ def dup_zz_hensel_step(m, f, g, h, s, t, K):
+2026-11-25 15:40:51,065 - INFO - Grading answer for sympy__sympy-19254...
+2026-11-25 15:40:51,066 - INFO - report: {'sympy__sympy-19254': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': False, 'tests_status': {'FAIL_TO_PASS': {'success': [], 'failure': ['test_dup_zz_mignotte_bound']}, 'PASS_TO_PASS': {'success': ['test_dup_trial_division', 'test_dmp_trial_division', 'test_dup_zz_hensel_step', 'test_dup_zz_hensel_lift', 'test_dup_zz_irreducible_p', 'test_dup_cyclotomic_p', 'test_dup_zz_cyclotomic_poly', 'test_dup_zz_cyclotomic_factor', 'test_dup_zz_factor', 'test_issue_6355', 'test_dmp_zz_factor', 'test_dup_ext_factor', 'test_dmp_ext_factor', 'test_dup_factor_list', 'test_dmp_factor_list', 'test_dup_irreducible_p'], 'failure': ['test_dmp_zz_mignotte_bound', 'test_dmp_zz_wang']}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sympy__sympy-19254: resolved: False
+2026-11-25 15:40:51,066 - INFO - Attempting to stop container sweb.eval.sympy__sympy-19254.frozen-20261123-lite300-sympy__sympy-19254...
+2026-11-25 15:41:06,155 - INFO - Attempting to remove container sweb.eval.sympy__sympy-19254.frozen-20261123-lite300-sympy__sympy-19254...
+2026-11-25 15:41:06,215 - INFO - Container sweb.eval.sympy__sympy-19254.frozen-20261123-lite300-sympy__sympy-19254 removed.

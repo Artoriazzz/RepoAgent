@@ -1,0 +1,115 @@
+diff --git a/django/forms/widgets.py b/django/forms/widgets.py
+index 02aa32b207..e8acdcb5e8 100644
+--- a/django/forms/widgets.py
++++ b/django/forms/widgets.py
+@@ -59,22 +59,19 @@ class Media:
+ 
+     @property
+     def _css(self):
+-        css = self._css_lists[0]
+-        # filter(None, ...) avoids calling merge with empty dicts.
+-        for obj in filter(None, self._css_lists[1:]):
+-            css = {
+-                medium: self.merge(css.get(medium, []), obj.get(medium, []))
+-                for medium in css.keys() | obj.keys()
+-            }
++        css = {}
++        mediums = set()
++        for css_list in self._css_lists:
++            mediums.update(css_list)
++        for medium in mediums:
++            css[medium] = self._merge_all([
++                obj.get(medium, []) for obj in self._css_lists
++            ])
+         return css
+ 
+     @property
+     def _js(self):
+-        js = self._js_lists[0]
+-        # filter(None, ...) avoids calling merge() with empty lists.
+-        for obj in filter(None, self._js_lists[1:]):
+-            js = self.merge(js, obj)
+-        return js
++        return self._merge_all(self._js_lists)
+ 
+     def render(self):
+         return mark_safe('\n'.join(chain.from_iterable(getattr(self, 'render_' + name)() for name in MEDIA_TYPES)))
+@@ -149,6 +146,78 @@ class Media:
+                 last_insert_index = index
+         return combined_list
+ 
++    @staticmethod
++    def _merge_all(lists):
++        """
++        Merge several lists of media paths into a single list, preserving the
++        order of each list where possible and warning about contradictory
++        orders.
++        """
++        # Drop empty lists.
++        lists = [list_ for list_ in lists if list_]
++        if not lists:
++            return []
++        if len(lists) == 1:
++            return list(lists[0])
++        # Deduplicate each list, preserving first-occurrence order, and record
++        # the first occurrence of each path for tie-breaking.
++        unique_lists = []
++        first_occurrence = {}
++        for index, list_ in enumerate(lists):
++            deduped = []
++            for path in list_:
++                if path not in deduped:
++                    deduped.append(path)
++                    first_occurrence.setdefault(path, (index, len(deduped)))
++            unique_lists.append(deduped)
++        # Build a graph of dependencies: an edge from a to b means a must be
++        # emitted before b.
++        edges = {path: set() for path in first_occurrence}
++        in_degree = {path: 0 for path in first_occurrence}
++        for deduped in unique_lists:
++            for predecessor, path in zip(deduped, deduped[1:]):
++                # Skip self-edges; sets keep duplicate edges from inflating
++                # in-degrees.
++                if predecessor != path and path not in edges[predecessor]:
++                    edges[predecessor].add(path)
++                    in_degree[path] += 1
++        # Kahn's algorithm: repeatedly emit the available path (in-degree 0)
++        # with the earliest first occurrence.
++        combined_list = []
++        placed = set()
++        while len(combined_list) < len(first_occurrence):
++            available = [
++                path for path in first_occurrence
++                if path not in placed and not in_degree[path]
++            ]
++            if available:
++                node = min(available, key=first_occurrence.__getitem__)
++            else:
++                # A cycle: emit the remaining path with the earliest first
++                # occurrence and warn about the contradiction.
++                node = min(
++                    (path for path in first_occurrence if path not in placed),
++                    key=first_occurrence.__getitem__,
++                )
++                blocker = min(
++                    (
++                        predecessor for predecessor in first_occurrence
++                        if predecessor not in placed and node in edges[predecessor]
++                    ),
++                    key=first_occurrence.__getitem__,
++                )
++                warnings.warn(
++                    'Detected duplicate Media files in an opposite order:\n'
++                    '%s\n%s' % (node, blocker),
++                    MediaOrderConflictWarning,
++                    stacklevel=2,
++                )
++            combined_list.append(node)
++            placed.add(node)
++            for dependent in edges[node]:
++                in_degree[dependent] -= 1
++        return combined_list
++
+     def __add__(self, other):
+         combined = Media()
+         combined._css_lists = self._css_lists + other._css_lists

@@ -1,0 +1,126 @@
+2026-11-25 06:37:37,850 - INFO - Environment image sweb.env.py.x86_64.6066c7c15483c5fa2eebd6:latest found for sympy__sympy-20154
+Building instance image sweb.eval.x86_64.sympy__sympy-20154:latest for sympy__sympy-20154
+2026-11-25 06:37:37,868 - INFO - Image sweb.eval.x86_64.sympy__sympy-20154:latest already exists, skipping build.
+2026-11-25 06:37:37,869 - INFO - Creating container for sympy__sympy-20154...
+2026-11-25 06:37:37,942 - INFO - Container for sympy__sympy-20154 created: 80cb7d5bdbf02a9aaac2269bcf17f79f0fcba055db7680106018eff63a416ce9
+2026-11-25 06:37:38,070 - INFO - Container for sympy__sympy-20154 started: 80cb7d5bdbf02a9aaac2269bcf17f79f0fcba055db7680106018eff63a416ce9
+2026-11-25 06:37:38,070 - INFO - Intermediate patch for sympy__sympy-20154 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-20154/repoagent-glm-5.3-flash/sympy__sympy-20154/patch.diff, now applying to container...
+2026-11-25 06:37:38,153 - INFO - >>>>> Applied Patch:
+Checking patch sympy/utilities/iterables.py...
+Applied patch sympy/utilities/iterables.py cleanly.
+
+2026-11-25 06:37:38,385 - INFO - Git diff before:
+diff --git a/sympy/utilities/iterables.py b/sympy/utilities/iterables.py
+index dd36dea304..4066d8fc68 100644
+--- a/sympy/utilities/iterables.py
++++ b/sympy/utilities/iterables.py
+@@ -1738,20 +1738,10 @@ def partitions(n, m=None, k=None, size=False):
+     {2: 1, 4: 1}
+     {3: 2}
+ 
+-    Note that the _same_ dictionary object is returned each time.
+-    This is for speed:  generating each partition goes quickly,
+-    taking constant time, independent of n.
+-
+     >>> [p for p in partitions(6, k=2)]
+-    [{1: 6}, {1: 6}, {1: 6}, {1: 6}]
+-
+-    If you want to build a list of the returned dictionaries then
+-    make a copy of them:
+-
+-    >>> [p.copy() for p in partitions(6, k=2)]  # doctest: +SKIP
+-    [{2: 3}, {1: 2, 2: 2}, {1: 4, 2: 1}, {1: 6}]
+-    >>> [(M, p.copy()) for M, p in partitions(6, k=2, size=True)]  # doctest: +SKIP
+-    [(3, {2: 3}), (4, {1: 2, 2: 2}), (5, {1: 4, 2: 1}), (6, {1: 6})]
++    [{2: 3}, {2: 2, 1: 2}, {2: 1, 1: 4}, {1: 6}]
++    >>> [(M, p) for M, p in partitions(6, k=2, size=True)]
++    [(3, {2: 3}), (4, {2: 2, 1: 2}), (5, {2: 1, 1: 4}), (6, {1: 6})]
+ 
+     References
+     ==========
+@@ -1802,9 +1792,9 @@ def partitions(n, m=None, k=None, size=False):
+         keys.append(r)
+     room = m - q - bool(r)
+     if size:
+-        yield sum(ms.values()), ms
++        yield sum(ms.values()), ms.copy()
+     else:
+-        yield ms
++        yield ms.copy()
+ 
+     while keys != [1]:
+         # Reuse any 1's.
+@@ -1842,9 +1832,9 @@ def partitions(n, m=None, k=None, size=False):
+             break
+         room -= need
+         if size:
+-            yield sum(ms.values()), ms
++            yield sum(ms.values()), ms.copy()
+         else:
+-            yield ms
++            yield ms.copy()
+ 
+ 
+ def ordered_partitions(n, m=None, sort=True):
+2026-11-25 06:37:38,385 - INFO - Eval script for sympy__sympy-20154 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-20154/repoagent-glm-5.3-flash/sympy__sympy-20154/eval.sh; copying to container...
+2026-11-25 06:37:40,116 - INFO - Test runtime: 1.68 seconds
+2026-11-25 06:37:40,116 - INFO - Test output for sympy__sympy-20154 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-20154/repoagent-glm-5.3-flash/sympy__sympy-20154/test_output.txt
+2026-11-25 06:37:40,160 - INFO - Git diff after:
+diff --git a/sympy/utilities/iterables.py b/sympy/utilities/iterables.py
+index dd36dea304..4066d8fc68 100644
+--- a/sympy/utilities/iterables.py
++++ b/sympy/utilities/iterables.py
+@@ -1738,20 +1738,10 @@ def partitions(n, m=None, k=None, size=False):
+     {2: 1, 4: 1}
+     {3: 2}
+ 
+-    Note that the _same_ dictionary object is returned each time.
+-    This is for speed:  generating each partition goes quickly,
+-    taking constant time, independent of n.
+-
+     >>> [p for p in partitions(6, k=2)]
+-    [{1: 6}, {1: 6}, {1: 6}, {1: 6}]
+-
+-    If you want to build a list of the returned dictionaries then
+-    make a copy of them:
+-
+-    >>> [p.copy() for p in partitions(6, k=2)]  # doctest: +SKIP
+-    [{2: 3}, {1: 2, 2: 2}, {1: 4, 2: 1}, {1: 6}]
+-    >>> [(M, p.copy()) for M, p in partitions(6, k=2, size=True)]  # doctest: +SKIP
+-    [(3, {2: 3}), (4, {1: 2, 2: 2}), (5, {1: 4, 2: 1}), (6, {1: 6})]
++    [{2: 3}, {2: 2, 1: 2}, {2: 1, 1: 4}, {1: 6}]
++    >>> [(M, p) for M, p in partitions(6, k=2, size=True)]
++    [(3, {2: 3}), (4, {2: 2, 1: 2}), (5, {2: 1, 1: 4}), (6, {1: 6})]
+ 
+     References
+     ==========
+@@ -1802,9 +1792,9 @@ def partitions(n, m=None, k=None, size=False):
+         keys.append(r)
+     room = m - q - bool(r)
+     if size:
+-        yield sum(ms.values()), ms
++        yield sum(ms.values()), ms.copy()
+     else:
+-        yield ms
++        yield ms.copy()
+ 
+     while keys != [1]:
+         # Reuse any 1's.
+@@ -1842,9 +1832,9 @@ def partitions(n, m=None, k=None, size=False):
+             break
+         room -= need
+         if size:
+-            yield sum(ms.values()), ms
++            yield sum(ms.values()), ms.copy()
+         else:
+-            yield ms
++            yield ms.copy()
+ 
+ 
+ def ordered_partitions(n, m=None, sort=True):
+2026-11-25 06:37:40,160 - INFO - Grading answer for sympy__sympy-20154...
+2026-11-25 06:37:40,160 - INFO - report: {'sympy__sympy-20154': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['test_partitions', 'test_uniq'], 'failure': []}, 'PASS_TO_PASS': {'success': ['test_is_palindromic', 'test_postorder_traversal', 'test_flatten', 'test_iproduct', 'test_group', 'test_subsets', 'test_variations', 'test_cartes', 'test_filter_symbols', 'test_numbered_symbols', 'test_sift', 'test_take', 'test_dict_merge', 'test_prefixes', 'test_postfixes', 'test_topological_sort', 'test_strongly_connected_components', 'test_connected_components', 'test_rotate', 'test_multiset_partitions', 'test_multiset_combinations', 'test_multiset_permutations', 'test_binary_partitions', 'test_bell_perm', 'test_involutions', 'test_derangements', 'test_necklaces', 'test_bracelets', 'test_generate_oriented_forest', 'test_unflatten', 'test_common_prefix_suffix', 'test_minlex', 'test_ordered', 'test_runs', 'test_reshape', 'test_kbins', 'test_has_dups', 'test__partition', 'test_ordered_partitions', 'test_rotations'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sympy__sympy-20154: resolved: True
+2026-11-25 06:37:40,161 - INFO - Attempting to stop container sweb.eval.sympy__sympy-20154.frozen-20261123-lite300-sympy__sympy-20154...
+2026-11-25 06:37:55,270 - INFO - Attempting to remove container sweb.eval.sympy__sympy-20154.frozen-20261123-lite300-sympy__sympy-20154...
+2026-11-25 06:37:55,327 - INFO - Container sweb.eval.sympy__sympy-20154.frozen-20261123-lite300-sympy__sympy-20154 removed.

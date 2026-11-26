@@ -1,0 +1,50 @@
+2026-11-25 12:56:43,722 - INFO - Environment image sweb.env.py.x86_64.c795f4b88616b8462021ed:latest found for sympy__sympy-13437
+Building instance image sweb.eval.x86_64.sympy__sympy-13437:latest for sympy__sympy-13437
+2026-11-25 12:56:43,746 - INFO - Image sweb.eval.x86_64.sympy__sympy-13437:latest already exists, skipping build.
+2026-11-25 12:56:43,746 - INFO - Creating container for sympy__sympy-13437...
+2026-11-25 12:56:43,877 - INFO - Container for sympy__sympy-13437 created: e9a3b275afb82d7749ba4edac8fe31450d9d0bab54156eff1d691044d36a091a
+2026-11-25 12:56:44,012 - INFO - Container for sympy__sympy-13437 started: e9a3b275afb82d7749ba4edac8fe31450d9d0bab54156eff1d691044d36a091a
+2026-11-25 12:56:44,012 - INFO - Intermediate patch for sympy__sympy-13437 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-13437/repoagent-glm-5.3-flash/sympy__sympy-13437/patch.diff, now applying to container...
+2026-11-25 12:56:44,136 - INFO - >>>>> Applied Patch:
+Checking patch sympy/functions/combinatorial/numbers.py...
+Applied patch sympy/functions/combinatorial/numbers.py cleanly.
+
+2026-11-25 12:56:44,670 - INFO - Git diff before:
+diff --git a/sympy/functions/combinatorial/numbers.py b/sympy/functions/combinatorial/numbers.py
+index 896729ac8..3f0ec1deb 100644
+--- a/sympy/functions/combinatorial/numbers.py
++++ b/sympy/functions/combinatorial/numbers.py
+@@ -434,6 +434,9 @@ def _bell_incomplete_poly(n, k, symbols):
+ 
+     @classmethod
+     def eval(cls, n, k_sym=None, symbols=None):
++        if n is S.Infinity and k_sym is None:
++            return S.Infinity
++
+         if n.is_Integer and n.is_nonnegative:
+             if k_sym is None:
+                 return Integer(cls._bell(int(n)))
+2026-11-25 12:56:44,670 - INFO - Eval script for sympy__sympy-13437 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-13437/repoagent-glm-5.3-flash/sympy__sympy-13437/eval.sh; copying to container...
+2026-11-25 12:56:53,516 - INFO - Test runtime: 8.78 seconds
+2026-11-25 12:56:53,516 - INFO - Test output for sympy__sympy-13437 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-13437/repoagent-glm-5.3-flash/sympy__sympy-13437/test_output.txt
+2026-11-25 12:56:53,587 - INFO - Git diff after:
+diff --git a/sympy/functions/combinatorial/numbers.py b/sympy/functions/combinatorial/numbers.py
+index 896729ac8..3f0ec1deb 100644
+--- a/sympy/functions/combinatorial/numbers.py
++++ b/sympy/functions/combinatorial/numbers.py
+@@ -434,6 +434,9 @@ def _bell_incomplete_poly(n, k, symbols):
+ 
+     @classmethod
+     def eval(cls, n, k_sym=None, symbols=None):
++        if n is S.Infinity and k_sym is None:
++            return S.Infinity
++
+         if n.is_Integer and n.is_nonnegative:
+             if k_sym is None:
+                 return Integer(cls._bell(int(n)))
+2026-11-25 12:56:53,587 - INFO - Grading answer for sympy__sympy-13437...
+2026-11-25 12:56:53,587 - INFO - report: {'sympy__sympy-13437': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': False, 'tests_status': {'FAIL_TO_PASS': {'success': [], 'failure': ['test_bell']}, 'PASS_TO_PASS': {'success': ['test_bernoulli', 'test_fibonacci', 'test_harmonic', 'test_harmonic_rational', 'test_harmonic_evalf', 'test_harmonic_rewrite_polygamma', 'test_harmonic_rewrite_sum', 'test_euler', 'test_euler_odd', 'test_euler_polynomials', 'test_euler_polynomial_rewrite', 'test_catalan', 'test_genocchi', 'test_nC_nP_nT', 'test_issue_8496'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sympy__sympy-13437: resolved: False
+2026-11-25 12:56:53,588 - INFO - Attempting to stop container sweb.eval.sympy__sympy-13437.frozen-20261123-lite300-sympy__sympy-13437...
+2026-11-25 12:57:08,688 - INFO - Attempting to remove container sweb.eval.sympy__sympy-13437.frozen-20261123-lite300-sympy__sympy-13437...
+2026-11-25 12:57:08,752 - INFO - Container sweb.eval.sympy__sympy-13437.frozen-20261123-lite300-sympy__sympy-13437 removed.

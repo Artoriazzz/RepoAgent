@@ -1,0 +1,21 @@
+diff --git a/django/contrib/admin/checks.py b/django/contrib/admin/checks.py
+index 0fefe65e48..5d1cfc4a2a 100644
+--- a/django/contrib/admin/checks.py
++++ b/django/contrib/admin/checks.py
+@@ -897,7 +897,16 @@ class ModelAdminChecks(BaseModelAdminChecks):
+             return []
+         try:
+             field = obj.model._meta.get_field(item)
++            if field.is_relation and (
++                (field.many_to_one and not field.related_model) or field.one_to_many
++            ):
++                # Mirror _get_non_gfk_field(): reverse relations and generic
++                # foreign keys are not resolvable for admin purposes, so fall
++                # back to the model attribute lookup below.
++                field = None
+         except FieldDoesNotExist:
++            field = None
++        if field is None:
+             try:
+                 field = getattr(obj.model, item)
+             except AttributeError:

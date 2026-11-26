@@ -1,0 +1,46 @@
+2026-11-24 22:34:18,268 - INFO - Environment image sweb.env.py.x86_64.4098090a79a10c5889cf3f:latest found for sphinx-doc__sphinx-11445
+Building instance image sweb.eval.x86_64.sphinx-doc__sphinx-11445:latest for sphinx-doc__sphinx-11445
+2026-11-24 22:34:18,305 - INFO - Image sweb.eval.x86_64.sphinx-doc__sphinx-11445:latest already exists, skipping build.
+2026-11-24 22:34:18,305 - INFO - Creating container for sphinx-doc__sphinx-11445...
+2026-11-24 22:34:18,352 - INFO - Container for sphinx-doc__sphinx-11445 created: 65cbc166a450f5aebdb934908e87e8fc259bac0c94f919d7438b7769d672bcc3
+2026-11-24 22:34:18,432 - INFO - Container for sphinx-doc__sphinx-11445 started: 65cbc166a450f5aebdb934908e87e8fc259bac0c94f919d7438b7769d672bcc3
+2026-11-24 22:34:18,432 - INFO - Intermediate patch for sphinx-doc__sphinx-11445 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-11445/repoagent-glm-5.3-flash/sphinx-doc__sphinx-11445/patch.diff, now applying to container...
+2026-11-24 22:34:18,506 - INFO - >>>>> Applied Patch:
+Checking patch sphinx/util/rst.py...
+Applied patch sphinx/util/rst.py cleanly.
+
+2026-11-24 22:34:18,656 - INFO - Git diff before:
+diff --git a/sphinx/util/rst.py b/sphinx/util/rst.py
+index 7a1538325..bce406860 100644
+--- a/sphinx/util/rst.py
++++ b/sphinx/util/rst.py
+@@ -25,7 +25,7 @@ except ImportError:
+ 
+ logger = logging.getLogger(__name__)
+ 
+-docinfo_re = re.compile(':\\w+:.*?')
++docinfo_re = re.compile(':(\\w)+:(\\s|$)')
+ symbols_re = re.compile(r'([!-\-/:-@\[-`{-~])')  # symbols without dot(0x2e)
+ SECTIONING_CHARS = ['=', '-', '~']
+2026-11-24 22:34:18,656 - INFO - Eval script for sphinx-doc__sphinx-11445 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-11445/repoagent-glm-5.3-flash/sphinx-doc__sphinx-11445/eval.sh; copying to container...
+2026-11-24 22:34:20,955 - INFO - Test runtime: 2.23 seconds
+2026-11-24 22:34:20,955 - INFO - Test output for sphinx-doc__sphinx-11445 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-11445/repoagent-glm-5.3-flash/sphinx-doc__sphinx-11445/test_output.txt
+2026-11-24 22:34:21,026 - INFO - Git diff after:
+diff --git a/sphinx/util/rst.py b/sphinx/util/rst.py
+index 7a1538325..bce406860 100644
+--- a/sphinx/util/rst.py
++++ b/sphinx/util/rst.py
+@@ -25,7 +25,7 @@ except ImportError:
+ 
+ logger = logging.getLogger(__name__)
+ 
+-docinfo_re = re.compile(':\\w+:.*?')
++docinfo_re = re.compile(':(\\w)+:(\\s|$)')
+ symbols_re = re.compile(r'([!-\-/:-@\[-`{-~])')  # symbols without dot(0x2e)
+ SECTIONING_CHARS = ['=', '-', '~']
+2026-11-24 22:34:21,026 - INFO - Grading answer for sphinx-doc__sphinx-11445...
+2026-11-24 22:34:21,027 - INFO - report: {'sphinx-doc__sphinx-11445': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['tests/test_util_rst.py::test_prepend_prolog_with_roles_in_sections_with_newline', 'tests/test_util_rst.py::test_prepend_prolog_with_roles_in_sections_without_newline'], 'failure': []}, 'PASS_TO_PASS': {'success': ['tests/test_util_rst.py::test_escape', 'tests/test_util_rst.py::test_append_epilog', 'tests/test_util_rst.py::test_prepend_prolog', 'tests/test_util_rst.py::test_prepend_prolog_with_CR', 'tests/test_util_rst.py::test_prepend_prolog_without_CR', 'tests/test_util_rst.py::test_prepend_prolog_with_roles_in_sections', 'tests/test_util_rst.py::test_textwidth', 'tests/test_util_rst.py::test_heading'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sphinx-doc__sphinx-11445: resolved: True
+2026-11-24 22:34:21,027 - INFO - Attempting to stop container sweb.eval.sphinx-doc__sphinx-11445.frozen-20261123-lite300-sphinx-doc__sphinx-11445...
+2026-11-24 22:34:36,141 - INFO - Attempting to remove container sweb.eval.sphinx-doc__sphinx-11445.frozen-20261123-lite300-sphinx-doc__sphinx-11445...
+2026-11-24 22:34:36,171 - INFO - Container sweb.eval.sphinx-doc__sphinx-11445.frozen-20261123-lite300-sphinx-doc__sphinx-11445 removed.

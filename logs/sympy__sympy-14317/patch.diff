@@ -1,0 +1,43 @@
+diff --git a/sympy/printing/latex.py b/sympy/printing/latex.py
+index 737e16cc74..185b031f87 100644
+--- a/sympy/printing/latex.py
++++ b/sympy/printing/latex.py
+@@ -1854,11 +1854,36 @@ def _print_PolynomialRingBase(self, expr):
+ 
+     def _print_Poly(self, poly):
+         cls = poly.__class__.__name__
+-        expr = self._print(poly.as_expr())
++
++        terms = []
++        for monom, coeff in poly.terms():
++            term = coeff
++            for gen, exp in zip(poly.gens, monom):
++                if exp:
++                    term = term*gen**exp
++            terms.append(term)
++
++        if not terms:
++            terms = [S.Zero]
++
++        expr_tex = ""
++        for i, term in enumerate(terms):
++            if i == 0:
++                pass
++            elif _coeff_isneg(term):
++                expr_tex += " - "
++                term = -term
++            else:
++                expr_tex += " + "
++            term_tex = self._print(term)
++            if self._needs_add_brackets(term):
++                term_tex = r"\left(%s\right)" % term_tex
++            expr_tex += term_tex
++
+         gens = list(map(self._print, poly.gens))
+         domain = "domain=%s" % self._print(poly.get_domain())
+ 
+-        args = ", ".join([expr] + gens + [domain])
++        args = ", ".join([expr_tex] + gens + [domain])
+         if cls in accepted_latex_functions:
+             tex = r"\%s {\left (%s \right )}" % (cls, args)
+         else:

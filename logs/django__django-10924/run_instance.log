@@ -1,0 +1,176 @@
+2026-11-23 14:58:57,471 - INFO - Environment image sweb.env.py.x86_64.2baaea72acc974f6c02079:latest found for django__django-10924
+Building instance image sweb.eval.x86_64.django__django-10924:latest for django__django-10924
+2026-11-23 14:58:57,502 - INFO - Image sweb.eval.x86_64.django__django-10924:latest already exists, skipping build.
+2026-11-23 14:58:57,502 - INFO - Creating container for django__django-10924...
+2026-11-23 14:58:57,558 - INFO - Container for django__django-10924 created: bc7a0d20697e8c0858973d1e8e0b9fb124c2b8a83d8b84c8d0169fac6fcd3535
+2026-11-23 14:58:57,705 - INFO - Container for django__django-10924 started: bc7a0d20697e8c0858973d1e8e0b9fb124c2b8a83d8b84c8d0169fac6fcd3535
+2026-11-23 14:58:57,706 - INFO - Intermediate patch for django__django-10924 written to logs/run_evaluation/frozen-20261123-lite300-django__django-10924/repoagent-glm-5.3-flash/django__django-10924/patch.diff, now applying to container...
+2026-11-23 14:58:57,855 - INFO - >>>>> Applied Patch:
+Checking patch django/db/models/fields/__init__.py...
+Checking patch django/forms/fields.py...
+Checking patch docs/ref/forms/fields.txt...
+Checking patch docs/ref/models/fields.txt...
+Applied patch django/db/models/fields/__init__.py cleanly.
+Applied patch django/forms/fields.py cleanly.
+Applied patch docs/ref/forms/fields.txt cleanly.
+Applied patch docs/ref/models/fields.txt cleanly.
+
+2026-11-23 14:58:58,406 - INFO - Git diff before:
+diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py
+index 0c64748ccd..4d7eb11151 100644
+--- a/django/db/models/fields/__init__.py
++++ b/django/db/models/fields/__init__.py
+@@ -1709,7 +1709,7 @@ class FilePathField(Field):
+ 
+     def formfield(self, **kwargs):
+         return super().formfield(**{
+-            'path': self.path,
++            'path': self.path() if callable(self.path) else self.path,
+             'match': self.match,
+             'recursive': self.recursive,
+             'form_class': forms.FilePathField,
+diff --git a/django/forms/fields.py b/django/forms/fields.py
+index a977256525..ad6eb22586 100644
+--- a/django/forms/fields.py
++++ b/django/forms/fields.py
+@@ -1090,20 +1090,23 @@ class FilePathField(ChoiceField):
+         if self.match is not None:
+             self.match_re = re.compile(self.match)
+ 
++        if callable(self.path):
++            self.path = self.path()
++
+         if recursive:
+             for root, dirs, files in sorted(os.walk(self.path)):
+                 if self.allow_files:
+                     for f in sorted(files):
+                         if self.match is None or self.match_re.search(f):
+                             f = os.path.join(root, f)
+-                            self.choices.append((f, f.replace(path, "", 1)))
++                            self.choices.append((f, f.replace(self.path, "", 1)))
+                 if self.allow_folders:
+                     for f in sorted(dirs):
+                         if f == '__pycache__':
+                             continue
+                         if self.match is None or self.match_re.search(f):
+                             f = os.path.join(root, f)
+-                            self.choices.append((f, f.replace(path, "", 1)))
++                            self.choices.append((f, f.replace(self.path, "", 1)))
+         else:
+             choices = []
+             for f in os.scandir(self.path):
+diff --git a/docs/ref/forms/fields.txt b/docs/ref/forms/fields.txt
+index d7bc32c412..43c880482b 100644
+--- a/docs/ref/forms/fields.txt
++++ b/docs/ref/forms/fields.txt
+@@ -638,7 +638,8 @@ For each field, we describe the default widget used if you don't specify
+     .. attribute:: path
+ 
+         The absolute path to the directory whose contents you want listed. This
+-        directory must exist.
++        directory must exist. May also be a callable, such as a function to
++        defer selecting the directory at runtime.
+ 
+     .. attribute:: recursive
+ 
+diff --git a/docs/ref/models/fields.txt b/docs/ref/models/fields.txt
+index e352e8b007..2167905417 100644
+--- a/docs/ref/models/fields.txt
++++ b/docs/ref/models/fields.txt
+@@ -868,6 +868,12 @@ directory on the filesystem. Has three special arguments, of which the first is
+     Required. The absolute filesystem path to a directory from which this
+     :class:`FilePathField` should get its choices. Example: ``"/home/images"``.
+ 
++    ``path`` may also be a callable, such as a function to defer selecting the
++    directory at runtime. For example::
++
++        def get_path():
++            return '/home/images'
++
+ .. attribute:: FilePathField.match
+ 
+     Optional. A regular expression, as a string, that :class:`FilePathField`
+2026-11-23 14:58:58,406 - INFO - Eval script for django__django-10924 written to logs/run_evaluation/frozen-20261123-lite300-django__django-10924/repoagent-glm-5.3-flash/django__django-10924/eval.sh; copying to container...
+2026-11-23 14:59:02,816 - INFO - Test runtime: 4.33 seconds
+2026-11-23 14:59:02,816 - INFO - Test output for django__django-10924 written to logs/run_evaluation/frozen-20261123-lite300-django__django-10924/repoagent-glm-5.3-flash/django__django-10924/test_output.txt
+2026-11-23 14:59:02,908 - INFO - Git diff after:
+diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py
+index 0c64748ccd..4d7eb11151 100644
+--- a/django/db/models/fields/__init__.py
++++ b/django/db/models/fields/__init__.py
+@@ -1709,7 +1709,7 @@ class FilePathField(Field):
+ 
+     def formfield(self, **kwargs):
+         return super().formfield(**{
+-            'path': self.path,
++            'path': self.path() if callable(self.path) else self.path,
+             'match': self.match,
+             'recursive': self.recursive,
+             'form_class': forms.FilePathField,
+diff --git a/django/forms/fields.py b/django/forms/fields.py
+index a977256525..ad6eb22586 100644
+--- a/django/forms/fields.py
++++ b/django/forms/fields.py
+@@ -1090,20 +1090,23 @@ class FilePathField(ChoiceField):
+         if self.match is not None:
+             self.match_re = re.compile(self.match)
+ 
++        if callable(self.path):
++            self.path = self.path()
++
+         if recursive:
+             for root, dirs, files in sorted(os.walk(self.path)):
+                 if self.allow_files:
+                     for f in sorted(files):
+                         if self.match is None or self.match_re.search(f):
+                             f = os.path.join(root, f)
+-                            self.choices.append((f, f.replace(path, "", 1)))
++                            self.choices.append((f, f.replace(self.path, "", 1)))
+                 if self.allow_folders:
+                     for f in sorted(dirs):
+                         if f == '__pycache__':
+                             continue
+                         if self.match is None or self.match_re.search(f):
+                             f = os.path.join(root, f)
+-                            self.choices.append((f, f.replace(path, "", 1)))
++                            self.choices.append((f, f.replace(self.path, "", 1)))
+         else:
+             choices = []
+             for f in os.scandir(self.path):
+diff --git a/docs/ref/forms/fields.txt b/docs/ref/forms/fields.txt
+index d7bc32c412..43c880482b 100644
+--- a/docs/ref/forms/fields.txt
++++ b/docs/ref/forms/fields.txt
+@@ -638,7 +638,8 @@ For each field, we describe the default widget used if you don't specify
+     .. attribute:: path
+ 
+         The absolute path to the directory whose contents you want listed. This
+-        directory must exist.
++        directory must exist. May also be a callable, such as a function to
++        defer selecting the directory at runtime.
+ 
+     .. attribute:: recursive
+ 
+diff --git a/docs/ref/models/fields.txt b/docs/ref/models/fields.txt
+index e352e8b007..2167905417 100644
+--- a/docs/ref/models/fields.txt
++++ b/docs/ref/models/fields.txt
+@@ -868,6 +868,12 @@ directory on the filesystem. Has three special arguments, of which the first is
+     Required. The absolute filesystem path to a directory from which this
+     :class:`FilePathField` should get its choices. Example: ``"/home/images"``.
+ 
++    ``path`` may also be a callable, such as a function to defer selecting the
++    directory at runtime. For example::
++
++        def get_path():
++            return '/home/images'
++
+ .. attribute:: FilePathField.match
+ 
+     Optional. A regular expression, as a string, that :class:`FilePathField`
+2026-11-23 14:59:02,908 - INFO - Grading answer for django__django-10924...
+2026-11-23 14:59:02,908 - INFO - report: {'django__django-10924': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['test_callable_path (model_fields.test_filepathfield.FilePathFieldTests)'], 'failure': []}, 'PASS_TO_PASS': {'success': ['test_path (model_fields.test_filepathfield.FilePathFieldTests)'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for django__django-10924: resolved: True
+2026-11-23 14:59:02,908 - INFO - Attempting to stop container sweb.eval.django__django-10924.frozen-20261123-lite300-django__django-10924...
+2026-11-23 14:59:17,978 - INFO - Attempting to remove container sweb.eval.django__django-10924.frozen-20261123-lite300-django__django-10924...
+2026-11-23 14:59:17,998 - INFO - Container sweb.eval.django__django-10924.frozen-20261123-lite300-django__django-10924 removed.

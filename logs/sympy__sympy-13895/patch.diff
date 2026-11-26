@@ -1,0 +1,34 @@
+diff --git a/sympy/core/power.py b/sympy/core/power.py
+index b2832dd264..c486f0a7ce 100644
+--- a/sympy/core/power.py
++++ b/sympy/core/power.py
+@@ -849,26 +849,9 @@ def pred(x):
+ 
+             assert not e.is_Integer
+ 
+-            # handle negatives by making them all positive and putting
+-            # the residual -1 in other
+-            if len(neg) > 1:
+-                o = S.One
+-                if not other and neg[0].is_Number:
+-                    o *= neg.pop(0)
+-                if len(neg) % 2:
+-                    o = -o
+-                for n in neg:
+-                    nonneg.append(-n)
+-                if o is not S.One:
+-                    other.append(o)
+-            elif neg and other:
+-                if neg[0].is_Number and neg[0] is not S.NegativeOne:
+-                    other.append(S.NegativeOne)
+-                    nonneg.append(-neg[0])
+-                else:
+-                    other.extend(neg)
+-            else:
+-                other.extend(neg)
++            # handle negatives by keeping them all together in other;
++            # splitting them out is unsound for non-integer exponents
++            other.extend(neg)
+             del neg
+ 
+             cargs = nonneg

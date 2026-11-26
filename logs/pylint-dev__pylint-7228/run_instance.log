@@ -1,0 +1,108 @@
+2026-11-24 17:35:42,867 - INFO - Environment image sweb.env.py.x86_64.b70be1b28e254d81bab6a9:latest found for pylint-dev__pylint-7228
+Building instance image sweb.eval.x86_64.pylint-dev__pylint-7228:latest for pylint-dev__pylint-7228
+2026-11-24 17:35:42,884 - INFO - Image sweb.eval.x86_64.pylint-dev__pylint-7228:latest already exists, skipping build.
+2026-11-24 17:35:42,884 - INFO - Creating container for pylint-dev__pylint-7228...
+2026-11-24 17:35:42,911 - INFO - Container for pylint-dev__pylint-7228 created: 7319b85bde918408a9f21263c7cb51f73b60811364edca2b85d6d018ec4ba047
+2026-11-24 17:35:42,999 - INFO - Container for pylint-dev__pylint-7228 started: 7319b85bde918408a9f21263c7cb51f73b60811364edca2b85d6d018ec4ba047
+2026-11-24 17:35:42,999 - INFO - Intermediate patch for pylint-dev__pylint-7228 written to logs/run_evaluation/frozen-20261123-lite300-pylint-dev__pylint-7228/repoagent-glm-5.3-flash/pylint-dev__pylint-7228/patch.diff, now applying to container...
+2026-11-24 17:35:43,080 - INFO - >>>>> Applied Patch:
+Checking patch pylint/config/argument.py...
+Applied patch pylint/config/argument.py cleanly.
+
+2026-11-24 17:35:43,192 - INFO - Git diff before:
+diff --git a/pylint/config/argument.py b/pylint/config/argument.py
+index 3c2951517..4ff3477a1 100644
+--- a/pylint/config/argument.py
++++ b/pylint/config/argument.py
+@@ -99,11 +99,19 @@ def _py_version_transformer(value: str) -> tuple[int, ...]:
+     return version
+ 
+ 
++def _regex_transformer(value: str) -> Pattern[str]:
++    """Transforms a string into a compiled regex."""
++    try:
++        return re.compile(value)
++    except re.error as e:
++        raise argparse.ArgumentTypeError(f"Invalid regex: {e!s}") from e
++
++
+ def _regexp_csv_transfomer(value: str) -> Sequence[Pattern[str]]:
+     """Transforms a comma separated list of regular expressions."""
+     patterns: list[Pattern[str]] = []
+     for pattern in _csv_transformer(value):
+-        patterns.append(re.compile(pattern))
++        patterns.append(_regex_transformer(pattern))
+     return patterns
+ 
+ 
+@@ -112,7 +120,7 @@ def _regexp_paths_csv_transfomer(value: str) -> Sequence[Pattern[str]]:
+     patterns: list[Pattern[str]] = []
+     for pattern in _csv_transformer(value):
+         patterns.append(
+-            re.compile(
++            _regex_transformer(
+                 str(pathlib.PureWindowsPath(pattern)).replace("\\", "\\\\")
+                 + "|"
+                 + pathlib.PureWindowsPath(pattern).as_posix()
+@@ -130,7 +138,7 @@ _TYPE_TRANSFORMERS: dict[str, Callable[[str], _ArgumentTypes]] = {
+     "non_empty_string": _non_empty_string_transformer,
+     "path": _path_transformer,
+     "py_version": _py_version_transformer,
+-    "regexp": re.compile,
++    "regexp": _regex_transformer,
+     "regexp_csv": _regexp_csv_transfomer,
+     "regexp_paths_csv": _regexp_paths_csv_transfomer,
+     "string": pylint_utils._unquote,
+2026-11-24 17:35:43,192 - INFO - Eval script for pylint-dev__pylint-7228 written to logs/run_evaluation/frozen-20261123-lite300-pylint-dev__pylint-7228/repoagent-glm-5.3-flash/pylint-dev__pylint-7228/eval.sh; copying to container...
+2026-11-24 17:35:47,774 - INFO - Test runtime: 4.54 seconds
+2026-11-24 17:35:47,774 - INFO - Test output for pylint-dev__pylint-7228 written to logs/run_evaluation/frozen-20261123-lite300-pylint-dev__pylint-7228/repoagent-glm-5.3-flash/pylint-dev__pylint-7228/test_output.txt
+2026-11-24 17:35:47,832 - INFO - Git diff after:
+diff --git a/pylint/config/argument.py b/pylint/config/argument.py
+index 3c2951517..4ff3477a1 100644
+--- a/pylint/config/argument.py
++++ b/pylint/config/argument.py
+@@ -99,11 +99,19 @@ def _py_version_transformer(value: str) -> tuple[int, ...]:
+     return version
+ 
+ 
++def _regex_transformer(value: str) -> Pattern[str]:
++    """Transforms a string into a compiled regex."""
++    try:
++        return re.compile(value)
++    except re.error as e:
++        raise argparse.ArgumentTypeError(f"Invalid regex: {e!s}") from e
++
++
+ def _regexp_csv_transfomer(value: str) -> Sequence[Pattern[str]]:
+     """Transforms a comma separated list of regular expressions."""
+     patterns: list[Pattern[str]] = []
+     for pattern in _csv_transformer(value):
+-        patterns.append(re.compile(pattern))
++        patterns.append(_regex_transformer(pattern))
+     return patterns
+ 
+ 
+@@ -112,7 +120,7 @@ def _regexp_paths_csv_transfomer(value: str) -> Sequence[Pattern[str]]:
+     patterns: list[Pattern[str]] = []
+     for pattern in _csv_transformer(value):
+         patterns.append(
+-            re.compile(
++            _regex_transformer(
+                 str(pathlib.PureWindowsPath(pattern)).replace("\\", "\\\\")
+                 + "|"
+                 + pathlib.PureWindowsPath(pattern).as_posix()
+@@ -130,7 +138,7 @@ _TYPE_TRANSFORMERS: dict[str, Callable[[str], _ArgumentTypes]] = {
+     "non_empty_string": _non_empty_string_transformer,
+     "path": _path_transformer,
+     "py_version": _py_version_transformer,
+-    "regexp": re.compile,
++    "regexp": _regex_transformer,
+     "regexp_csv": _regexp_csv_transfomer,
+     "regexp_paths_csv": _regexp_paths_csv_transfomer,
+     "string": pylint_utils._unquote,
+2026-11-24 17:35:47,832 - INFO - Grading answer for pylint-dev__pylint-7228...
+2026-11-24 17:35:47,832 - INFO - report: {'pylint-dev__pylint-7228': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': False, 'tests_status': {'FAIL_TO_PASS': {'success': [], 'failure': ['tests/config/test_config.py::test_regex_error', 'tests/config/test_config.py::test_csv_regex_error']}, 'PASS_TO_PASS': {'success': ['tests/config/test_config.py::test_can_read_toml_env_variable', 'tests/config/test_config.py::test_unknown_message_id', 'tests/config/test_config.py::test_unknown_option_name', 'tests/config/test_config.py::test_unknown_short_option_name', 'tests/config/test_config.py::test_unknown_confidence', 'tests/config/test_config.py::test_empty_confidence', 'tests/config/test_config.py::test_unknown_yes_no', 'tests/config/test_config.py::test_unknown_py_version', 'tests/config/test_config.py::test_short_verbose', 'tests/config/test_config.py::test_argument_separator'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for pylint-dev__pylint-7228: resolved: False
+2026-11-24 17:35:47,832 - INFO - Attempting to stop container sweb.eval.pylint-dev__pylint-7228.frozen-20261123-lite300-pylint-dev__pylint-7228...
+2026-11-24 17:36:02,888 - INFO - Attempting to remove container sweb.eval.pylint-dev__pylint-7228.frozen-20261123-lite300-pylint-dev__pylint-7228...
+2026-11-24 17:36:02,913 - INFO - Container sweb.eval.pylint-dev__pylint-7228.frozen-20261123-lite300-pylint-dev__pylint-7228 removed.

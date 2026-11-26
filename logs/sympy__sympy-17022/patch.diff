@@ -1,0 +1,29 @@
+diff --git a/sympy/printing/pycode.py b/sympy/printing/pycode.py
+index 6ec7bd891c..e706f85e93 100644
+--- a/sympy/printing/pycode.py
++++ b/sympy/printing/pycode.py
+@@ -362,6 +362,12 @@ def _print_Indexed(self, expr):
+         index = expr.args[1:]
+         return "{}[{}]".format(str(base), ", ".join([self._print(ind) for ind in index]))
+ 
++    def _print_Identity(self, expr):
++        raise NotImplementedError(
++            "Printers that do not support matrices cannot print an Identity "
++            "matrix; printing it as 'I' would be misinterpreted as the "
++            "imaginary unit.")
++
+ 
+ for k in PythonCodePrinter._kf:
+     setattr(PythonCodePrinter, '_print_%s' % k, _print_known_func)
+@@ -513,6 +519,11 @@ def _print_Inverse(self, expr):
+         return '{0}({1})'.format(self._module_format('numpy.linalg.inv'),
+             self._print(expr.args[0]))
+ 
++    def _print_Identity(self, expr):
++        "Identity matrix printer"
++        return '{0}({1})'.format(self._module_format('numpy.eye'),
++            self._print(expr.args[0]))
++
+     def _print_DotProduct(self, expr):
+         # DotProduct allows any shape order, but numpy.dot does matrix
+         # multiplication, so we have to make sure it gets 1 x n by n x 1.

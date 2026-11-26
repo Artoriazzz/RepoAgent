@@ -1,0 +1,128 @@
+2026-11-24 22:20:10,353 - INFO - Environment image sweb.env.py.x86_64.764c21123474adcba1e003:latest found for sphinx-doc__sphinx-10325
+Building instance image sweb.eval.x86_64.sphinx-doc__sphinx-10325:latest for sphinx-doc__sphinx-10325
+2026-11-24 22:20:10,381 - INFO - Image sweb.eval.x86_64.sphinx-doc__sphinx-10325:latest already exists, skipping build.
+2026-11-24 22:20:10,381 - INFO - Creating container for sphinx-doc__sphinx-10325...
+2026-11-24 22:20:10,411 - INFO - Container for sphinx-doc__sphinx-10325 created: 3347afc0821d6be67391746ff038db62681dfd1f8ce27f240445beadadc49768
+2026-11-24 22:20:10,510 - INFO - Container for sphinx-doc__sphinx-10325 started: 3347afc0821d6be67391746ff038db62681dfd1f8ce27f240445beadadc49768
+2026-11-24 22:20:10,510 - INFO - Intermediate patch for sphinx-doc__sphinx-10325 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-10325/repoagent-glm-5.3-flash/sphinx-doc__sphinx-10325/patch.diff, now applying to container...
+2026-11-24 22:20:10,610 - INFO - >>>>> Applied Patch:
+Checking patch doc/usage/extensions/autodoc.rst...
+Checking patch sphinx/ext/autodoc/__init__.py...
+Applied patch doc/usage/extensions/autodoc.rst cleanly.
+Applied patch sphinx/ext/autodoc/__init__.py cleanly.
+
+2026-11-24 22:20:11,027 - INFO - Git diff before:
+diff --git a/doc/usage/extensions/autodoc.rst b/doc/usage/extensions/autodoc.rst
+index e3d551dd4..735e5914c 100644
+--- a/doc/usage/extensions/autodoc.rst
++++ b/doc/usage/extensions/autodoc.rst
+@@ -252,7 +252,9 @@ inserting them into the page source under a suitable :rst:dir:`py:module`,
+      This can be combined with ``undoc-members`` to document *all* available
+      members of the class or module.
+ 
+-     It can take an ancestor class not to document inherited members from it.
++     It can take an ancestor class or a comma-separated list of ancestor
++     classes (e.g. ``:inherited-members: list,set``) not to document inherited
++     members from them.
+      By default, members of ``object`` class are not documented.  To show them
+      all, give ``None`` to the option.
+ 
+diff --git a/sphinx/ext/autodoc/__init__.py b/sphinx/ext/autodoc/__init__.py
+index 62631f7ff..f3df214e1 100644
+--- a/sphinx/ext/autodoc/__init__.py
++++ b/sphinx/ext/autodoc/__init__.py
+@@ -112,9 +112,11 @@ def exclude_members_option(arg: Any) -> Union[object, Set[str]]:
+ def inherited_members_option(arg: Any) -> Union[object, Set[str]]:
+     """Used to convert the :members: option to auto directives."""
+     if arg in (None, True):
+-        return 'object'
++        return {'object'}
++    elif isinstance(arg, (list, tuple, set)):
++        return set(arg)
+     else:
+-        return arg
++        return {x.strip() for x in arg.split(',') if x.strip()}
+ 
+ 
+ def member_order_option(arg: Any) -> Optional[str]:
+@@ -681,8 +683,17 @@ class Documenter:
+         """
+         def is_filtered_inherited_member(name: str, obj: Any) -> bool:
+             if inspect.isclass(self.object):
++                inherited_members = self.options.inherited_members
++                if isinstance(inherited_members, str):
++                    # the option value may be a raw string (e.g. given via
++                    # autodoc_default_options)
++                    inherited_members = {x.strip() for x
++                                         in inherited_members.split(',') if x.strip()}
++                elif not inherited_members:
++                    inherited_members = set()
++
+                 for cls in self.object.__mro__:
+-                    if cls.__name__ == self.options.inherited_members and cls != self.object:
++                    if cls.__name__ in inherited_members and cls != self.object:
+                         # given member is a member of specified *super class*
+                         return True
+                     elif name in cls.__dict__:
+2026-11-24 22:20:11,027 - INFO - Eval script for sphinx-doc__sphinx-10325 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-10325/repoagent-glm-5.3-flash/sphinx-doc__sphinx-10325/eval.sh; copying to container...
+2026-11-24 22:20:15,779 - INFO - Test runtime: 4.69 seconds
+2026-11-24 22:20:15,779 - INFO - Test output for sphinx-doc__sphinx-10325 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-10325/repoagent-glm-5.3-flash/sphinx-doc__sphinx-10325/test_output.txt
+2026-11-24 22:20:15,836 - INFO - Git diff after:
+diff --git a/doc/usage/extensions/autodoc.rst b/doc/usage/extensions/autodoc.rst
+index e3d551dd4..735e5914c 100644
+--- a/doc/usage/extensions/autodoc.rst
++++ b/doc/usage/extensions/autodoc.rst
+@@ -252,7 +252,9 @@ inserting them into the page source under a suitable :rst:dir:`py:module`,
+      This can be combined with ``undoc-members`` to document *all* available
+      members of the class or module.
+ 
+-     It can take an ancestor class not to document inherited members from it.
++     It can take an ancestor class or a comma-separated list of ancestor
++     classes (e.g. ``:inherited-members: list,set``) not to document inherited
++     members from them.
+      By default, members of ``object`` class are not documented.  To show them
+      all, give ``None`` to the option.
+ 
+diff --git a/sphinx/ext/autodoc/__init__.py b/sphinx/ext/autodoc/__init__.py
+index 62631f7ff..f3df214e1 100644
+--- a/sphinx/ext/autodoc/__init__.py
++++ b/sphinx/ext/autodoc/__init__.py
+@@ -112,9 +112,11 @@ def exclude_members_option(arg: Any) -> Union[object, Set[str]]:
+ def inherited_members_option(arg: Any) -> Union[object, Set[str]]:
+     """Used to convert the :members: option to auto directives."""
+     if arg in (None, True):
+-        return 'object'
++        return {'object'}
++    elif isinstance(arg, (list, tuple, set)):
++        return set(arg)
+     else:
+-        return arg
++        return {x.strip() for x in arg.split(',') if x.strip()}
+ 
+ 
+ def member_order_option(arg: Any) -> Optional[str]:
+@@ -681,8 +683,17 @@ class Documenter:
+         """
+         def is_filtered_inherited_member(name: str, obj: Any) -> bool:
+             if inspect.isclass(self.object):
++                inherited_members = self.options.inherited_members
++                if isinstance(inherited_members, str):
++                    # the option value may be a raw string (e.g. given via
++                    # autodoc_default_options)
++                    inherited_members = {x.strip() for x
++                                         in inherited_members.split(',') if x.strip()}
++                elif not inherited_members:
++                    inherited_members = set()
++
+                 for cls in self.object.__mro__:
+-                    if cls.__name__ == self.options.inherited_members and cls != self.object:
++                    if cls.__name__ in inherited_members and cls != self.object:
+                         # given member is a member of specified *super class*
+                         return True
+                     elif name in cls.__dict__:
+2026-11-24 22:20:15,836 - INFO - Grading answer for sphinx-doc__sphinx-10325...
+2026-11-24 22:20:15,837 - INFO - report: {'sphinx-doc__sphinx-10325': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['tests/test_ext_autodoc_automodule.py::test_automodule_inherited_members'], 'failure': []}, 'PASS_TO_PASS': {'success': ['tests/test_ext_autodoc_automodule.py::test_empty_all', 'tests/test_ext_autodoc_automodule.py::test_automodule', 'tests/test_ext_autodoc_automodule.py::test_automodule_undoc_members', 'tests/test_ext_autodoc_automodule.py::test_automodule_special_members', 'tests/test_ext_autodoc_automodule.py::test_subclass_of_mocked_object'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sphinx-doc__sphinx-10325: resolved: True
+2026-11-24 22:20:15,837 - INFO - Attempting to stop container sweb.eval.sphinx-doc__sphinx-10325.frozen-20261123-lite300-sphinx-doc__sphinx-10325...
+2026-11-24 22:20:30,888 - INFO - Attempting to remove container sweb.eval.sphinx-doc__sphinx-10325.frozen-20261123-lite300-sphinx-doc__sphinx-10325...
+2026-11-24 22:20:30,916 - INFO - Container sweb.eval.sphinx-doc__sphinx-10325.frozen-20261123-lite300-sphinx-doc__sphinx-10325 removed.

@@ -1,0 +1,28 @@
+diff --git a/django/db/models/fields/json.py b/django/db/models/fields/json.py
+index 29c6ff0926..52560e98c1 100644
+--- a/django/db/models/fields/json.py
++++ b/django/db/models/fields/json.py
+@@ -368,12 +368,21 @@ class KeyTransformIsNull(lookups.IsNull):
+     def as_oracle(self, compiler, connection):
+         if not self.rhs:
+             return HasKey(self.lhs.lhs, self.lhs.key_name).as_oracle(compiler, connection)
+-        return super().as_sql(compiler, connection)
++        has_key_sql, has_key_params = HasKey(
++            self.lhs.lhs, self.lhs.key_name
++        ).as_oracle(compiler, connection)
++        # JSON_EXISTS() returns True when the JSON column is NULL, so rows
++        # with a NULL column must be matched explicitly.
++        lhs_sql, lhs_params = compiler.compile(self.lhs.lhs)
++        return 'NOT %s OR %s IS NULL' % (has_key_sql, lhs_sql), tuple(lhs_params)
+ 
+     def as_sqlite(self, compiler, connection):
+         if not self.rhs:
+             return HasKey(self.lhs.lhs, self.lhs.key_name).as_sqlite(compiler, connection)
+-        return super().as_sql(compiler, connection)
++        has_key_sql, has_key_params = HasKey(
++            self.lhs.lhs, self.lhs.key_name
++        ).as_sqlite(compiler, connection)
++        return 'NOT (%s)' % has_key_sql, has_key_params
+ 
+ 
+ class KeyTransformIn(lookups.In):

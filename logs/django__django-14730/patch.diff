@@ -1,0 +1,16 @@
+diff --git a/django/db/models/fields/related.py b/django/db/models/fields/related.py
+index febaadbb5b..aaf73021b9 100644
+--- a/django/db/models/fields/related.py
++++ b/django/db/models/fields/related.py
+@@ -1180,6 +1180,11 @@ class ManyToManyField(RelatedField):
+         if symmetrical is None:
+             symmetrical = (to == RECURSIVE_RELATIONSHIP_CONSTANT)
+ 
++        if related_name is not None and symmetrical and to == RECURSIVE_RELATIONSHIP_CONSTANT:
++            raise ValueError(
++                'related_name is not allowed on symmetrical ManyToManyFields.'
++            )
++
+         if through is not None and db_table is not None:
+             raise ValueError(
+                 'Cannot specify a db_table if an intermediary model is used.'

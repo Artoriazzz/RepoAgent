@@ -1,0 +1,29 @@
+diff --git a/sympy/simplify/trigsimp.py b/sympy/simplify/trigsimp.py
+index 34a3bab3fc..ed7428334b 100644
+--- a/sympy/simplify/trigsimp.py
++++ b/sympy/simplify/trigsimp.py
+@@ -1116,7 +1116,23 @@ def _futrig(e, **kwargs):
+     from sympy.core.compatibility import _nodes
+ 
+     if not e.has(TrigonometricFunction):
+-        return e
++        if not e.has(exp):
++            return e
++
++        # rewrite exp(I*x) in terms of cos/sin so the Fu tree below
++        # can simplify it; exp with real-only arguments is untouched
++        from sympy.simplify.simplify import bottom_up
++
++        def exp_to_trig(x):
++            if isinstance(x, exp) and x.args[0].has(I):
++                a = x.args[0]
++                return cos(-I*a) + I*sin(-I*a)
++            return x
++
++        e = bottom_up(e, exp_to_trig)
++
++        if not e.has(TrigonometricFunction):
++            return e
+ 
+     if e.is_Mul:
+         coeff, e = e.as_independent(TrigonometricFunction)

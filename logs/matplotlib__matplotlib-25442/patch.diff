@@ -1,0 +1,67 @@
+diff --git a/lib/matplotlib/offsetbox.py b/lib/matplotlib/offsetbox.py
+index 77768e7383..dff8298645 100644
+--- a/lib/matplotlib/offsetbox.py
++++ b/lib/matplotlib/offsetbox.py
+@@ -1511,7 +1511,7 @@ class DraggableBase:
+     canvas = property(lambda self: self.ref_artist.figure.canvas)
+ 
+     def on_motion(self, evt):
+-        if self._check_still_parented() and self.got_artist:
++        if self._check_still_parented(evt) and self.got_artist:
+             dx = evt.x - self.mouse_x
+             dy = evt.y - self.mouse_y
+             self.update_offset(dx, dy)
+@@ -1524,7 +1524,7 @@ class DraggableBase:
+                 self.canvas.draw()
+ 
+     def on_pick(self, evt):
+-        if self._check_still_parented() and evt.artist == self.ref_artist:
++        if self._check_still_parented(evt) and evt.artist == self.ref_artist:
+             self.mouse_x = evt.mouseevent.x
+             self.mouse_y = evt.mouseevent.y
+             self.got_artist = True
+@@ -1541,7 +1541,7 @@ class DraggableBase:
+             self.save_offset()
+ 
+     def on_release(self, event):
+-        if self._check_still_parented() and self.got_artist:
++        if self._check_still_parented(event) and self.got_artist:
+             self.finalize_offset()
+             self.got_artist = False
+             self.canvas.mpl_disconnect(self._c1)
+@@ -1549,23 +1549,30 @@ class DraggableBase:
+             if self._use_blit:
+                 self.ref_artist.set_animated(False)
+ 
+-    def _check_still_parented(self):
++    def _check_still_parented(self, event=None):
+         if self.ref_artist.figure is None:
+-            self.disconnect()
++            self.disconnect(event.canvas if event is not None else None)
+             return False
+         else:
+             return True
+ 
+-    def disconnect(self):
++    def disconnect(self, canvas=None):
+         """Disconnect the callbacks."""
++        if canvas is None:
++            if self.ref_artist.figure is None:
++                # The canvas is no longer reachable through the removed
++                # ref_artist; the stale callbacks are inert and will be
++                # disconnected via the event canvas at the next event.
++                return
++            canvas = self.canvas
+         for cid in self.cids:
+-            self.canvas.mpl_disconnect(cid)
++            canvas.mpl_disconnect(cid)
+         try:
+             c1 = self._c1
+         except AttributeError:
+             pass
+         else:
+-            self.canvas.mpl_disconnect(c1)
++            canvas.mpl_disconnect(c1)
+ 
+     def save_offset(self):
+         pass

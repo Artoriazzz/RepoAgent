@@ -1,0 +1,68 @@
+2026-11-23 19:13:56,373 - INFO - Environment image sweb.env.py.x86_64.e83e37f52c09532c62acfb:latest found for django__django-13220
+Building instance image sweb.eval.x86_64.django__django-13220:latest for django__django-13220
+2026-11-23 19:13:56,389 - INFO - Image sweb.eval.x86_64.django__django-13220:latest already exists, skipping build.
+2026-11-23 19:13:56,389 - INFO - Creating container for django__django-13220...
+2026-11-23 19:13:56,413 - INFO - Container for django__django-13220 created: 0753a43de14e1025fc3dbe689f862a76eaabc7ace103cbbe4055ddcd20cf3c4a
+2026-11-23 19:13:56,496 - INFO - Container for django__django-13220 started: 0753a43de14e1025fc3dbe689f862a76eaabc7ace103cbbe4055ddcd20cf3c4a
+2026-11-23 19:13:56,496 - INFO - Intermediate patch for django__django-13220 written to logs/run_evaluation/frozen-20261123-lite300-django__django-13220/repoagent-glm-5.3-flash/django__django-13220/patch.diff, now applying to container...
+2026-11-23 19:13:56,580 - INFO - >>>>> Applied Patch:
+Checking patch django/core/exceptions.py...
+Applied patch django/core/exceptions.py cleanly.
+
+2026-11-23 19:13:57,849 - INFO - Git diff before:
+diff --git a/django/core/exceptions.py b/django/core/exceptions.py
+index dc084b8692..9bacecc5a8 100644
+--- a/django/core/exceptions.py
++++ b/django/core/exceptions.py
+@@ -182,6 +182,18 @@ class ValidationError(Exception):
+     def __repr__(self):
+         return 'ValidationError(%s)' % self
+ 
++    def __eq__(self, other):
++        if not isinstance(other, ValidationError):
++            return NotImplemented
++        if hasattr(self, 'error_dict') and hasattr(other, 'error_dict'):
++            return dict(self) == dict(other)
++        if hasattr(self, 'error_list') and hasattr(other, 'error_list'):
++            return sorted(self.messages) == sorted(other.messages)
++        return self.message == other.message and self.code == other.code and self.params == other.params
++
++    def __hash__(self):
++        return hash((self.__class__, str(self)))
++
+ 
+ class EmptyResultSet(Exception):
+     """A database query predicate is impossible."""
+2026-11-23 19:13:57,849 - INFO - Eval script for django__django-13220 written to logs/run_evaluation/frozen-20261123-lite300-django__django-13220/repoagent-glm-5.3-flash/django__django-13220/eval.sh; copying to container...
+2026-11-23 19:14:00,542 - INFO - Test runtime: 2.65 seconds
+2026-11-23 19:14:00,542 - INFO - Test output for django__django-13220 written to logs/run_evaluation/frozen-20261123-lite300-django__django-13220/repoagent-glm-5.3-flash/django__django-13220/test_output.txt
+2026-11-23 19:14:00,603 - INFO - Git diff after:
+diff --git a/django/core/exceptions.py b/django/core/exceptions.py
+index dc084b8692..9bacecc5a8 100644
+--- a/django/core/exceptions.py
++++ b/django/core/exceptions.py
+@@ -182,6 +182,18 @@ class ValidationError(Exception):
+     def __repr__(self):
+         return 'ValidationError(%s)' % self
+ 
++    def __eq__(self, other):
++        if not isinstance(other, ValidationError):
++            return NotImplemented
++        if hasattr(self, 'error_dict') and hasattr(other, 'error_dict'):
++            return dict(self) == dict(other)
++        if hasattr(self, 'error_list') and hasattr(other, 'error_list'):
++            return sorted(self.messages) == sorted(other.messages)
++        return self.message == other.message and self.code == other.code and self.params == other.params
++
++    def __hash__(self):
++        return hash((self.__class__, str(self)))
++
+ 
+ class EmptyResultSet(Exception):
+     """A database query predicate is impossible."""
+2026-11-23 19:14:00,603 - INFO - Grading answer for django__django-13220...
+2026-11-23 19:14:00,603 - INFO - report: {'django__django-13220': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': False, 'tests_status': {'FAIL_TO_PASS': {'success': [], 'failure': ['test_eq (test_exceptions.test_validation_error.TestValidationError)', 'test_eq_nested (test_exceptions.test_validation_error.TestValidationError)', 'test_hash (test_exceptions.test_validation_error.TestValidationError)', 'test_hash_nested (test_exceptions.test_validation_error.TestValidationError)']}, 'PASS_TO_PASS': {'success': ['test_messages_concatenates_error_dict_values (test_exceptions.test_validation_error.TestValidationError)'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for django__django-13220: resolved: False
+2026-11-23 19:14:00,603 - INFO - Attempting to stop container sweb.eval.django__django-13220.frozen-20261123-lite300-django__django-13220...
+2026-11-23 19:14:15,687 - INFO - Attempting to remove container sweb.eval.django__django-13220.frozen-20261123-lite300-django__django-13220...
+2026-11-23 19:14:15,708 - INFO - Container sweb.eval.django__django-13220.frozen-20261123-lite300-django__django-13220 removed.

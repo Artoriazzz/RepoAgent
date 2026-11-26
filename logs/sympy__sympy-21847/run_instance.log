@@ -1,0 +1,66 @@
+2026-11-25 08:18:48,509 - INFO - Environment image sweb.env.py.x86_64.6066c7c15483c5fa2eebd6:latest found for sympy__sympy-21847
+Building instance image sweb.eval.x86_64.sympy__sympy-21847:latest for sympy__sympy-21847
+2026-11-25 08:18:48,528 - INFO - Image sweb.eval.x86_64.sympy__sympy-21847:latest already exists, skipping build.
+2026-11-25 08:18:48,528 - INFO - Creating container for sympy__sympy-21847...
+2026-11-25 08:18:48,601 - INFO - Container for sympy__sympy-21847 created: 80c37098b6f8fff1929cbfbb128d82ab8042df05703f81d59cf82f02575a0334
+2026-11-25 08:18:48,710 - INFO - Container for sympy__sympy-21847 started: 80c37098b6f8fff1929cbfbb128d82ab8042df05703f81d59cf82f02575a0334
+2026-11-25 08:18:48,710 - INFO - Intermediate patch for sympy__sympy-21847 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-21847/repoagent-glm-5.3-flash/sympy__sympy-21847/patch.diff, now applying to container...
+2026-11-25 08:18:48,802 - INFO - >>>>> Applied Patch:
+Checking patch sympy/polys/monomials.py...
+Applied patch sympy/polys/monomials.py cleanly.
+
+2026-11-25 08:18:49,012 - INFO - Git diff before:
+diff --git a/sympy/polys/monomials.py b/sympy/polys/monomials.py
+index 0e84403307..d2cd3451e5 100644
+--- a/sympy/polys/monomials.py
++++ b/sympy/polys/monomials.py
+@@ -127,7 +127,7 @@ def itermonomials(variables, max_degrees, min_degrees=None):
+                 for variable in item:
+                     if variable != 1:
+                         powers[variable] += 1
+-                if max(powers.values()) >= min_degree:
++                if sum(powers.values()) >= min_degree:
+                     monomials_list_comm.append(Mul(*item))
+             yield from set(monomials_list_comm)
+         else:
+@@ -139,7 +139,7 @@ def itermonomials(variables, max_degrees, min_degrees=None):
+                 for variable in item:
+                     if variable != 1:
+                         powers[variable] += 1
+-                if max(powers.values()) >= min_degree:
++                if sum(powers.values()) >= min_degree:
+                     monomials_list_non_comm.append(Mul(*item))
+             yield from set(monomials_list_non_comm)
+     else:
+2026-11-25 08:18:49,012 - INFO - Eval script for sympy__sympy-21847 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-21847/repoagent-glm-5.3-flash/sympy__sympy-21847/eval.sh; copying to container...
+2026-11-25 08:18:50,643 - INFO - Test runtime: 1.59 seconds
+2026-11-25 08:18:50,643 - INFO - Test output for sympy__sympy-21847 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-21847/repoagent-glm-5.3-flash/sympy__sympy-21847/test_output.txt
+2026-11-25 08:18:50,692 - INFO - Git diff after:
+diff --git a/sympy/polys/monomials.py b/sympy/polys/monomials.py
+index 0e84403307..d2cd3451e5 100644
+--- a/sympy/polys/monomials.py
++++ b/sympy/polys/monomials.py
+@@ -127,7 +127,7 @@ def itermonomials(variables, max_degrees, min_degrees=None):
+                 for variable in item:
+                     if variable != 1:
+                         powers[variable] += 1
+-                if max(powers.values()) >= min_degree:
++                if sum(powers.values()) >= min_degree:
+                     monomials_list_comm.append(Mul(*item))
+             yield from set(monomials_list_comm)
+         else:
+@@ -139,7 +139,7 @@ def itermonomials(variables, max_degrees, min_degrees=None):
+                 for variable in item:
+                     if variable != 1:
+                         powers[variable] += 1
+-                if max(powers.values()) >= min_degree:
++                if sum(powers.values()) >= min_degree:
+                     monomials_list_non_comm.append(Mul(*item))
+             yield from set(monomials_list_non_comm)
+     else:
+2026-11-25 08:18:50,692 - INFO - Grading answer for sympy__sympy-21847...
+2026-11-25 08:18:50,692 - INFO - report: {'sympy__sympy-21847': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['test_monomials'], 'failure': []}, 'PASS_TO_PASS': {'success': ['test_monomial_count', 'test_monomial_mul', 'test_monomial_div', 'test_monomial_gcd', 'test_monomial_lcm', 'test_monomial_max', 'test_monomial_pow', 'test_monomial_min', 'test_monomial_divides'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sympy__sympy-21847: resolved: True
+2026-11-25 08:18:50,692 - INFO - Attempting to stop container sweb.eval.sympy__sympy-21847.frozen-20261123-lite300-sympy__sympy-21847...
+2026-11-25 08:19:09,378 - INFO - Attempting to remove container sweb.eval.sympy__sympy-21847.frozen-20261123-lite300-sympy__sympy-21847...
+2026-11-25 08:19:09,439 - INFO - Container sweb.eval.sympy__sympy-21847.frozen-20261123-lite300-sympy__sympy-21847 removed.

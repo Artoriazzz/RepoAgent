@@ -1,0 +1,41 @@
+diff --git a/sympy/utilities/iterables.py b/sympy/utilities/iterables.py
+index d96e76263b..ffd2f6636f 100644
+--- a/sympy/utilities/iterables.py
++++ b/sympy/utilities/iterables.py
+@@ -2105,7 +2105,26 @@ def uniq(seq, result=None):
+     [1, 4, 5, 2]
+     >>> list(uniq([[1], [2, 1], [1]]))
+     [[1], [2, 1]]
++
++    It is not safe to change the sequence being scanned while
++    the scan is in progress; a RuntimeError is raised if that
++    is attempted::
++
++    >>> f = list('THISTLE')
++    >>> for i in uniq(f):
++    ...     f.remove(i)
++    ...     i
++    'T'
++    'I'
++    'L'
++    Traceback (most recent call last):
++    ...
++    RuntimeError: sequence changed size during iteration
+     """
++    try:
++        n = len(seq)
++    except TypeError:
++        n = None
+     try:
+         seen = set()
+         result = result or []
+@@ -2122,6 +2141,9 @@ def uniq(seq, result=None):
+         else:
+             for s in uniq(seq, result):
+                 yield s
++    else:
++        if n is not None and len(seq) != n:
++            raise RuntimeError('sequence changed size during iteration')
+ 
+ 
+ def generate_bell(n):

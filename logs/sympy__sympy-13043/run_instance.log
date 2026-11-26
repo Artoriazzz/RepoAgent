@@ -1,0 +1,78 @@
+2026-11-25 12:39:09,923 - INFO - Environment image sweb.env.py.x86_64.c795f4b88616b8462021ed:latest found for sympy__sympy-13043
+Building instance image sweb.eval.x86_64.sympy__sympy-13043:latest for sympy__sympy-13043
+2026-11-25 12:39:09,946 - INFO - Image sweb.eval.x86_64.sympy__sympy-13043:latest already exists, skipping build.
+2026-11-25 12:39:09,946 - INFO - Creating container for sympy__sympy-13043...
+2026-11-25 12:39:10,032 - INFO - Container for sympy__sympy-13043 created: a2dcd8205221a47d4246c35d6a077ecb959f4c7e7cbcc6419d9302c346decefb
+2026-11-25 12:39:10,153 - INFO - Container for sympy__sympy-13043 started: a2dcd8205221a47d4246c35d6a077ecb959f4c7e7cbcc6419d9302c346decefb
+2026-11-25 12:39:10,153 - INFO - Intermediate patch for sympy__sympy-13043 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-13043/repoagent-glm-5.3-flash/sympy__sympy-13043/patch.diff, now applying to container...
+2026-11-25 12:39:10,283 - INFO - >>>>> Applied Patch:
+Checking patch sympy/integrals/intpoly.py...
+Applied patch sympy/integrals/intpoly.py cleanly.
+
+2026-11-25 12:39:10,593 - INFO - Git diff before:
+diff --git a/sympy/integrals/intpoly.py b/sympy/integrals/intpoly.py
+index fc72bd206..bbcccfaf6 100644
+--- a/sympy/integrals/intpoly.py
++++ b/sympy/integrals/intpoly.py
+@@ -14,6 +14,7 @@
+ from functools import cmp_to_key
+ 
+ from sympy.core import S, diff, Expr, Symbol
++from sympy.core.sorting import default_sort_key
+ 
+ from sympy.geometry import Segment2D, Polygon, Point
+ from sympy.abc import x, y
+@@ -569,7 +570,7 @@ def decompose(expr, separate=False):
+             degrees = [(sum(degree_list(monom, *symbols)), monom)
+                        for monom in expr.args]
+             if separate:
+-                return [monom[1] for monom in degrees]
++                return sorted([monom[1] for monom in degrees], key=default_sort_key)
+             else:
+                 for monom in degrees:
+                     degree, term = monom
+@@ -593,7 +594,7 @@ def decompose(expr, separate=False):
+         poly_dict[0] = expr
+ 
+     if separate:
+-        return list(poly_dict.values())
++        return sorted(poly_dict.values(), key=default_sort_key)
+     return poly_dict
+2026-11-25 12:39:10,593 - INFO - Eval script for sympy__sympy-13043 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-13043/repoagent-glm-5.3-flash/sympy__sympy-13043/eval.sh; copying to container...
+2026-11-25 12:39:13,731 - INFO - Test runtime: 3.08 seconds
+2026-11-25 12:39:13,731 - INFO - Test output for sympy__sympy-13043 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-13043/repoagent-glm-5.3-flash/sympy__sympy-13043/test_output.txt
+2026-11-25 12:39:13,791 - INFO - Git diff after:
+diff --git a/sympy/integrals/intpoly.py b/sympy/integrals/intpoly.py
+index fc72bd206..bbcccfaf6 100644
+--- a/sympy/integrals/intpoly.py
++++ b/sympy/integrals/intpoly.py
+@@ -14,6 +14,7 @@
+ from functools import cmp_to_key
+ 
+ from sympy.core import S, diff, Expr, Symbol
++from sympy.core.sorting import default_sort_key
+ 
+ from sympy.geometry import Segment2D, Polygon, Point
+ from sympy.abc import x, y
+@@ -569,7 +570,7 @@ def decompose(expr, separate=False):
+             degrees = [(sum(degree_list(monom, *symbols)), monom)
+                        for monom in expr.args]
+             if separate:
+-                return [monom[1] for monom in degrees]
++                return sorted([monom[1] for monom in degrees], key=default_sort_key)
+             else:
+                 for monom in degrees:
+                     degree, term = monom
+@@ -593,7 +594,7 @@ def decompose(expr, separate=False):
+         poly_dict[0] = expr
+ 
+     if separate:
+-        return list(poly_dict.values())
++        return sorted(poly_dict.values(), key=default_sort_key)
+     return poly_dict
+2026-11-25 12:39:13,791 - INFO - Grading answer for sympy__sympy-13043...
+2026-11-25 12:39:13,792 - INFO - report: {'sympy__sympy-13043': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': False, 'tests_status': {'FAIL_TO_PASS': {'success': [], 'failure': ['test_decompose']}, 'PASS_TO_PASS': {'success': [], 'failure': ['test_best_origin']}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sympy__sympy-13043: resolved: False
+2026-11-25 12:39:13,792 - INFO - Attempting to stop container sweb.eval.sympy__sympy-13043.frozen-20261123-lite300-sympy__sympy-13043...
+2026-11-25 12:39:28,902 - INFO - Attempting to remove container sweb.eval.sympy__sympy-13043.frozen-20261123-lite300-sympy__sympy-13043...
+2026-11-25 12:39:28,965 - INFO - Container sweb.eval.sympy__sympy-13043.frozen-20261123-lite300-sympy__sympy-13043 removed.

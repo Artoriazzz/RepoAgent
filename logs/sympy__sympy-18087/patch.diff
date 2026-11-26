@@ -1,0 +1,43 @@
+diff --git a/sympy/simplify/trigsimp.py b/sympy/simplify/trigsimp.py
+index 7ca05f0304..8e26271468 100644
+--- a/sympy/simplify/trigsimp.py
++++ b/sympy/simplify/trigsimp.py
+@@ -1110,6 +1110,18 @@ def futrig(e, **kwargs):
+     return e
+ 
+ 
++def _trigpow_has_nonint_exp(e):
++    """True if e contains a Pow whose base contains a trig function
++    and whose exponent is not an integer."""
++    from sympy import Pow
++    for p in e.atoms(Pow):
++        if p.exp.is_Integer:
++            continue
++        if p.base.has(TrigonometricFunction):
++            return True
++    return False
++
++
+ def _futrig(e, **kwargs):
+     """Helper for futrig."""
+     from sympy.simplify.fu import (
+@@ -1134,16 +1146,16 @@ def _futrig(e, **kwargs):
+         TR3,  # canonical angles
+         TR1,  # sec-csc -> cos-sin
+         TR12,  # expand tan of sum
+-        lambda x: _eapply(factor, x, trigs),
++        lambda x: _eapply(factor, x, trigs) if not _trigpow_has_nonint_exp(x) else x,
+         TR2,  # tan-cot -> sin-cos
+         [identity, lambda x: _eapply(_mexpand, x, trigs)],
+         TR2i,  # sin-cos ratio -> tan
+-        lambda x: _eapply(lambda i: factor(i.normal()), x, trigs),
++        lambda x: _eapply(lambda i: factor(i.normal()), x, trigs) if not _trigpow_has_nonint_exp(x) else x,
+         TR14,  # factored identities
+         TR5,  # sin-pow -> cos_pow
+         TR10,  # sin-cos of sums -> sin-cos prod
+         TR11, TR6, # reduce double angles and rewrite cos pows
+-        lambda x: _eapply(factor, x, trigs),
++        lambda x: _eapply(factor, x, trigs) if not _trigpow_has_nonint_exp(x) else x,
+         TR14,  # factored powers of identities
+         [identity, lambda x: _eapply(_mexpand, x, trigs)],
+         TR10i,  # sin-cos products > sin-cos of sums

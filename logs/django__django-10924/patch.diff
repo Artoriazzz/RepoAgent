@@ -1,0 +1,74 @@
+diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py
+index 0c64748ccd..4d7eb11151 100644
+--- a/django/db/models/fields/__init__.py
++++ b/django/db/models/fields/__init__.py
+@@ -1709,7 +1709,7 @@ class FilePathField(Field):
+ 
+     def formfield(self, **kwargs):
+         return super().formfield(**{
+-            'path': self.path,
++            'path': self.path() if callable(self.path) else self.path,
+             'match': self.match,
+             'recursive': self.recursive,
+             'form_class': forms.FilePathField,
+diff --git a/django/forms/fields.py b/django/forms/fields.py
+index a977256525..ad6eb22586 100644
+--- a/django/forms/fields.py
++++ b/django/forms/fields.py
+@@ -1090,20 +1090,23 @@ class FilePathField(ChoiceField):
+         if self.match is not None:
+             self.match_re = re.compile(self.match)
+ 
++        if callable(self.path):
++            self.path = self.path()
++
+         if recursive:
+             for root, dirs, files in sorted(os.walk(self.path)):
+                 if self.allow_files:
+                     for f in sorted(files):
+                         if self.match is None or self.match_re.search(f):
+                             f = os.path.join(root, f)
+-                            self.choices.append((f, f.replace(path, "", 1)))
++                            self.choices.append((f, f.replace(self.path, "", 1)))
+                 if self.allow_folders:
+                     for f in sorted(dirs):
+                         if f == '__pycache__':
+                             continue
+                         if self.match is None or self.match_re.search(f):
+                             f = os.path.join(root, f)
+-                            self.choices.append((f, f.replace(path, "", 1)))
++                            self.choices.append((f, f.replace(self.path, "", 1)))
+         else:
+             choices = []
+             for f in os.scandir(self.path):
+diff --git a/docs/ref/forms/fields.txt b/docs/ref/forms/fields.txt
+index d7bc32c412..43c880482b 100644
+--- a/docs/ref/forms/fields.txt
++++ b/docs/ref/forms/fields.txt
+@@ -638,7 +638,8 @@ For each field, we describe the default widget used if you don't specify
+     .. attribute:: path
+ 
+         The absolute path to the directory whose contents you want listed. This
+-        directory must exist.
++        directory must exist. May also be a callable, such as a function to
++        defer selecting the directory at runtime.
+ 
+     .. attribute:: recursive
+ 
+diff --git a/docs/ref/models/fields.txt b/docs/ref/models/fields.txt
+index e352e8b007..2167905417 100644
+--- a/docs/ref/models/fields.txt
++++ b/docs/ref/models/fields.txt
+@@ -868,6 +868,12 @@ directory on the filesystem. Has three special arguments, of which the first is
+     Required. The absolute filesystem path to a directory from which this
+     :class:`FilePathField` should get its choices. Example: ``"/home/images"``.
+ 
++    ``path`` may also be a callable, such as a function to defer selecting the
++    directory at runtime. For example::
++
++        def get_path():
++            return '/home/images'
++
+ .. attribute:: FilePathField.match
+ 
+     Optional. A regular expression, as a string, that :class:`FilePathField`

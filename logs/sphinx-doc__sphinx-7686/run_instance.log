@@ -1,0 +1,50 @@
+2026-11-25 10:43:32,186 - INFO - Environment image sweb.env.py.x86_64.764c21123474adcba1e003:latest found for sphinx-doc__sphinx-7686
+Building instance image sweb.eval.x86_64.sphinx-doc__sphinx-7686:latest for sphinx-doc__sphinx-7686
+2026-11-25 10:43:32,207 - INFO - Image sweb.eval.x86_64.sphinx-doc__sphinx-7686:latest already exists, skipping build.
+2026-11-25 10:43:32,207 - INFO - Creating container for sphinx-doc__sphinx-7686...
+2026-11-25 10:43:32,284 - INFO - Container for sphinx-doc__sphinx-7686 created: 17d7533a64ba6311d921880cfb068a324164d52f71559b73094d7054b968a454
+2026-11-25 10:43:32,400 - INFO - Container for sphinx-doc__sphinx-7686 started: 17d7533a64ba6311d921880cfb068a324164d52f71559b73094d7054b968a454
+2026-11-25 10:43:32,400 - INFO - Intermediate patch for sphinx-doc__sphinx-7686 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-7686/repoagent-glm-5.3-flash/sphinx-doc__sphinx-7686/patch.diff, now applying to container...
+2026-11-25 10:43:32,492 - INFO - >>>>> Applied Patch:
+Checking patch sphinx/ext/autosummary/generate.py...
+Applied patch sphinx/ext/autosummary/generate.py cleanly.
+
+2026-11-25 10:43:32,679 - INFO - Git diff before:
+diff --git a/sphinx/ext/autosummary/generate.py b/sphinx/ext/autosummary/generate.py
+index a57c73fb7..01888c148 100644
+--- a/sphinx/ext/autosummary/generate.py
++++ b/sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@ def generate_autosummary_content(name: str, obj: Any, parent: Any,
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = get_members(obj, {'module', 'class', 'exception', 'function', 'method', 'attribute'},
++                                    imported=imported_members)[1]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+2026-11-25 10:43:32,679 - INFO - Eval script for sphinx-doc__sphinx-7686 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-7686/repoagent-glm-5.3-flash/sphinx-doc__sphinx-7686/eval.sh; copying to container...
+2026-11-25 10:43:38,691 - INFO - Test runtime: 5.97 seconds
+2026-11-25 10:43:38,691 - INFO - Test output for sphinx-doc__sphinx-7686 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-7686/repoagent-glm-5.3-flash/sphinx-doc__sphinx-7686/test_output.txt
+2026-11-25 10:43:38,744 - INFO - Git diff after:
+diff --git a/sphinx/ext/autosummary/generate.py b/sphinx/ext/autosummary/generate.py
+index a57c73fb7..01888c148 100644
+--- a/sphinx/ext/autosummary/generate.py
++++ b/sphinx/ext/autosummary/generate.py
+@@ -246,7 +246,8 @@ def generate_autosummary_content(name: str, obj: Any, parent: Any,
+     ns.update(context)
+ 
+     if doc.objtype == 'module':
+-        ns['members'] = dir(obj)
++        ns['members'] = get_members(obj, {'module', 'class', 'exception', 'function', 'method', 'attribute'},
++                                    imported=imported_members)[1]
+         ns['functions'], ns['all_functions'] = \
+             get_members(obj, {'function'}, imported=imported_members)
+         ns['classes'], ns['all_classes'] = \
+2026-11-25 10:43:38,744 - INFO - Grading answer for sphinx-doc__sphinx-7686...
+2026-11-25 10:43:38,748 - INFO - report: {'sphinx-doc__sphinx-7686': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': False, 'tests_status': {'FAIL_TO_PASS': {'success': [], 'failure': ['tests/test_ext_autosummary.py::test_autosummary_generate_content_for_module', 'tests/test_ext_autosummary.py::test_autosummary_generate_content_for_module_skipped']}, 'PASS_TO_PASS': {'success': ['tests/test_ext_autosummary.py::test_mangle_signature', 'tests/test_ext_autosummary.py::test_escaping', 'tests/test_ext_autosummary.py::test_autosummary_generate', 'tests/test_ext_autosummary.py::test_autosummary_generate_overwrite1', 'tests/test_ext_autosummary.py::test_autosummary_generate_overwrite2', 'tests/test_ext_autosummary.py::test_autosummary_recursive', 'tests/test_ext_autosummary.py::test_autosummary_latex_table_colspec', 'tests/test_ext_autosummary.py::test_import_by_name', 'tests/test_ext_autosummary.py::test_autosummary_imported_members', 'tests/test_ext_autosummary.py::test_generate_autosummary_docs_property', 'tests/test_ext_autosummary.py::test_autosummary_skip_member', 'tests/test_ext_autosummary.py::test_autosummary_template', 'tests/test_ext_autosummary.py::test_empty_autosummary_generate', 'tests/test_ext_autosummary.py::test_invalid_autosummary_generate', 'tests/test_ext_autosummary.py::test_autogen'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sphinx-doc__sphinx-7686: resolved: False
+2026-11-25 10:43:38,749 - INFO - Attempting to stop container sweb.eval.sphinx-doc__sphinx-7686.frozen-20261123-lite300-sphinx-doc__sphinx-7686...
+2026-11-25 10:43:53,863 - INFO - Attempting to remove container sweb.eval.sphinx-doc__sphinx-7686.frozen-20261123-lite300-sphinx-doc__sphinx-7686...
+2026-11-25 10:43:53,925 - INFO - Container sweb.eval.sphinx-doc__sphinx-7686.frozen-20261123-lite300-sphinx-doc__sphinx-7686 removed.

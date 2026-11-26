@@ -1,0 +1,23 @@
+diff --git a/sphinx/domains/std.py b/sphinx/domains/std.py
+index c87217c568..0009153f36 100644
+--- a/sphinx/domains/std.py
++++ b/sphinx/domains/std.py
+@@ -190,13 +190,11 @@ class Cmdoption(ObjectDescription):
+         for potential_option in sig.split(', '):
+             potential_option = potential_option.strip()
+             m = option_desc_re.match(potential_option)
+-            if not m:
+-                logger.warning(__('Malformed option description %r, should '
+-                                  'look like "opt", "-opt args", "--opt args", '
+-                                  '"/opt args" or "+opt args"'), potential_option,
+-                               location=signode)
+-                continue
+-            optname, args = m.groups()
++            if m:
++                optname, args = m.groups()
++            else:
++                # fallback: accept any string as an option description
++                optname, args = potential_option, ''
+             if count:
+                 signode += addnodes.desc_addname(', ', ', ')
+             signode += addnodes.desc_name(optname, optname)

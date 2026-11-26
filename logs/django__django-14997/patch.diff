@@ -1,0 +1,23 @@
+diff --git a/django/db/models/constraints.py b/django/db/models/constraints.py
+index d36d076346..c3b6f38821 100644
+--- a/django/db/models/constraints.py
++++ b/django/db/models/constraints.py
+@@ -242,8 +242,6 @@ class UniqueConstraint(BaseConstraint):
+ 
+     def deconstruct(self):
+         path, args, kwargs = super().deconstruct()
+-        if self.fields:
+-            kwargs['fields'] = self.fields
+         if self.condition:
+             kwargs['condition'] = self.condition
+         if self.deferrable:
+@@ -252,4 +250,8 @@ class UniqueConstraint(BaseConstraint):
+             kwargs['include'] = self.include
+         if self.opclasses:
+             kwargs['opclasses'] = self.opclasses
+-        return path, self.expressions, kwargs
++        if self.expressions:
++            args = self.expressions
++        else:
++            kwargs['fields'] = self.fields
++        return path, args, kwargs

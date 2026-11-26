@@ -1,0 +1,182 @@
+2026-11-23 19:31:18,888 - INFO - Environment image sweb.env.py.x86_64.297af196949a2a635bce66:latest found for django__django-13447
+Building instance image sweb.eval.x86_64.django__django-13447:latest for django__django-13447
+2026-11-23 19:31:18,905 - INFO - Image sweb.eval.x86_64.django__django-13447:latest already exists, skipping build.
+2026-11-23 19:31:18,905 - INFO - Creating container for django__django-13447...
+2026-11-23 19:31:18,931 - INFO - Container for django__django-13447 created: 1fe261cc271116b382d1ee9d656cfc97c251c57a65e4f886a0564fa4eb975b20
+2026-11-23 19:31:19,009 - INFO - Container for django__django-13447 started: 1fe261cc271116b382d1ee9d656cfc97c251c57a65e4f886a0564fa4eb975b20
+2026-11-23 19:31:19,009 - INFO - Intermediate patch for django__django-13447 written to logs/run_evaluation/frozen-20261123-lite300-django__django-13447/repoagent-glm-5.3-flash/django__django-13447/patch.diff, now applying to container...
+2026-11-23 19:31:19,082 - INFO - >>>>> Applied Patch:
+Checking patch django/contrib/admin/sites.py...
+Checking patch docs/ref/contrib/admin/index.txt...
+Applied patch django/contrib/admin/sites.py cleanly.
+Applied patch docs/ref/contrib/admin/index.txt cleanly.
+
+2026-11-23 19:31:19,434 - INFO - Git diff before:
+diff --git a/django/contrib/admin/sites.py b/django/contrib/admin/sites.py
+index 837dabfea8..66388d26b7 100644
+--- a/django/contrib/admin/sites.py
++++ b/django/contrib/admin/sites.py
+@@ -430,7 +430,7 @@ class AdminSite:
+                     return HttpResponsePermanentRedirect(path)
+         raise Http404
+ 
+-    def _build_app_dict(self, request, label=None):
++    def build_app_dict(self, request, label=None):
+         """
+         Build the app dictionary. The optional `label` parameter filters models
+         of a specific app.
+@@ -464,6 +464,7 @@ class AdminSite:
+                 'name': capfirst(model._meta.verbose_name_plural),
+                 'object_name': model._meta.object_name,
+                 'perms': perms,
++                'model': model,
+                 'admin_url': None,
+                 'add_url': None,
+             }
+@@ -503,7 +504,7 @@ class AdminSite:
+         Return a sorted list of all the installed apps that have been
+         registered in this site.
+         """
+-        app_dict = self._build_app_dict(request)
++        app_dict = self.build_app_dict(request)
+ 
+         # Sort the apps alphabetically.
+         app_list = sorted(app_dict.values(), key=lambda x: x['name'].lower())
+@@ -534,7 +535,7 @@ class AdminSite:
+         return TemplateResponse(request, self.index_template or 'admin/index.html', context)
+ 
+     def app_index(self, request, app_label, extra_context=None):
+-        app_dict = self._build_app_dict(request, app_label)
++        app_dict = self.build_app_dict(request, app_label)
+         if not app_dict:
+             raise Http404('The requested admin page does not exist.')
+         # Sort the models alphabetically within each app.
+diff --git a/docs/ref/contrib/admin/index.txt b/docs/ref/contrib/admin/index.txt
+index 8da7a72f10..151a226176 100644
+--- a/docs/ref/contrib/admin/index.txt
++++ b/docs/ref/contrib/admin/index.txt
+@@ -3025,6 +3025,7 @@ Templates can override or extend base admin templates as described in
+ 
+       Each model is a dict with the following keys:
+ 
++      * ``model``: the model class
+       * ``object_name``: class name of the model
+       * ``name``: plural name of the model
+       * ``perms``: a ``dict`` tracking ``add``, ``change``, ``delete``, and
+@@ -3032,6 +3033,27 @@ Templates can override or extend base admin templates as described in
+       * ``admin_url``: admin changelist URL for the model
+       * ``add_url``: admin URL to add a new model instance
+ 
++.. method:: AdminSite.build_app_dict(request, label)
++
++    Returns a dictionary with the following keys:
++
++    * ``name``: application name
++    * ``app_label``: the application label
++    * ``app_url``: the URL of the application index in the admin
++    * ``has_module_perms``: a boolean indicating if displaying and accessing of
++      the module's index page is permitted for the current user
++    * ``models``: a list of the models available in the application
++
++    Each model is a dict with the following keys:
++
++    * ``model``: the model class
++    * ``object_name``: class name of the model
++    * ``name``: plural name of the model
++    * ``perms``: a ``dict`` tracking ``add``, ``change``, ``delete``, and
++      ``view`` permissions
++    * ``admin_url``: admin changelist URL for the model
++    * ``add_url``: admin URL to add a new model instance
++
+ .. method:: AdminSite.has_permission(request)
+ 
+     Returns ``True`` if the user for the given ``HttpRequest`` has permission
+2026-11-23 19:31:19,434 - INFO - Eval script for django__django-13447 written to logs/run_evaluation/frozen-20261123-lite300-django__django-13447/repoagent-glm-5.3-flash/django__django-13447/eval.sh; copying to container...
+2026-11-23 19:31:22,402 - INFO - Test runtime: 2.92 seconds
+2026-11-23 19:31:22,402 - INFO - Test output for django__django-13447 written to logs/run_evaluation/frozen-20261123-lite300-django__django-13447/repoagent-glm-5.3-flash/django__django-13447/test_output.txt
+2026-11-23 19:31:22,450 - INFO - Git diff after:
+diff --git a/django/contrib/admin/sites.py b/django/contrib/admin/sites.py
+index 837dabfea8..66388d26b7 100644
+--- a/django/contrib/admin/sites.py
++++ b/django/contrib/admin/sites.py
+@@ -430,7 +430,7 @@ class AdminSite:
+                     return HttpResponsePermanentRedirect(path)
+         raise Http404
+ 
+-    def _build_app_dict(self, request, label=None):
++    def build_app_dict(self, request, label=None):
+         """
+         Build the app dictionary. The optional `label` parameter filters models
+         of a specific app.
+@@ -464,6 +464,7 @@ class AdminSite:
+                 'name': capfirst(model._meta.verbose_name_plural),
+                 'object_name': model._meta.object_name,
+                 'perms': perms,
++                'model': model,
+                 'admin_url': None,
+                 'add_url': None,
+             }
+@@ -503,7 +504,7 @@ class AdminSite:
+         Return a sorted list of all the installed apps that have been
+         registered in this site.
+         """
+-        app_dict = self._build_app_dict(request)
++        app_dict = self.build_app_dict(request)
+ 
+         # Sort the apps alphabetically.
+         app_list = sorted(app_dict.values(), key=lambda x: x['name'].lower())
+@@ -534,7 +535,7 @@ class AdminSite:
+         return TemplateResponse(request, self.index_template or 'admin/index.html', context)
+ 
+     def app_index(self, request, app_label, extra_context=None):
+-        app_dict = self._build_app_dict(request, app_label)
++        app_dict = self.build_app_dict(request, app_label)
+         if not app_dict:
+             raise Http404('The requested admin page does not exist.')
+         # Sort the models alphabetically within each app.
+diff --git a/docs/ref/contrib/admin/index.txt b/docs/ref/contrib/admin/index.txt
+index 8da7a72f10..151a226176 100644
+--- a/docs/ref/contrib/admin/index.txt
++++ b/docs/ref/contrib/admin/index.txt
+@@ -3025,6 +3025,7 @@ Templates can override or extend base admin templates as described in
+ 
+       Each model is a dict with the following keys:
+ 
++      * ``model``: the model class
+       * ``object_name``: class name of the model
+       * ``name``: plural name of the model
+       * ``perms``: a ``dict`` tracking ``add``, ``change``, ``delete``, and
+@@ -3032,6 +3033,27 @@ Templates can override or extend base admin templates as described in
+       * ``admin_url``: admin changelist URL for the model
+       * ``add_url``: admin URL to add a new model instance
+ 
++.. method:: AdminSite.build_app_dict(request, label)
++
++    Returns a dictionary with the following keys:
++
++    * ``name``: application name
++    * ``app_label``: the application label
++    * ``app_url``: the URL of the application index in the admin
++    * ``has_module_perms``: a boolean indicating if displaying and accessing of
++      the module's index page is permitted for the current user
++    * ``models``: a list of the models available in the application
++
++    Each model is a dict with the following keys:
++
++    * ``model``: the model class
++    * ``object_name``: class name of the model
++    * ``name``: plural name of the model
++    * ``perms``: a ``dict`` tracking ``add``, ``change``, ``delete``, and
++      ``view`` permissions
++    * ``admin_url``: admin changelist URL for the model
++    * ``add_url``: admin URL to add a new model instance
++
+ .. method:: AdminSite.has_permission(request)
+ 
+     Returns ``True`` if the user for the given ``HttpRequest`` has permission
+2026-11-23 19:31:22,450 - INFO - Grading answer for django__django-13447...
+2026-11-23 19:31:22,451 - INFO - report: {'django__django-13447': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['test_available_apps (admin_views.test_adminsite.SiteEachContextTest)'], 'failure': []}, 'PASS_TO_PASS': {'success': ['test_add_action (admin_views.test_adminsite.SiteActionsTests)', 'test_disable_action (admin_views.test_adminsite.SiteActionsTests)', "AdminSite.get_action() returns an action even if it's disabled.", 'test_each_context (admin_views.test_adminsite.SiteEachContextTest)', 'test_each_context_site_url_with_script_name (admin_views.test_adminsite.SiteEachContextTest)'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for django__django-13447: resolved: True
+2026-11-23 19:31:22,451 - INFO - Attempting to stop container sweb.eval.django__django-13447.frozen-20261123-lite300-django__django-13447...
+2026-11-23 19:31:37,504 - INFO - Attempting to remove container sweb.eval.django__django-13447.frozen-20261123-lite300-django__django-13447...
+2026-11-23 19:31:37,525 - INFO - Container sweb.eval.django__django-13447.frozen-20261123-lite300-django__django-13447 removed.

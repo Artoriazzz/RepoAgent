@@ -1,0 +1,154 @@
+2026-11-24 10:23:12,543 - INFO - Environment image sweb.env.py.x86_64.5d1fda9d55d65d8a4e5bdb:latest found for pytest-dev__pytest-7220
+Building instance image sweb.eval.x86_64.pytest-dev__pytest-7220:latest for pytest-dev__pytest-7220
+2026-11-24 10:23:12,567 - INFO - Image sweb.eval.x86_64.pytest-dev__pytest-7220:latest already exists, skipping build.
+2026-11-24 10:23:12,567 - INFO - Creating container for pytest-dev__pytest-7220...
+2026-11-24 10:23:12,599 - INFO - Container for pytest-dev__pytest-7220 created: 3ba89dabd7086d6a5974840983dfa541dd426d6dc61887dd096742a986f017ac
+2026-11-24 10:23:12,698 - INFO - Container for pytest-dev__pytest-7220 started: 3ba89dabd7086d6a5974840983dfa541dd426d6dc61887dd096742a986f017ac
+2026-11-24 10:23:12,698 - INFO - Intermediate patch for pytest-dev__pytest-7220 written to logs/run_evaluation/frozen-20261123-lite300-pytest-dev__pytest-7220/repoagent-glm-5.3-flash/pytest-dev__pytest-7220/patch.diff, now applying to container...
+2026-11-24 10:23:12,808 - INFO - >>>>> Applied Patch:
+Checking patch src/_pytest/_code/code.py...
+Checking patch src/_pytest/nodes.py...
+Applied patch src/_pytest/_code/code.py cleanly.
+Applied patch src/_pytest/nodes.py cleanly.
+
+2026-11-24 10:23:12,859 - INFO - Git diff before:
+diff --git a/src/_pytest/_code/code.py b/src/_pytest/_code/code.py
+index 7b17d7612..072b52aa1 100644
+--- a/src/_pytest/_code/code.py
++++ b/src/_pytest/_code/code.py
+@@ -575,6 +575,7 @@ class ExceptionInfo(Generic[_E]):
+         funcargs: bool = False,
+         truncate_locals: bool = True,
+         chain: bool = True,
++        relpath_base: Optional[str] = None,
+     ) -> Union["ReprExceptionInfo", "ExceptionChainRepr"]:
+         """
+         Return str()able representation of this exception info.
+@@ -600,6 +601,10 @@ class ExceptionInfo(Generic[_E]):
+ 
+         :param bool chain: if chained exceptions in Python 3 should be shown.
+ 
++        :param Optional[str] relpath_base:
++            Directory to which paths in the traceback are made relative when
++            ``abspath`` is False; defaults to the current working directory.
++
+         .. versionchanged:: 3.9
+ 
+             Added the ``chain`` parameter.
+@@ -622,6 +627,7 @@ class ExceptionInfo(Generic[_E]):
+             funcargs=funcargs,
+             truncate_locals=truncate_locals,
+             chain=chain,
++            relpath_base=relpath_base,
+         )
+         return fmt.repr_excinfo(self)
+ 
+@@ -655,6 +661,7 @@ class FormattedExcinfo:
+     funcargs = attr.ib(type=bool, default=False)
+     truncate_locals = attr.ib(type=bool, default=True)
+     chain = attr.ib(type=bool, default=True)
++    relpath_base = attr.ib(type=Optional[str], default=None)
+     astcache = attr.ib(default=attr.Factory(dict), init=False, repr=False)
+ 
+     def _getindent(self, source: "Source") -> int:
+@@ -790,8 +797,12 @@ class FormattedExcinfo:
+ 
+     def _makepath(self, path):
+         if not self.abspath:
++            if self.relpath_base is not None:
++                base = py.path.local(self.relpath_base)
++            else:
++                base = py.path.local()
+             try:
+-                np = py.path.local().bestrelpath(path)
++                np = base.bestrelpath(path)
+             except OSError:
+                 return path
+             if len(np) < len(str(path)):
+diff --git a/src/_pytest/nodes.py b/src/_pytest/nodes.py
+index 4a79bc861..755928080 100644
+--- a/src/_pytest/nodes.py
++++ b/src/_pytest/nodes.py
+@@ -374,6 +374,7 @@ class Node(metaclass=NodeMeta):
+             style=style,
+             tbfilter=False,  # pruned already, or in --fulltrace mode.
+             truncate_locals=truncate_locals,
++            relpath_base=str(self.config.invocation_dir),
+         )
+ 
+     def repr_failure(
+2026-11-24 10:23:12,860 - INFO - Eval script for pytest-dev__pytest-7220 written to logs/run_evaluation/frozen-20261123-lite300-pytest-dev__pytest-7220/repoagent-glm-5.3-flash/pytest-dev__pytest-7220/eval.sh; copying to container...
+2026-11-24 10:23:15,306 - INFO - Test runtime: 2.38 seconds
+2026-11-24 10:23:15,307 - INFO - Test output for pytest-dev__pytest-7220 written to logs/run_evaluation/frozen-20261123-lite300-pytest-dev__pytest-7220/repoagent-glm-5.3-flash/pytest-dev__pytest-7220/test_output.txt
+2026-11-24 10:23:15,373 - INFO - Git diff after:
+diff --git a/src/_pytest/_code/code.py b/src/_pytest/_code/code.py
+index 7b17d7612..072b52aa1 100644
+--- a/src/_pytest/_code/code.py
++++ b/src/_pytest/_code/code.py
+@@ -575,6 +575,7 @@ class ExceptionInfo(Generic[_E]):
+         funcargs: bool = False,
+         truncate_locals: bool = True,
+         chain: bool = True,
++        relpath_base: Optional[str] = None,
+     ) -> Union["ReprExceptionInfo", "ExceptionChainRepr"]:
+         """
+         Return str()able representation of this exception info.
+@@ -600,6 +601,10 @@ class ExceptionInfo(Generic[_E]):
+ 
+         :param bool chain: if chained exceptions in Python 3 should be shown.
+ 
++        :param Optional[str] relpath_base:
++            Directory to which paths in the traceback are made relative when
++            ``abspath`` is False; defaults to the current working directory.
++
+         .. versionchanged:: 3.9
+ 
+             Added the ``chain`` parameter.
+@@ -622,6 +627,7 @@ class ExceptionInfo(Generic[_E]):
+             funcargs=funcargs,
+             truncate_locals=truncate_locals,
+             chain=chain,
++            relpath_base=relpath_base,
+         )
+         return fmt.repr_excinfo(self)
+ 
+@@ -655,6 +661,7 @@ class FormattedExcinfo:
+     funcargs = attr.ib(type=bool, default=False)
+     truncate_locals = attr.ib(type=bool, default=True)
+     chain = attr.ib(type=bool, default=True)
++    relpath_base = attr.ib(type=Optional[str], default=None)
+     astcache = attr.ib(default=attr.Factory(dict), init=False, repr=False)
+ 
+     def _getindent(self, source: "Source") -> int:
+@@ -790,8 +797,12 @@ class FormattedExcinfo:
+ 
+     def _makepath(self, path):
+         if not self.abspath:
++            if self.relpath_base is not None:
++                base = py.path.local(self.relpath_base)
++            else:
++                base = py.path.local()
+             try:
+-                np = py.path.local().bestrelpath(path)
++                np = base.bestrelpath(path)
+             except OSError:
+                 return path
+             if len(np) < len(str(path)):
+diff --git a/src/_pytest/nodes.py b/src/_pytest/nodes.py
+index 4a79bc861..755928080 100644
+--- a/src/_pytest/nodes.py
++++ b/src/_pytest/nodes.py
+@@ -374,6 +374,7 @@ class Node(metaclass=NodeMeta):
+             style=style,
+             tbfilter=False,  # pruned already, or in --fulltrace mode.
+             truncate_locals=truncate_locals,
++            relpath_base=str(self.config.invocation_dir),
+         )
+ 
+     def repr_failure(
+2026-11-24 10:23:15,373 - INFO - Grading answer for pytest-dev__pytest-7220...
+2026-11-24 10:23:15,373 - INFO - report: {'pytest-dev__pytest-7220': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': False, 'tests_status': {'FAIL_TO_PASS': {'success': [], 'failure': ['testing/test_nodes.py::test_failure_with_changed_cwd']}, 'PASS_TO_PASS': {'success': ['testing/test_nodes.py::test_ischildnode[--True]', 'testing/test_nodes.py::test_ischildnode[-foo-True]', 'testing/test_nodes.py::test_ischildnode[-foo/bar-True]', 'testing/test_nodes.py::test_ischildnode[-foo/bar::TestBaz-True]', 'testing/test_nodes.py::test_ischildnode[foo-food-False]', 'testing/test_nodes.py::test_ischildnode[foo/bar::TestBaz-foo/bar-False]', 'testing/test_nodes.py::test_ischildnode[foo/bar::TestBaz-foo/bar::TestBop-False]', 'testing/test_nodes.py::test_ischildnode[foo/bar-foo/bar::TestBop-True]', 'testing/test_nodes.py::test_node_from_parent_disallowed_arguments', 'testing/test_nodes.py::test__check_initialpaths_for_relpath', 'testing/test_nodes.py::test_std_warn_not_pytestwarning'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for pytest-dev__pytest-7220: resolved: False
+2026-11-24 10:23:15,373 - INFO - Attempting to stop container sweb.eval.pytest-dev__pytest-7220.frozen-20261123-lite300-pytest-dev__pytest-7220...
+2026-11-24 10:23:30,461 - INFO - Attempting to remove container sweb.eval.pytest-dev__pytest-7220.frozen-20261123-lite300-pytest-dev__pytest-7220...
+2026-11-24 10:23:30,483 - INFO - Container sweb.eval.pytest-dev__pytest-7220.frozen-20261123-lite300-pytest-dev__pytest-7220 removed.

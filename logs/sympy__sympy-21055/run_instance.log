@@ -1,0 +1,140 @@
+2026-11-25 07:06:19,840 - INFO - Environment image sweb.env.py.x86_64.c795f4b88616b8462021ed:latest found for sympy__sympy-21055
+Building instance image sweb.eval.x86_64.sympy__sympy-21055:latest for sympy__sympy-21055
+2026-11-25 07:06:19,858 - INFO - Image sweb.eval.x86_64.sympy__sympy-21055:latest already exists, skipping build.
+2026-11-25 07:06:19,858 - INFO - Creating container for sympy__sympy-21055...
+2026-11-25 07:06:19,885 - INFO - Container for sympy__sympy-21055 created: f02967d255a5017811be4419775ba9c7ec135ac0ce1ee19f03af7cf2d37fbe61
+2026-11-25 07:06:19,967 - INFO - Container for sympy__sympy-21055 started: f02967d255a5017811be4419775ba9c7ec135ac0ce1ee19f03af7cf2d37fbe61
+2026-11-25 07:06:19,967 - INFO - Intermediate patch for sympy__sympy-21055 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-21055/repoagent-glm-5.3-flash/sympy__sympy-21055/patch.diff, now applying to container...
+2026-11-25 07:06:20,062 - INFO - >>>>> Applied Patch:
+Checking patch sympy/assumptions/refine.py...
+Applied patch sympy/assumptions/refine.py cleanly.
+
+2026-11-25 07:06:20,312 - INFO - Git diff before:
+diff --git a/sympy/assumptions/refine.py b/sympy/assumptions/refine.py
+index e1f97190c0..a063429008 100644
+--- a/sympy/assumptions/refine.py
++++ b/sympy/assumptions/refine.py
+@@ -350,6 +350,47 @@ def refine_sign(expr, assumptions):
+     return expr
+ 
+ 
++def refine_arg(expr, assumptions):
++    """
++    Handler for complex argument.
++
++    Explanation
++    ===========
++
++    For a positive real number the argument is always ``0``, for a negative
++    real number it is ``pi``, and for a purely imaginary number it is
++    ``pi/2`` or ``-pi/2`` depending on the sign of the imaginary part.
++
++    Examples
++    ========
++
++    >>> from sympy import Q, arg, im, Symbol
++    >>> from sympy.assumptions.refine import refine_arg
++    >>> from sympy.abc import x
++    >>> refine_arg(arg(x), Q.positive(x))
++    0
++    >>> refine_arg(arg(x), Q.negative(x))
++    pi
++    >>> y = Symbol('y', imaginary=True)
++    >>> refine_arg(arg(y), Q.positive(im(y)))
++    pi/2
++    >>> refine_arg(arg(y), Q.negative(im(y)))
++    -pi/2
++    """
++    arg = expr.args[0]
++    if ask(Q.positive(arg), assumptions):
++        return S.Zero
++    if ask(Q.negative(arg), assumptions):
++        return S.Pi
++    if ask(Q.imaginary(arg), assumptions):
++        arg_re, arg_im = arg.as_real_imag()
++        if ask(Q.positive(arg_im), assumptions):
++            return S.Pi/2
++        if ask(Q.negative(arg_im), assumptions):
++            return -S.Pi/2
++    return expr
++
++
+ def refine_matrixelement(expr, assumptions):
+     """
+     Handler for symmetric part.
+@@ -380,5 +421,6 @@ def refine_matrixelement(expr, assumptions):
+     're': refine_re,
+     'im': refine_im,
+     'sign': refine_sign,
++    'arg': refine_arg,
+     'MatrixElement': refine_matrixelement
+ }  # type: Dict[str, Callable[[Expr, Boolean], Expr]]
+2026-11-25 07:06:20,312 - INFO - Eval script for sympy__sympy-21055 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-21055/repoagent-glm-5.3-flash/sympy__sympy-21055/eval.sh; copying to container...
+2026-11-25 07:06:24,392 - INFO - Test runtime: 4.02 seconds
+2026-11-25 07:06:24,392 - INFO - Test output for sympy__sympy-21055 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-21055/repoagent-glm-5.3-flash/sympy__sympy-21055/test_output.txt
+2026-11-25 07:06:24,447 - INFO - Git diff after:
+diff --git a/sympy/assumptions/refine.py b/sympy/assumptions/refine.py
+index e1f97190c0..a063429008 100644
+--- a/sympy/assumptions/refine.py
++++ b/sympy/assumptions/refine.py
+@@ -350,6 +350,47 @@ def refine_sign(expr, assumptions):
+     return expr
+ 
+ 
++def refine_arg(expr, assumptions):
++    """
++    Handler for complex argument.
++
++    Explanation
++    ===========
++
++    For a positive real number the argument is always ``0``, for a negative
++    real number it is ``pi``, and for a purely imaginary number it is
++    ``pi/2`` or ``-pi/2`` depending on the sign of the imaginary part.
++
++    Examples
++    ========
++
++    >>> from sympy import Q, arg, im, Symbol
++    >>> from sympy.assumptions.refine import refine_arg
++    >>> from sympy.abc import x
++    >>> refine_arg(arg(x), Q.positive(x))
++    0
++    >>> refine_arg(arg(x), Q.negative(x))
++    pi
++    >>> y = Symbol('y', imaginary=True)
++    >>> refine_arg(arg(y), Q.positive(im(y)))
++    pi/2
++    >>> refine_arg(arg(y), Q.negative(im(y)))
++    -pi/2
++    """
++    arg = expr.args[0]
++    if ask(Q.positive(arg), assumptions):
++        return S.Zero
++    if ask(Q.negative(arg), assumptions):
++        return S.Pi
++    if ask(Q.imaginary(arg), assumptions):
++        arg_re, arg_im = arg.as_real_imag()
++        if ask(Q.positive(arg_im), assumptions):
++            return S.Pi/2
++        if ask(Q.negative(arg_im), assumptions):
++            return -S.Pi/2
++    return expr
++
++
+ def refine_matrixelement(expr, assumptions):
+     """
+     Handler for symmetric part.
+@@ -380,5 +421,6 @@ def refine_matrixelement(expr, assumptions):
+     're': refine_re,
+     'im': refine_im,
+     'sign': refine_sign,
++    'arg': refine_arg,
+     'MatrixElement': refine_matrixelement
+ }  # type: Dict[str, Callable[[Expr, Boolean], Expr]]
+2026-11-25 07:06:24,447 - INFO - Grading answer for sympy__sympy-21055...
+2026-11-25 07:06:24,447 - INFO - report: {'sympy__sympy-21055': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['test_arg'], 'failure': []}, 'PASS_TO_PASS': {'success': ['test_Abs', 'test_pow1', 'test_pow2', 'test_exp', 'test_Piecewise', 'test_atan2', 'test_re', 'test_im', 'test_complex', 'test_sign', 'test_func_args', 'test_eval_refine', 'test_refine_issue_12724'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sympy__sympy-21055: resolved: True
+2026-11-25 07:06:24,447 - INFO - Attempting to stop container sweb.eval.sympy__sympy-21055.frozen-20261123-lite300-sympy__sympy-21055...
+2026-11-25 07:06:39,564 - INFO - Attempting to remove container sweb.eval.sympy__sympy-21055.frozen-20261123-lite300-sympy__sympy-21055...
+2026-11-25 07:06:39,622 - INFO - Container sweb.eval.sympy__sympy-21055.frozen-20261123-lite300-sympy__sympy-21055 removed.

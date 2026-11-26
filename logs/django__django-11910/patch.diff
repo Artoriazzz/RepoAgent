@@ -1,0 +1,34 @@
+diff --git a/django/db/migrations/autodetector.py b/django/db/migrations/autodetector.py
+index 1c40161c7f..e87295b133 100644
+--- a/django/db/migrations/autodetector.py
++++ b/django/db/migrations/autodetector.py
+@@ -913,6 +913,7 @@ class MigrationAutodetector:
+             old_field = self.old_apps.get_model(app_label, old_model_name)._meta.get_field(old_field_name)
+             new_field = self.new_apps.get_model(app_label, model_name)._meta.get_field(field_name)
+             dependencies = []
++            renamed_to_field = False
+             # Implement any model renames on relations; these are handled by RenameModel
+             # so we need to exclude them from the comparison
+             if hasattr(new_field, "remote_field") and getattr(new_field.remote_field, "model", None):
+@@ -927,7 +928,8 @@ class MigrationAutodetector:
+                 if remote_field_name:
+                     to_field_rename_key = rename_key + (remote_field_name,)
+                     if to_field_rename_key in self.renamed_fields:
+-                        new_field.remote_field.field_name = old_field.remote_field.field_name
++                        if self.renamed_fields[to_field_rename_key] == old_field.remote_field.field_name:
++                            renamed_to_field = True
+                 # Handle ForeignObjects which can have multiple from_fields/to_fields.
+                 from_fields = getattr(new_field, 'from_fields', None)
+                 if from_fields:
+@@ -950,6 +952,11 @@ class MigrationAutodetector:
+                     new_field.remote_field.through = old_field.remote_field.through
+             old_field_dec = self.deep_deconstruct(old_field)
+             new_field_dec = self.deep_deconstruct(new_field)
++            if renamed_to_field:
++                if 'to_field' in old_field_dec[2]:
++                    new_field_dec[2]['to_field'] = old_field_dec[2]['to_field']
++                elif 'to_field' in new_field_dec[2]:
++                    del new_field_dec[2]['to_field']
+             if old_field_dec != new_field_dec:
+                 both_m2m = old_field.many_to_many and new_field.many_to_many
+                 neither_m2m = not old_field.many_to_many and not new_field.many_to_many

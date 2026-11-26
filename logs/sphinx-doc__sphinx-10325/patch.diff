@@ -1,0 +1,52 @@
+diff --git a/doc/usage/extensions/autodoc.rst b/doc/usage/extensions/autodoc.rst
+index e3d551dd42..735e5914cc 100644
+--- a/doc/usage/extensions/autodoc.rst
++++ b/doc/usage/extensions/autodoc.rst
+@@ -252,7 +252,9 @@ inserting them into the page source under a suitable :rst:dir:`py:module`,
+      This can be combined with ``undoc-members`` to document *all* available
+      members of the class or module.
+ 
+-     It can take an ancestor class not to document inherited members from it.
++     It can take an ancestor class or a comma-separated list of ancestor
++     classes (e.g. ``:inherited-members: list,set``) not to document inherited
++     members from them.
+      By default, members of ``object`` class are not documented.  To show them
+      all, give ``None`` to the option.
+ 
+diff --git a/sphinx/ext/autodoc/__init__.py b/sphinx/ext/autodoc/__init__.py
+index 62631f7ff9..f3df214e1a 100644
+--- a/sphinx/ext/autodoc/__init__.py
++++ b/sphinx/ext/autodoc/__init__.py
+@@ -112,9 +112,11 @@ def exclude_members_option(arg: Any) -> Union[object, Set[str]]:
+ def inherited_members_option(arg: Any) -> Union[object, Set[str]]:
+     """Used to convert the :members: option to auto directives."""
+     if arg in (None, True):
+-        return 'object'
++        return {'object'}
++    elif isinstance(arg, (list, tuple, set)):
++        return set(arg)
+     else:
+-        return arg
++        return {x.strip() for x in arg.split(',') if x.strip()}
+ 
+ 
+ def member_order_option(arg: Any) -> Optional[str]:
+@@ -681,8 +683,17 @@ class Documenter:
+         """
+         def is_filtered_inherited_member(name: str, obj: Any) -> bool:
+             if inspect.isclass(self.object):
++                inherited_members = self.options.inherited_members
++                if isinstance(inherited_members, str):
++                    # the option value may be a raw string (e.g. given via
++                    # autodoc_default_options)
++                    inherited_members = {x.strip() for x
++                                         in inherited_members.split(',') if x.strip()}
++                elif not inherited_members:
++                    inherited_members = set()
++
+                 for cls in self.object.__mro__:
+-                    if cls.__name__ == self.options.inherited_members and cls != self.object:
++                    if cls.__name__ in inherited_members and cls != self.object:
+                         # given member is a member of specified *super class*
+                         return True
+                     elif name in cls.__dict__:

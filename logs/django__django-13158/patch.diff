@@ -1,0 +1,37 @@
+diff --git a/django/db/models/sql/compiler.py b/django/db/models/sql/compiler.py
+index 686e75c979..6a3e526a9d 100644
+--- a/django/db/models/sql/compiler.py
++++ b/django/db/models/sql/compiler.py
+@@ -434,7 +434,7 @@ class SQLCompiler:
+         features = self.connection.features
+         compilers = [
+             query.get_compiler(self.using, self.connection)
+-            for query in self.query.combined_queries if not query.is_empty()
++            for query in self.query.combined_queries
+         ]
+         if not features.supports_slicing_ordering_in_compound:
+             for query, compiler in zip(self.query.combined_queries, compilers):
+diff --git a/django/db/models/sql/query.py b/django/db/models/sql/query.py
+index c913267476..6c84376397 100644
+--- a/django/db/models/sql/query.py
++++ b/django/db/models/sql/query.py
+@@ -300,6 +300,10 @@ class Query(BaseExpression):
+         obj.external_aliases = self.external_aliases.copy()
+         obj.table_map = self.table_map.copy()
+         obj.where = self.where.clone()
++        # Clone combined queries so that changes to a clone (e.g. set_empty())
++        # don't mutate the original query's parts.
++        if self.combined_queries:
++            obj.combined_queries = tuple(q.clone() for q in self.combined_queries)
+         obj.annotations = self.annotations.copy()
+         if self.annotation_select_mask is None:
+             obj.annotation_select_mask = None
+@@ -1777,6 +1781,8 @@ class Query(BaseExpression):
+ 
+     def set_empty(self):
+         self.where.add(NothingNode(), AND)
++        for query in self.combined_queries:
++            query.set_empty()
+ 
+     def is_empty(self):
+         return any(isinstance(c, NothingNode) for c in self.where.children)

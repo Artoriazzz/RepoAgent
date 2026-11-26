@@ -1,0 +1,72 @@
+2026-11-25 15:37:19,775 - INFO - Environment image sweb.env.py.x86_64.c795f4b88616b8462021ed:latest found for sympy__sympy-20049
+Building instance image sweb.eval.x86_64.sympy__sympy-20049:latest for sympy__sympy-20049
+2026-11-25 15:37:19,797 - INFO - Image sweb.eval.x86_64.sympy__sympy-20049:latest already exists, skipping build.
+2026-11-25 15:37:19,797 - INFO - Creating container for sympy__sympy-20049...
+2026-11-25 15:37:19,873 - INFO - Container for sympy__sympy-20049 created: e962a7272d28d666cf616d5f0fe915f0044b16565f64dbc193c9d81bb66cbbcc
+2026-11-25 15:37:20,002 - INFO - Container for sympy__sympy-20049 started: e962a7272d28d666cf616d5f0fe915f0044b16565f64dbc193c9d81bb66cbbcc
+2026-11-25 15:37:20,002 - INFO - Intermediate patch for sympy__sympy-20049 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-20049/repoagent-glm-5.3-flash/sympy__sympy-20049/patch.diff, now applying to container...
+2026-11-25 15:37:20,111 - INFO - >>>>> Applied Patch:
+Checking patch sympy/physics/vector/point.py...
+Applied patch sympy/physics/vector/point.py cleanly.
+
+2026-11-25 15:37:20,531 - INFO - Git diff before:
+diff --git a/sympy/physics/vector/point.py b/sympy/physics/vector/point.py
+index d4e3cfcc90..25a619dab9 100644
+--- a/sympy/physics/vector/point.py
++++ b/sympy/physics/vector/point.py
+@@ -518,10 +518,16 @@ def vel(self, frame):
+         """
+ 
+         _check_frame(frame)
+-        if not (frame in self._vel_dict):
+-            raise ValueError('Velocity of point ' + self.name + ' has not been'
+-                             ' defined in ReferenceFrame ' + frame.name)
+-        return self._vel_dict[frame]
++        if frame in self._vel_dict:
++            return self._vel_dict[frame]
++        for otherpoint in self._pos_dict:
++            if frame in otherpoint._vel_dict:
++                return (otherpoint._vel_dict[frame] +
++                        self.pos_from(otherpoint).dt(frame))
++        if self._pos_dict:
++            return self.pos_from(next(iter(self._pos_dict))).dt(frame)
++        raise ValueError('Velocity of point ' + self.name + ' has not been'
++                         ' defined in ReferenceFrame ' + frame.name)
+ 
+     def partial_velocity(self, frame, *gen_speeds):
+         """Returns the partial velocities of the linear velocity vector of this
+2026-11-25 15:37:20,532 - INFO - Eval script for sympy__sympy-20049 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-20049/repoagent-glm-5.3-flash/sympy__sympy-20049/eval.sh; copying to container...
+2026-11-25 15:37:27,109 - INFO - Test runtime: 6.53 seconds
+2026-11-25 15:37:27,110 - INFO - Test output for sympy__sympy-20049 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-20049/repoagent-glm-5.3-flash/sympy__sympy-20049/test_output.txt
+2026-11-25 15:37:27,163 - INFO - Git diff after:
+diff --git a/sympy/physics/vector/point.py b/sympy/physics/vector/point.py
+index d4e3cfcc90..25a619dab9 100644
+--- a/sympy/physics/vector/point.py
++++ b/sympy/physics/vector/point.py
+@@ -518,10 +518,16 @@ def vel(self, frame):
+         """
+ 
+         _check_frame(frame)
+-        if not (frame in self._vel_dict):
+-            raise ValueError('Velocity of point ' + self.name + ' has not been'
+-                             ' defined in ReferenceFrame ' + frame.name)
+-        return self._vel_dict[frame]
++        if frame in self._vel_dict:
++            return self._vel_dict[frame]
++        for otherpoint in self._pos_dict:
++            if frame in otherpoint._vel_dict:
++                return (otherpoint._vel_dict[frame] +
++                        self.pos_from(otherpoint).dt(frame))
++        if self._pos_dict:
++            return self.pos_from(next(iter(self._pos_dict))).dt(frame)
++        raise ValueError('Velocity of point ' + self.name + ' has not been'
++                         ' defined in ReferenceFrame ' + frame.name)
+ 
+     def partial_velocity(self, frame, *gen_speeds):
+         """Returns the partial velocities of the linear velocity vector of this
+2026-11-25 15:37:27,163 - INFO - Grading answer for sympy__sympy-20049...
+2026-11-25 15:37:27,164 - INFO - report: {'sympy__sympy-20049': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': False, 'tests_status': {'FAIL_TO_PASS': {'success': ['test_auto_vel_dont_overwrite'], 'failure': ['test_auto_point_vel', 'test_auto_point_vel_multiple_point_path', 'test_auto_point_vel_shortest_path']}, 'PASS_TO_PASS': {'success': ['test_point_v1pt_theorys', 'test_point_a1pt_theorys', 'test_point_v2pt_theorys', 'test_point_a2pt_theorys', 'test_point_funcs', 'test_point_pos', 'test_point_partial_velocity'], 'failure': ['test_point_vel', 'test_auto_point_vel_if_tree_has_vel_but_inappropriate_pos_vector']}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sympy__sympy-20049: resolved: False
+2026-11-25 15:37:27,164 - INFO - Attempting to stop container sweb.eval.sympy__sympy-20049.frozen-20261123-lite300-sympy__sympy-20049...
+2026-11-25 15:37:44,904 - INFO - Attempting to remove container sweb.eval.sympy__sympy-20049.frozen-20261123-lite300-sympy__sympy-20049...
+2026-11-25 15:37:44,960 - INFO - Container sweb.eval.sympy__sympy-20049.frozen-20261123-lite300-sympy__sympy-20049 removed.

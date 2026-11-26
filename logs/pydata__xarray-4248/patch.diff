@@ -1,0 +1,14 @@
+diff --git a/xarray/core/formatting.py b/xarray/core/formatting.py
+index 28eaae5f0..766dce4e6 100644
+--- a/xarray/core/formatting.py
++++ b/xarray/core/formatting.py
+@@ -279,6 +279,9 @@ def summarize_variable(
+         else:
+             max_width = max_width_options
+     first_col = pretty_print(f"  {marker} {name} ", col_width)
++    units = var.attrs.get("units")
++    if units:
++        first_col = f"{first_col}in {units} "
+     if var.dims:
+         dims_str = "({}) ".format(", ".join(map(str, var.dims)))
+     else:

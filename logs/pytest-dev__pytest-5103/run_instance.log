@@ -1,0 +1,460 @@
+2026-11-24 04:51:57,491 - INFO - Environment image sweb.env.py.x86_64.756beac07713d7e8dc1129:latest found for pytest-dev__pytest-5103
+Building instance image sweb.eval.x86_64.pytest-dev__pytest-5103:latest for pytest-dev__pytest-5103
+2026-11-24 04:51:57,522 - INFO - Image sweb.eval.x86_64.pytest-dev__pytest-5103:latest already exists, skipping build.
+2026-11-24 04:51:57,522 - INFO - Creating container for pytest-dev__pytest-5103...
+2026-11-24 04:51:57,611 - INFO - Container for pytest-dev__pytest-5103 created: f7e80ba749efd2e00f15f56ae4b71442bb1b60bbd7184153a5903416523e6eac
+2026-11-24 04:51:57,761 - INFO - Container for pytest-dev__pytest-5103 started: f7e80ba749efd2e00f15f56ae4b71442bb1b60bbd7184153a5903416523e6eac
+2026-11-24 04:51:57,761 - INFO - Intermediate patch for pytest-dev__pytest-5103 written to logs/run_evaluation/frozen-20261123-lite300-pytest-dev__pytest-5103/repoagent-glm-5.3-flash/pytest-dev__pytest-5103/patch.diff, now applying to container...
+2026-11-24 04:51:57,856 - INFO - >>>>> Applied Patch:
+Checking patch src/_pytest/assertion/rewrite.py...
+Applied patch src/_pytest/assertion/rewrite.py cleanly.
+
+2026-11-24 04:51:57,883 - INFO - Git diff before:
+diff --git a/src/_pytest/assertion/rewrite.py b/src/_pytest/assertion/rewrite.py
+index 2903b899..ea310f74 100644
+--- a/src/_pytest/assertion/rewrite.py
++++ b/src/_pytest/assertion/rewrite.py
+@@ -968,6 +968,17 @@ warn_explicit(
+         """
+         visit `ast.Call` nodes on Python3.5 and after
+         """
++        if (
++            isinstance(call.func, ast.Name)
++            and call.func.id in ("all", "any")
++            and len(call.args) == 1
++            and not call.keywords
++            and isinstance(
++                call.args[0], (ast.GeneratorExp, ast.ListComp, ast.SetComp)
++            )
++            and self._is_unrollable_comprehension(call.args[0])
++        ):
++            return self.visit_all_any(call)
+         new_func, func_expl = self.visit(call.func)
+         arg_expls = []
+         new_args = []
+@@ -991,6 +1002,196 @@ warn_explicit(
+         outer_expl = "%s\n{%s = %s\n}" % (res_expl, res_expl, expl)
+         return res, outer_expl
+ 
++    def _is_unrollable_comprehension(self, comp):
++        """
++        Check whether the comprehension argument of all()/any() can be safely
++        unrolled into an explicit loop by the rewriter.
++        """
++        if len(comp.generators) != 1:
++            return False
++        gen = comp.generators[0]
++        if gen.is_async:
++            return False
++        # A bare Name element would produce an explanation placeholder that
++        # references a possibly-undefined user name, which would raise
++        # NameError when the message is built for an empty iterable; keep the
++        # generic report for those.
++        if isinstance(comp.elt, ast.Name):
++            return False
++        if not self._is_simple_target(gen.target):
++            return False
++        # Nested comprehension/lambda scopes that rebind one of the loop
++        # targets would break the target renaming, so fall back to the
++        # generic path.
++        target_names = self._comprehension_target_names(gen.target)
++        if self._rebinds_target_names(comp.elt, target_names):
++            return False
++        for if_ in gen.ifs:
++            if self._rebinds_target_names(if_, target_names):
++                return False
++        return True
++
++    def _is_simple_target(self, target):
++        """
++        Check whether a comprehension for-target is a simple Name or a Tuple
++        of simple Names.
++        """
++        if isinstance(target, ast.Name):
++            return True
++        if isinstance(target, ast.Tuple):
++            return all(isinstance(elt, ast.Name) for elt in target.elts)
++        return False
++
++    def _comprehension_target_names(self, target):
++        """
++        Collect the names bound by a comprehension for-target.
++        """
++        if isinstance(target, ast.Name):
++            return [target.id]
++        if isinstance(target, ast.Tuple):
++            names = []
++            for elt in target.elts:
++                names.extend(self._comprehension_target_names(elt))
++            return names
++        return []
++
++    def _rebinds_target_names(self, node, names):
++        """
++        Check whether node contains a nested GeneratorExp/ListComp/SetComp/
++        DictComp/Lambda scope that binds any of the given names.
++        """
++        for child in ast.walk(node):
++            if isinstance(
++                child, (ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.DictComp)
++            ):
++                for gen in child.generators:
++                    if any(
++                        name in names
++                        for name in self._comprehension_target_names(gen.target)
++                    ):
++                        return True
++            elif isinstance(child, ast.Lambda):
++                args = child.args
++                for arg in args.args + args.kwonlyargs:
++                    if arg.arg in names:
++                        return True
++                if args.vararg is not None and args.vararg.arg in names:
++                    return True
++                if args.kwarg is not None and args.kwarg.arg in names:
++                    return True
++        return False
++
++    def _replace_target_names(self, node, mapping):
++        """
++        Recursively replace Load-context Name nodes whose id appears in
++        mapping (user target name -> rewriter variable name).
++        """
++        if isinstance(node, ast.Name):
++            if isinstance(node.ctx, ast.Load) and node.id in mapping:
++                return ast.Name(id=mapping[node.id], ctx=ast.Load())
++            return node
++        for field, old_value in ast.iter_fields(node):
++            if isinstance(old_value, ast.AST):
++                setattr(node, field, self._replace_target_names(old_value, mapping))
++            elif isinstance(old_value, list):
++                new_values = []
++                for value in old_value:
++                    if isinstance(value, ast.AST):
++                        value = self._replace_target_names(value, mapping)
++                    new_values.append(value)
++                setattr(node, field, new_values)
++        return node
++
++    def visit_all_any(self, call):
++        """
++        visit `all()`/`any()` calls with a single unrollable comprehension
++        argument by unrolling the iterable, so that on failure the report
++        shows the individual element that failed instead of the whole
++        iterable repr
++        """
++        is_all = call.func.id == "all"
++        comp = call.args[0]
++        gen = comp.generators[0]
++        # The result variable is initialized to the value the call returns
++        # when no element short-circuits: True for all(), False for any().
++        result_name = self.variable()
++        self.statements.append(
++            ast.Assign(
++                targets=[ast.Name(id=result_name, ctx=ast.Store())],
++                value=_NameConstant(is_all),
++            )
++        )
++        # Rename the comprehension target to rewriter variables, so that the
++        # unrolled loop does not leak the user's target name into the
++        # enclosing scope (a GeneratorExp scopes its target to the generator).
++        mapping = {}
++        if isinstance(gen.target, ast.Name):
++            target_var = self.variable()
++            mapping[gen.target.id] = target_var
++            for_target = ast.Name(id=target_var, ctx=ast.Store())
++        else:
++            for_target_elts = []
++            for elt in gen.target.elts:
++                target_var = self.variable()
++                mapping[elt.id] = target_var
++                for_target_elts.append(ast.Name(id=target_var, ctx=ast.Store()))
++            for_target = ast.Tuple(for_target_elts, ast.Store())
++        self._replace_target_names(comp.elt, mapping)
++        for if_ in gen.ifs:
++            self._replace_target_names(if_, mapping)
++        # Every rewriter variable created while building the loop body must
++        # be initialized before the loop, so that building the failure
++        # message for an empty iterable (where the body never runs) cannot
++        # raise NameError.
++        n_vars_before = len(self.variables)
++        body = []
++        outer_statements = self.statements
++        self.statements = body
++        for cond in gen.ifs:
++            cond_res, _ = self.visit(cond)
++            inner = []
++            self.statements.append(ast.If(cond_res, inner, []))
++            self.statements = inner
++        elt_res, elt_expl = self.visit(comp.elt)
++        # Stop at the first element failing the check, exactly like
++        # all()/any() short-circuit, and remember the failing element.
++        if is_all:
++            branch_test = ast.UnaryOp(ast.Not(), elt_res)
++        else:
++            branch_test = elt_res
++        self.statements.append(
++            ast.If(
++                branch_test,
++                [
++                    ast.Assign(
++                        targets=[ast.Name(id=result_name, ctx=ast.Store())],
++                        value=_NameConstant(not is_all),
++                    ),
++                    ast.Break(),
++                ],
++                [],
++            )
++        )
++        self.statements = outer_statements
++        new_vars = self.variables[n_vars_before:]
++        if new_vars:
++            self.statements.append(
++                ast.Assign(
++                    targets=[ast.Name(id=v, ctx=ast.Store()) for v in new_vars],
++                    value=_NameConstant(None),
++                )
++            )
++        self.statements.append(ast.For(for_target, gen.iter, body, []))
++        # Build the explanation: the result of the call plus the failing
++        # element detail, using the same pattern as visit_Call_35.
++        res_expl = self.explanation_param(
++            self.display(ast.Name(id=result_name, ctx=ast.Load()))
++        )
++        return (
++            ast.Name(id=result_name, ctx=ast.Load()),
++            "%s\n{%s = %s\n}" % (res_expl, res_expl, elt_expl),
++        )
++
+     def visit_Starred(self, starred):
+         # From Python 3.5, a Starred node can appear in a function call
+         res, expl = self.visit(starred.value)
+2026-11-24 04:51:57,883 - INFO - Eval script for pytest-dev__pytest-5103 written to logs/run_evaluation/frozen-20261123-lite300-pytest-dev__pytest-5103/repoagent-glm-5.3-flash/pytest-dev__pytest-5103/eval.sh; copying to container...
+2026-11-24 04:52:03,321 - INFO - Test runtime: 5.41 seconds
+2026-11-24 04:52:03,322 - INFO - Test output for pytest-dev__pytest-5103 written to logs/run_evaluation/frozen-20261123-lite300-pytest-dev__pytest-5103/repoagent-glm-5.3-flash/pytest-dev__pytest-5103/test_output.txt
+2026-11-24 04:52:03,405 - INFO - Git diff after:
+diff --git a/src/_pytest/assertion/rewrite.py b/src/_pytest/assertion/rewrite.py
+index 2903b899..ea310f74 100644
+--- a/src/_pytest/assertion/rewrite.py
++++ b/src/_pytest/assertion/rewrite.py
+@@ -968,6 +968,17 @@ warn_explicit(
+         """
+         visit `ast.Call` nodes on Python3.5 and after
+         """
++        if (
++            isinstance(call.func, ast.Name)
++            and call.func.id in ("all", "any")
++            and len(call.args) == 1
++            and not call.keywords
++            and isinstance(
++                call.args[0], (ast.GeneratorExp, ast.ListComp, ast.SetComp)
++            )
++            and self._is_unrollable_comprehension(call.args[0])
++        ):
++            return self.visit_all_any(call)
+         new_func, func_expl = self.visit(call.func)
+         arg_expls = []
+         new_args = []
+@@ -991,6 +1002,196 @@ warn_explicit(
+         outer_expl = "%s\n{%s = %s\n}" % (res_expl, res_expl, expl)
+         return res, outer_expl
+ 
++    def _is_unrollable_comprehension(self, comp):
++        """
++        Check whether the comprehension argument of all()/any() can be safely
++        unrolled into an explicit loop by the rewriter.
++        """
++        if len(comp.generators) != 1:
++            return False
++        gen = comp.generators[0]
++        if gen.is_async:
++            return False
++        # A bare Name element would produce an explanation placeholder that
++        # references a possibly-undefined user name, which would raise
++        # NameError when the message is built for an empty iterable; keep the
++        # generic report for those.
++        if isinstance(comp.elt, ast.Name):
++            return False
++        if not self._is_simple_target(gen.target):
++            return False
++        # Nested comprehension/lambda scopes that rebind one of the loop
++        # targets would break the target renaming, so fall back to the
++        # generic path.
++        target_names = self._comprehension_target_names(gen.target)
++        if self._rebinds_target_names(comp.elt, target_names):
++            return False
++        for if_ in gen.ifs:
++            if self._rebinds_target_names(if_, target_names):
++                return False
++        return True
++
++    def _is_simple_target(self, target):
++        """
++        Check whether a comprehension for-target is a simple Name or a Tuple
++        of simple Names.
++        """
++        if isinstance(target, ast.Name):
++            return True
++        if isinstance(target, ast.Tuple):
++            return all(isinstance(elt, ast.Name) for elt in target.elts)
++        return False
++
++    def _comprehension_target_names(self, target):
++        """
++        Collect the names bound by a comprehension for-target.
++        """
++        if isinstance(target, ast.Name):
++            return [target.id]
++        if isinstance(target, ast.Tuple):
++            names = []
++            for elt in target.elts:
++                names.extend(self._comprehension_target_names(elt))
++            return names
++        return []
++
++    def _rebinds_target_names(self, node, names):
++        """
++        Check whether node contains a nested GeneratorExp/ListComp/SetComp/
++        DictComp/Lambda scope that binds any of the given names.
++        """
++        for child in ast.walk(node):
++            if isinstance(
++                child, (ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.DictComp)
++            ):
++                for gen in child.generators:
++                    if any(
++                        name in names
++                        for name in self._comprehension_target_names(gen.target)
++                    ):
++                        return True
++            elif isinstance(child, ast.Lambda):
++                args = child.args
++                for arg in args.args + args.kwonlyargs:
++                    if arg.arg in names:
++                        return True
++                if args.vararg is not None and args.vararg.arg in names:
++                    return True
++                if args.kwarg is not None and args.kwarg.arg in names:
++                    return True
++        return False
++
++    def _replace_target_names(self, node, mapping):
++        """
++        Recursively replace Load-context Name nodes whose id appears in
++        mapping (user target name -> rewriter variable name).
++        """
++        if isinstance(node, ast.Name):
++            if isinstance(node.ctx, ast.Load) and node.id in mapping:
++                return ast.Name(id=mapping[node.id], ctx=ast.Load())
++            return node
++        for field, old_value in ast.iter_fields(node):
++            if isinstance(old_value, ast.AST):
++                setattr(node, field, self._replace_target_names(old_value, mapping))
++            elif isinstance(old_value, list):
++                new_values = []
++                for value in old_value:
++                    if isinstance(value, ast.AST):
++                        value = self._replace_target_names(value, mapping)
++                    new_values.append(value)
++                setattr(node, field, new_values)
++        return node
++
++    def visit_all_any(self, call):
++        """
++        visit `all()`/`any()` calls with a single unrollable comprehension
++        argument by unrolling the iterable, so that on failure the report
++        shows the individual element that failed instead of the whole
++        iterable repr
++        """
++        is_all = call.func.id == "all"
++        comp = call.args[0]
++        gen = comp.generators[0]
++        # The result variable is initialized to the value the call returns
++        # when no element short-circuits: True for all(), False for any().
++        result_name = self.variable()
++        self.statements.append(
++            ast.Assign(
++                targets=[ast.Name(id=result_name, ctx=ast.Store())],
++                value=_NameConstant(is_all),
++            )
++        )
++        # Rename the comprehension target to rewriter variables, so that the
++        # unrolled loop does not leak the user's target name into the
++        # enclosing scope (a GeneratorExp scopes its target to the generator).
++        mapping = {}
++        if isinstance(gen.target, ast.Name):
++            target_var = self.variable()
++            mapping[gen.target.id] = target_var
++            for_target = ast.Name(id=target_var, ctx=ast.Store())
++        else:
++            for_target_elts = []
++            for elt in gen.target.elts:
++                target_var = self.variable()
++                mapping[elt.id] = target_var
++                for_target_elts.append(ast.Name(id=target_var, ctx=ast.Store()))
++            for_target = ast.Tuple(for_target_elts, ast.Store())
++        self._replace_target_names(comp.elt, mapping)
++        for if_ in gen.ifs:
++            self._replace_target_names(if_, mapping)
++        # Every rewriter variable created while building the loop body must
++        # be initialized before the loop, so that building the failure
++        # message for an empty iterable (where the body never runs) cannot
++        # raise NameError.
++        n_vars_before = len(self.variables)
++        body = []
++        outer_statements = self.statements
++        self.statements = body
++        for cond in gen.ifs:
++            cond_res, _ = self.visit(cond)
++            inner = []
++            self.statements.append(ast.If(cond_res, inner, []))
++            self.statements = inner
++        elt_res, elt_expl = self.visit(comp.elt)
++        # Stop at the first element failing the check, exactly like
++        # all()/any() short-circuit, and remember the failing element.
++        if is_all:
++            branch_test = ast.UnaryOp(ast.Not(), elt_res)
++        else:
++            branch_test = elt_res
++        self.statements.append(
++            ast.If(
++                branch_test,
++                [
++                    ast.Assign(
++                        targets=[ast.Name(id=result_name, ctx=ast.Store())],
++                        value=_NameConstant(not is_all),
++                    ),
++                    ast.Break(),
++                ],
++                [],
++            )
++        )
++        self.statements = outer_statements
++        new_vars = self.variables[n_vars_before:]
++        if new_vars:
++            self.statements.append(
++                ast.Assign(
++                    targets=[ast.Name(id=v, ctx=ast.Store()) for v in new_vars],
++                    value=_NameConstant(None),
++                )
++            )
++        self.statements.append(ast.For(for_target, gen.iter, body, []))
++        # Build the explanation: the result of the call plus the failing
++        # element detail, using the same pattern as visit_Call_35.
++        res_expl = self.explanation_param(
++            self.display(ast.Name(id=result_name, ctx=ast.Load()))
++        )
++        return (
++            ast.Name(id=result_name, ctx=ast.Load()),
++            "%s\n{%s = %s\n}" % (res_expl, res_expl, elt_expl),
++        )
++
+     def visit_Starred(self, starred):
+         # From Python 3.5, a Starred node can appear in a function call
+         res, expl = self.visit(starred.value)
+2026-11-24 04:52:03,405 - INFO - Grading answer for pytest-dev__pytest-5103...
+2026-11-24 04:52:03,405 - INFO - report: {'pytest-dev__pytest-5103': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['testing/test_assertrewrite.py::TestAssertionRewrite::test_unroll_expression'], 'failure': []}, 'PASS_TO_PASS': {'success': ['testing/test_assertrewrite.py::TestAssertionRewrite::test_place_initial_imports', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_dont_rewrite', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_name', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_dont_rewrite_if_hasattr_fails', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_assert_already_has_message', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_boolop', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_short_circuit_evaluation', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_unary_op', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_binary_op', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_boolop_percent', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_call', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_attribute', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_comparisons', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_len', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_custom_reprcompare', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_assert_raising_nonzero_in_comparison', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_formatchar', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_custom_repr', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_custom_repr_non_ascii', 'testing/test_assertrewrite.py::TestAssertionRewriteHookDetails::test_read_pyc', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_dont_rewrite_plugin', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_assertion_message', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_assertion_message_multiline', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_assertion_message_tuple', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_assertion_message_expr', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_assertion_message_escape', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_assertion_messages_bytes', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_at_operator_issue1290', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_starred_with_side_effect', 'testing/test_assertrewrite.py::TestAssertionRewrite::test_for_loop', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_pycache_is_a_file', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_pycache_is_readonly', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_zipfile', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_readonly', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_dont_write_bytecode', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_orphaned_pyc_file', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_pyc_vs_pyo', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_package', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_translate_newlines', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_package_without__init__py', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_rewrite_warning', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_rewrite_module_imported_from_conftest', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_remember_rewritten_modules', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_rewrite_warning_using_pytest_plugins', 'testing/test_assertrewrite.py::TestRewriteOnImport::test_rewrite_warning_using_pytest_plugins_env_var', 'testing/test_assertrewrite.py::TestAssertionRewriteHookDetails::test_loader_is_package_false_for_module', 'testing/test_assertrewrite.py::TestAssertionRewriteHookDetails::test_loader_is_package_true_for_package', 'testing/test_assertrewrite.py::TestAssertionRewriteHookDetails::test_sys_meta_path_munged', 'testing/test_assertrewrite.py::TestAssertionRewriteHookDetails::test_write_pyc', 'testing/test_assertrewrite.py::TestAssertionRewriteHookDetails::test_resources_provider_for_loader', 'testing/test_assertrewrite.py::TestAssertionRewriteHookDetails::test_reload_is_same', 'testing/test_assertrewrite.py::TestAssertionRewriteHookDetails::test_reload_reloads', 'testing/test_assertrewrite.py::TestAssertionRewriteHookDetails::test_get_data_support', 'testing/test_assertrewrite.py::test_issue731', 'testing/test_assertrewrite.py::TestIssue925::test_simple_case', 'testing/test_assertrewrite.py::TestIssue925::test_long_case', 'testing/test_assertrewrite.py::TestIssue925::test_many_brackets', 'testing/test_assertrewrite.py::TestIssue2121::test_rewrite_python_files_contain_subdirs', 'testing/test_assertrewrite.py::test_source_mtime_long_long[-1]', 'testing/test_assertrewrite.py::test_source_mtime_long_long[1]', 'testing/test_assertrewrite.py::test_rewrite_infinite_recursion', 'testing/test_assertrewrite.py::TestEarlyRewriteBailout::test_basic', 'testing/test_assertrewrite.py::TestEarlyRewriteBailout::test_pattern_contains_subdirectories', 'testing/test_assertrewrite.py::TestEarlyRewriteBailout::test_cwd_changed'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for pytest-dev__pytest-5103: resolved: True
+2026-11-24 04:52:03,406 - INFO - Attempting to stop container sweb.eval.pytest-dev__pytest-5103.frozen-20261123-lite300-pytest-dev__pytest-5103...
+2026-11-24 04:52:19,529 - INFO - Attempting to remove container sweb.eval.pytest-dev__pytest-5103.frozen-20261123-lite300-pytest-dev__pytest-5103...
+2026-11-24 04:52:19,599 - INFO - Container sweb.eval.pytest-dev__pytest-5103.frozen-20261123-lite300-pytest-dev__pytest-5103 removed.

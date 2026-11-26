@@ -1,0 +1,50 @@
+diff --git a/pylint/reporters/text.py b/pylint/reporters/text.py
+index 29bd46798..42dd0d9a9 100644
+--- a/pylint/reporters/text.py
++++ b/pylint/reporters/text.py
+@@ -12,6 +12,7 @@ from __future__ import annotations
+ 
+ import os
+ import re
++import string
+ import sys
+ import warnings
+ from dataclasses import asdict, fields
+@@ -175,15 +176,31 @@ class TextReporter(BaseReporter):
+         self._template = template
+ 
+         # Check to see if all parameters in the template are attributes of the Message
+-        arguments = re.findall(r"\{(.+?)(:.*)?\}", template)
+-        for argument in arguments:
+-            if argument[0] not in MESSAGE_FIELDS:
++        fixed_template = ""
++        for (
++            literal_text,
++            field_name,
++            format_spec,
++            conversion,
++        ) in string.Formatter().parse(template):
++            fixed_template += literal_text.replace("{", "{{").replace("}", "}}")
++            if field_name is None:
++                continue
++            argument = field_name.split(".")[0]
++            if argument not in MESSAGE_FIELDS:
+                 warnings.warn(
+-                    f"Don't recognize the argument '{argument[0]}' in the --msg-template. "
++                    f"Don't recognize the argument '{argument}' in the --msg-template. "
+                     "Are you sure it is supported on the current version of pylint?"
+                 )
+-                template = re.sub(r"\{" + argument[0] + r"(:.*?)?\}", "", template)
+-        self._fixed_template = template
++                continue
++            fixed_template += (
++                "{"
++                + field_name
++                + ("!" + conversion if conversion else "")
++                + (":" + format_spec if format_spec else "")
++                + "}"
++            )
++        self._fixed_template = fixed_template
+ 
+     def write_message(self, msg: Message) -> None:
+         """Convenience method to write a formatted message with class default

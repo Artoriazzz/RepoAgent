@@ -1,0 +1,62 @@
+diff --git a/sympy/printing/pretty/pretty.py b/sympy/printing/pretty/pretty.py
+index 09e2b00735..fbd5e914f0 100644
+--- a/sympy/printing/pretty/pretty.py
++++ b/sympy/printing/pretty/pretty.py
+@@ -895,7 +895,6 @@ def _print_BasisDependent(self, expr):
+         if expr == expr.zero:
+             return prettyForm(expr.zero._pretty_form)
+         o1 = []
+-        vectstrs = []
+         if isinstance(expr, Vector):
+             items = expr.separate().items()
+         else:
+@@ -917,11 +916,28 @@ def _print_BasisDependent(self, expr):
+                 else:
+                     #We always wrap the measure numbers in
+                     #parentheses
+-                    arg_str = self._print(
+-                        v).parens()[0]
+-
+-                    o1.append(arg_str + ' ' + k._pretty_form)
+-                vectstrs.append(k._pretty_form)
++                    P = self._print(v)
++                    arg_str = P.parens()[0]
++                    #Print the basis vector name exactly once, on the
++                    #baseline line of the coefficient picture; pad the
++                    #other lines with spaces so that the picture stays
++                    #rectangular
++                    coeff_lines = arg_str.split('\n')
++                    baseline = P.baseline
++                    if baseline < 0 or baseline >= len(coeff_lines):
++                        #parens did not leave a usable baseline, fall back
++                        #to the visually centered line of the picture
++                        baseline = len(coeff_lines) // 2
++                    vectstr = k._pretty_form
++                    width = max(len(line) for line in coeff_lines)
++                    width = max(width, len(coeff_lines[baseline]) +
++                                1 + len(vectstr))
++                    lines = []
++                    for j, line in enumerate(coeff_lines):
++                        if j == baseline:
++                            line = line + ' ' + vectstr
++                        lines.append(line + ' ' * (width - len(line)))
++                    o1.append('\n'.join(lines))
+ 
+         #outstr = u("").join(o1)
+         if o1[0].startswith(u" + "):
+@@ -931,15 +947,6 @@ def _print_BasisDependent(self, expr):
+         #Fixing the newlines
+         lengths = []
+         strs = ['']
+-        for i, partstr in enumerate(o1):
+-            # XXX: What is this hack?
+-            if '\n' in partstr:
+-                tempstr = partstr
+-                tempstr = tempstr.replace(vectstrs[i], '')
+-                tempstr = tempstr.replace(u'\N{RIGHT PARENTHESIS UPPER HOOK}',
+-                                          u'\N{RIGHT PARENTHESIS UPPER HOOK}'
+-                                          + ' ' + vectstrs[i])
+-                o1[i] = tempstr
+         o1 = [x.split('\n') for x in o1]
+         n_newlines = max([len(x) for x in o1])
+         for parts in o1:

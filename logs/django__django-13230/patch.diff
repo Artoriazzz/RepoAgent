@@ -1,0 +1,63 @@
+diff --git a/django/contrib/syndication/views.py b/django/contrib/syndication/views.py
+index 68ffb0bfe0..c19306a5fd 100644
+--- a/django/contrib/syndication/views.py
++++ b/django/contrib/syndication/views.py
+@@ -199,6 +199,13 @@ class Feed:
+             if updateddate and is_naive(updateddate):
+                 updateddate = make_aware(updateddate, tz)
+ 
++            extra_kwargs = self.item_extra_kwargs(item)
++            comments = self._get_dynamic_attr('item_comments', item)
++            if comments is None:
++                # Fall back to 'comments' provided via item_extra_kwargs.
++                extra_kwargs = dict(extra_kwargs)
++                comments = extra_kwargs.pop('comments', None)
++
+             feed.add_item(
+                 title=title,
+                 link=link,
+@@ -207,6 +214,7 @@ class Feed:
+                 unique_id_is_permalink=self._get_dynamic_attr(
+                     'item_guid_is_permalink', item),
+                 enclosures=enclosures,
++                comments=comments,
+                 pubdate=pubdate,
+                 updateddate=updateddate,
+                 author_name=author_name,
+@@ -214,6 +222,6 @@ class Feed:
+                 author_link=author_link,
+                 categories=self._get_dynamic_attr('item_categories', item),
+                 item_copyright=self._get_dynamic_attr('item_copyright', item),
+-                **self.item_extra_kwargs(item)
++                **extra_kwargs
+             )
+         return feed
+diff --git a/docs/ref/contrib/syndication.txt b/docs/ref/contrib/syndication.txt
+index 13aa944e8a..593801b967 100644
+--- a/docs/ref/contrib/syndication.txt
++++ b/docs/ref/contrib/syndication.txt
+@@ -889,6 +889,24 @@ This example illustrates all possible attributes and methods for a
+ 
+         item_copyright = 'Copyright (c) 2007, Sally Smith' # Hard-coded copyright notice.
+ 
++        # ITEM COMMENTS -- One of the following three is optional. This is
++        # a hook that specifies how to get the URL of the comments page for
++        # a given item. In each case, the method/attribute should return a
++        # string.
++
++        def item_comments(self, obj):
++            """
++            Takes an item, as returned by items(), and returns the item's
++            comments URL as a normal Python string.
++            """
++
++        def item_comments(self):
++            """
++            Returns the comments URL for every item in the feed.
++            """
++
++        item_comments = 'https://www.example.com/comments' # Hard-coded comments URL.
++
+ 
+ The low-level framework
+ =======================

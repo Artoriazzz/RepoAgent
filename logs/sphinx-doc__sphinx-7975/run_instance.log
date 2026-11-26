@@ -1,0 +1,70 @@
+2026-11-25 09:36:43,821 - INFO - Environment image sweb.env.py.x86_64.764c21123474adcba1e003:latest found for sphinx-doc__sphinx-7975
+Building instance image sweb.eval.x86_64.sphinx-doc__sphinx-7975:latest for sphinx-doc__sphinx-7975
+2026-11-25 09:36:43,840 - INFO - Image sweb.eval.x86_64.sphinx-doc__sphinx-7975:latest already exists, skipping build.
+2026-11-25 09:36:43,840 - INFO - Creating container for sphinx-doc__sphinx-7975...
+2026-11-25 09:36:43,871 - INFO - Container for sphinx-doc__sphinx-7975 created: e707357348e2b8346fa254393dc87ff37a9134c39b4b701fce4cf3df8c946262
+2026-11-25 09:36:43,946 - INFO - Container for sphinx-doc__sphinx-7975 started: e707357348e2b8346fa254393dc87ff37a9134c39b4b701fce4cf3df8c946262
+2026-11-25 09:36:43,946 - INFO - Intermediate patch for sphinx-doc__sphinx-7975 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-7975/repoagent-glm-5.3-flash/sphinx-doc__sphinx-7975/patch.diff, now applying to container...
+2026-11-25 09:36:44,035 - INFO - >>>>> Applied Patch:
+Checking patch sphinx/environment/adapters/indexentries.py...
+Applied patch sphinx/environment/adapters/indexentries.py cleanly.
+
+2026-11-25 09:36:44,163 - INFO - Git diff before:
+diff --git a/sphinx/environment/adapters/indexentries.py b/sphinx/environment/adapters/indexentries.py
+index 5af213932..01f3543e3 100644
+--- a/sphinx/environment/adapters/indexentries.py
++++ b/sphinx/environment/adapters/indexentries.py
+@@ -99,7 +99,8 @@ class IndexEntries:
+                 subentry[0].sort(key=keyfunc0)  # type: ignore
+ 
+         # sort the index entries; put all symbols at the front, even those
+-        # following the letters in ASCII, this is where the chr(127) comes from
++        # following the letters in ASCII, this is where the chr(0) and
++        # chr(127) prefixes come from
+         def keyfunc(entry: Tuple[str, List]) -> Tuple[str, str]:
+             key, (void, void, category_key) = entry
+             if category_key:
+@@ -110,6 +111,9 @@ class IndexEntries:
+                 lckey = lckey[1:]
+             if lckey[0:1].isalpha() or lckey.startswith('_'):
+                 lckey = chr(127) + lckey
++            else:
++                # put all other symbols at the front
++                lckey = chr(0) + lckey
+             # ensure a determinstic order *within* letters by also sorting on
+             # the entry itself
+             return (lckey, entry[0])
+2026-11-25 09:36:44,164 - INFO - Eval script for sphinx-doc__sphinx-7975 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-7975/repoagent-glm-5.3-flash/sphinx-doc__sphinx-7975/eval.sh; copying to container...
+2026-11-25 09:36:48,574 - INFO - Test runtime: 4.36 seconds
+2026-11-25 09:36:48,574 - INFO - Test output for sphinx-doc__sphinx-7975 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-7975/repoagent-glm-5.3-flash/sphinx-doc__sphinx-7975/test_output.txt
+2026-11-25 09:36:48,632 - INFO - Git diff after:
+diff --git a/sphinx/environment/adapters/indexentries.py b/sphinx/environment/adapters/indexentries.py
+index 5af213932..01f3543e3 100644
+--- a/sphinx/environment/adapters/indexentries.py
++++ b/sphinx/environment/adapters/indexentries.py
+@@ -99,7 +99,8 @@ class IndexEntries:
+                 subentry[0].sort(key=keyfunc0)  # type: ignore
+ 
+         # sort the index entries; put all symbols at the front, even those
+-        # following the letters in ASCII, this is where the chr(127) comes from
++        # following the letters in ASCII, this is where the chr(0) and
++        # chr(127) prefixes come from
+         def keyfunc(entry: Tuple[str, List]) -> Tuple[str, str]:
+             key, (void, void, category_key) = entry
+             if category_key:
+@@ -110,6 +111,9 @@ class IndexEntries:
+                 lckey = lckey[1:]
+             if lckey[0:1].isalpha() or lckey.startswith('_'):
+                 lckey = chr(127) + lckey
++            else:
++                # put all other symbols at the front
++                lckey = chr(0) + lckey
+             # ensure a determinstic order *within* letters by also sorting on
+             # the entry itself
+             return (lckey, entry[0])
+2026-11-25 09:36:48,632 - INFO - Grading answer for sphinx-doc__sphinx-7975...
+2026-11-25 09:36:48,634 - INFO - report: {'sphinx-doc__sphinx-7975': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['tests/test_environment_indexentries.py::test_create_single_index'], 'failure': []}, 'PASS_TO_PASS': {'success': ['tests/test_environment_indexentries.py::test_create_pair_index', 'tests/test_environment_indexentries.py::test_create_triple_index', 'tests/test_environment_indexentries.py::test_create_see_index', 'tests/test_environment_indexentries.py::test_create_seealso_index', 'tests/test_environment_indexentries.py::test_create_main_index', 'tests/test_environment_indexentries.py::test_create_index_with_name', 'tests/test_environment_indexentries.py::test_create_index_by_key'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sphinx-doc__sphinx-7975: resolved: True
+2026-11-25 09:36:48,634 - INFO - Attempting to stop container sweb.eval.sphinx-doc__sphinx-7975.frozen-20261123-lite300-sphinx-doc__sphinx-7975...
+2026-11-25 09:37:07,298 - INFO - Attempting to remove container sweb.eval.sphinx-doc__sphinx-7975.frozen-20261123-lite300-sphinx-doc__sphinx-7975...
+2026-11-25 09:37:07,333 - INFO - Container sweb.eval.sphinx-doc__sphinx-7975.frozen-20261123-lite300-sphinx-doc__sphinx-7975 removed.

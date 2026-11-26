@@ -1,0 +1,50 @@
+diff --git a/sympy/printing/mathml.py b/sympy/printing/mathml.py
+index 1aa0ee01a2..0461e031ee 100644
+--- a/sympy/printing/mathml.py
++++ b/sympy/printing/mathml.py
+@@ -449,6 +449,21 @@ def _print_Basic(self, e):
+             x.appendChild(self._print(arg))
+         return x
+ 
++    def _print_Indexed(self, e):
++        x = self.dom.createElement('apply')
++        x_1 = self.dom.createElement('csymbol')
++        x_1.setAttribute("definitionURL", "http://www.w3.org/2001/MathML/CD/arith1.cd#subset")
++        x.appendChild(x_1)
++        x.appendChild(self._print(e.base))
++        for i in e.indices:
++            x.appendChild(self._print(i))
++        return x
++
++    def _print_IndexedBase(self, e):
++        x = self.dom.createElement('ci')
++        x.appendChild(self.dom.createTextNode(str(e)))
++        return x
++
+     def _print_AssocOp(self, e):
+         x = self.dom.createElement('apply')
+         x_1 = self.dom.createElement(self.mathml_tag(e))
+@@ -1017,6 +1032,23 @@ def _print_Basic(self, e):
+         mrow.appendChild(brac)
+         return mrow
+ 
++    def _print_Indexed(self, e):
++        x = self.dom.createElement('msub')
++        x.appendChild(self._print(e.base))
++        if len(e.indices) > 1:
++            indices = self.dom.createElement('mfenced')
++            for i in e.indices:
++                indices.appendChild(self._print(i))
++            x.appendChild(indices)
++        else:
++            x.appendChild(self._print(e.indices[0]))
++        return x
++
++    def _print_IndexedBase(self, e):
++        x = self.dom.createElement('mi')
++        x.appendChild(self.dom.createTextNode(str(e)))
++        return x
++
+     def _print_Tuple(self, e):
+         mrow = self.dom.createElement('mrow')
+         x = self.dom.createElement('mfenced')

@@ -1,0 +1,57 @@
+diff --git a/sympy/combinatorics/permutations.py b/sympy/combinatorics/permutations.py
+index 136ed5a478..4565bcfb53 100644
+--- a/sympy/combinatorics/permutations.py
++++ b/sympy/combinatorics/permutations.py
+@@ -802,7 +802,9 @@ def __new__(cls, *args, **kwargs):
+         """
+         Constructor for the Permutation object from a list or a
+         list of lists in which all elements of the permutation may
+-        appear only once.
++        appear only once. The list of lists is interpreted as a list
++        of cycles; the cycles need not be disjoint and are applied in
++        left-to-right order.
+ 
+         Examples
+         ========
+@@ -824,6 +826,14 @@ def __new__(cls, *args, **kwargs):
+         >>> Permutation([[4, 5, 6], [0, 1], [19]])
+         Permutation([1, 0, 2, 3, 5, 6, 4], size=20)
+ 
++        Cycles that are not disjoint are applied in left-to-right
++        order:
++
++        >>> Permutation([[0, 1], [0, 1]])
++        Permutation([0, 1])
++        >>> Permutation([[0, 1], [1, 2]])
++        Permutation([2, 0, 1])
++
+         All manipulation of permutations assumes that the smallest element
+         is 0 (in keeping with 0-based indexing in Python) so if the 0 is
+         missing when entering a permutation in array form, an error will be
+@@ -894,19 +904,14 @@ def __new__(cls, *args, **kwargs):
+         # for convenience in case one wants to enter permutations where
+         # counting starts from 1.
+ 
+-        temp = flatten(args)
+-        if has_dups(temp):
+-            if is_cycle:
+-                raise ValueError('there were repeated elements; to resolve '
+-                'cycles use Cycle%s.' % ''.join([str(tuple(c)) for c in args]))
+-            else:
++        if not is_cycle:
++            temp = flatten(args)
++            if has_dups(temp):
+                 raise ValueError('there were repeated elements.')
+-        temp = set(temp)
+-
+-        if not is_cycle and \
+-                any(i not in temp for i in range(len(temp))):
+-            raise ValueError("Integers 0 through %s must be present." %
+-                             max(temp))
++            temp = set(temp)
++            if any(i not in temp for i in range(len(temp))):
++                raise ValueError("Integers 0 through %s must be present." %
++                                 max(temp))
+ 
+         if is_cycle:
+             # it's not necessarily canonical so we won't store

@@ -1,0 +1,56 @@
+2026-11-24 15:28:37,104 - INFO - Environment image sweb.env.py.x86_64.6066c7c15483c5fa2eebd6:latest found for sympy__sympy-15345
+Building instance image sweb.eval.x86_64.sympy__sympy-15345:latest for sympy__sympy-15345
+2026-11-24 15:28:37,177 - INFO - Image sweb.eval.x86_64.sympy__sympy-15345:latest already exists, skipping build.
+2026-11-24 15:28:37,177 - INFO - Creating container for sympy__sympy-15345...
+2026-11-24 15:28:37,230 - INFO - Container for sympy__sympy-15345 created: 90dfe8610492a16c08fffdc32e4c57b77a7c6332972d6b13e82661efee02d4b9
+2026-11-24 15:28:37,330 - INFO - Container for sympy__sympy-15345 started: 90dfe8610492a16c08fffdc32e4c57b77a7c6332972d6b13e82661efee02d4b9
+2026-11-24 15:28:37,331 - INFO - Intermediate patch for sympy__sympy-15345 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-15345/repoagent-glm-5.3-flash/sympy__sympy-15345/patch.diff, now applying to container...
+2026-11-24 15:28:37,436 - INFO - >>>>> Applied Patch:
+Checking patch sympy/printing/mathematica.py...
+Applied patch sympy/printing/mathematica.py cleanly.
+
+2026-11-24 15:28:37,637 - INFO - Git diff before:
+diff --git a/sympy/printing/mathematica.py b/sympy/printing/mathematica.py
+index ea7e3a2d9..5f248c3aa 100644
+--- a/sympy/printing/mathematica.py
++++ b/sympy/printing/mathematica.py
+@@ -101,6 +101,12 @@ def _print_Function(self, expr):
+                     return "%s[%s]" % (mfunc, self.stringify(expr.args, ", "))
+         return expr.func.__name__ + "[%s]" % self.stringify(expr.args, ", ")
+ 
++    def _print_Max(self, expr):
++        return "Max[%s]" % self.stringify(expr.args, ", ")
++
++    def _print_Min(self, expr):
++        return "Min[%s]" % self.stringify(expr.args, ", ")
++
+     def _print_Integral(self, expr):
+         if len(expr.variables) == 1 and not expr.limits[0][1:]:
+             args = [expr.args[0], expr.variables[0]]
+2026-11-24 15:28:37,637 - INFO - Eval script for sympy__sympy-15345 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-15345/repoagent-glm-5.3-flash/sympy__sympy-15345/eval.sh; copying to container...
+2026-11-24 15:28:39,370 - INFO - Test runtime: 1.68 seconds
+2026-11-24 15:28:39,371 - INFO - Test output for sympy__sympy-15345 written to logs/run_evaluation/frozen-20261123-lite300-sympy__sympy-15345/repoagent-glm-5.3-flash/sympy__sympy-15345/test_output.txt
+2026-11-24 15:28:39,424 - INFO - Git diff after:
+diff --git a/sympy/printing/mathematica.py b/sympy/printing/mathematica.py
+index ea7e3a2d9..5f248c3aa 100644
+--- a/sympy/printing/mathematica.py
++++ b/sympy/printing/mathematica.py
+@@ -101,6 +101,12 @@ def _print_Function(self, expr):
+                     return "%s[%s]" % (mfunc, self.stringify(expr.args, ", "))
+         return expr.func.__name__ + "[%s]" % self.stringify(expr.args, ", ")
+ 
++    def _print_Max(self, expr):
++        return "Max[%s]" % self.stringify(expr.args, ", ")
++
++    def _print_Min(self, expr):
++        return "Min[%s]" % self.stringify(expr.args, ", ")
++
+     def _print_Integral(self, expr):
+         if len(expr.variables) == 1 and not expr.limits[0][1:]:
+             args = [expr.args[0], expr.variables[0]]
+2026-11-24 15:28:39,424 - INFO - Grading answer for sympy__sympy-15345...
+2026-11-24 15:28:39,424 - INFO - report: {'sympy__sympy-15345': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['test_Function'], 'failure': []}, 'PASS_TO_PASS': {'success': ['test_Integer', 'test_Rational', 'test_Pow', 'test_Mul', 'test_constants', 'test_containers', 'test_Integral', 'test_Derivative'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sympy__sympy-15345: resolved: True
+2026-11-24 15:28:39,424 - INFO - Attempting to stop container sweb.eval.sympy__sympy-15345.frozen-20261123-lite300-sympy__sympy-15345...
+2026-11-24 15:28:58,067 - INFO - Attempting to remove container sweb.eval.sympy__sympy-15345.frozen-20261123-lite300-sympy__sympy-15345...
+2026-11-24 15:28:58,119 - INFO - Container sweb.eval.sympy__sympy-15345.frozen-20261123-lite300-sympy__sympy-15345 removed.

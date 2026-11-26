@@ -1,0 +1,24 @@
+diff --git a/sphinx/environment/adapters/indexentries.py b/sphinx/environment/adapters/indexentries.py
+index 5af213932e..01f3543e3d 100644
+--- a/sphinx/environment/adapters/indexentries.py
++++ b/sphinx/environment/adapters/indexentries.py
+@@ -99,7 +99,8 @@ class IndexEntries:
+                 subentry[0].sort(key=keyfunc0)  # type: ignore
+ 
+         # sort the index entries; put all symbols at the front, even those
+-        # following the letters in ASCII, this is where the chr(127) comes from
++        # following the letters in ASCII, this is where the chr(0) and
++        # chr(127) prefixes come from
+         def keyfunc(entry: Tuple[str, List]) -> Tuple[str, str]:
+             key, (void, void, category_key) = entry
+             if category_key:
+@@ -110,6 +111,9 @@ class IndexEntries:
+                 lckey = lckey[1:]
+             if lckey[0:1].isalpha() or lckey.startswith('_'):
+                 lckey = chr(127) + lckey
++            else:
++                # put all other symbols at the front
++                lckey = chr(0) + lckey
+             # ensure a determinstic order *within* letters by also sorting on
+             # the entry itself
+             return (lckey, entry[0])

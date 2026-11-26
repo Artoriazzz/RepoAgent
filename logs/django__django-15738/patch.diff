@@ -1,0 +1,48 @@
+diff --git a/django/db/migrations/autodetector.py b/django/db/migrations/autodetector.py
+index 5f41053283..7ea349ebee 100644
+--- a/django/db/migrations/autodetector.py
++++ b/django/db/migrations/autodetector.py
+@@ -1486,15 +1486,36 @@ class MigrationAutodetector:
+                     if value
+                     not in self.renamed_index_together_values[app_label, model_name]
+                 }
++            new_model_state = self.to_state.models[app_label, model_name]
++            new_fields = dict(new_model_state.fields)
++
++            def _needs_explicit_removal(constraint):
++                # A constraint whose fields are not all concrete column-bearing
++                # fields in the new state (e.g. a field altered to
++                # ManyToManyField, or a removed field) doesn't need an explicit
++                # removal operation: its database constraint is dropped
++                # together with the column by the field alteration itself.
++                for field_name in constraint:
++                    field = new_fields.get(field_name)
++                    if field is None or not field.concrete:
++                        return False
++                return True
++
+             removal_value = new_value.intersection(old_value)
++            removal_value = {
++                value for value in removal_value if _needs_explicit_removal(value)
++            }
+             if removal_value or old_value:
+-                self.add_operation(
+-                    app_label,
+-                    operation(
+-                        name=model_name, **{operation.option_name: removal_value}
+-                    ),
+-                    dependencies=dependencies,
+-                )
++                if removal_value or any(
++                    _needs_explicit_removal(value) for value in old_value
++                ):
++                    self.add_operation(
++                        app_label,
++                        operation(
++                            name=model_name, **{operation.option_name: removal_value}
++                        ),
++                        dependencies=dependencies,
++                    )
+ 
+     def generate_removed_altered_unique_together(self):
+         self._generate_removed_altered_foo_together(operations.AlterUniqueTogether)

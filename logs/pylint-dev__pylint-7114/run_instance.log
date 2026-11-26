@@ -1,0 +1,58 @@
+2026-11-24 02:46:31,029 - INFO - Environment image sweb.env.py.x86_64.b70be1b28e254d81bab6a9:latest found for pylint-dev__pylint-7114
+Building instance image sweb.eval.x86_64.pylint-dev__pylint-7114:latest for pylint-dev__pylint-7114
+2026-11-24 02:46:31,051 - INFO - Image sweb.eval.x86_64.pylint-dev__pylint-7114:latest already exists, skipping build.
+2026-11-24 02:46:31,051 - INFO - Creating container for pylint-dev__pylint-7114...
+2026-11-24 02:46:31,134 - INFO - Container for pylint-dev__pylint-7114 created: e9e84481ab339306b2f0079666410d4e35b96b50594186b049b9f3d101d2a39a
+2026-11-24 02:46:31,250 - INFO - Container for pylint-dev__pylint-7114 started: e9e84481ab339306b2f0079666410d4e35b96b50594186b049b9f3d101d2a39a
+2026-11-24 02:46:31,250 - INFO - Intermediate patch for pylint-dev__pylint-7114 written to logs/run_evaluation/frozen-20261123-lite300-pylint-dev__pylint-7114/repoagent-glm-5.3-flash/pylint-dev__pylint-7114/patch.diff, now applying to container...
+2026-11-24 02:46:31,336 - INFO - >>>>> Applied Patch:
+Checking patch pylint/lint/expand_modules.py...
+Applied patch pylint/lint/expand_modules.py cleanly.
+
+2026-11-24 02:46:31,452 - INFO - Git diff before:
+diff --git a/pylint/lint/expand_modules.py b/pylint/lint/expand_modules.py
+index 289e1afc..f47cc6e5 100644
+--- a/pylint/lint/expand_modules.py
++++ b/pylint/lint/expand_modules.py
+@@ -121,6 +121,13 @@ def expand_modules(
+         else:
+             is_namespace = modutils.is_namespace(spec)
+             is_directory = modutils.is_directory(spec)
++        if os.path.isdir(something) and not os.path.exists(
++            os.path.join(something, "__init__.py")
++        ):
++            # Namespace package: don't append a direct entry with a
++            # nonexistent __init__.py, expand subfiles instead.
++            is_namespace = True
++            is_directory = True
+         if not is_namespace:
+             result.append(
+                 {
+2026-11-24 02:46:31,452 - INFO - Eval script for pylint-dev__pylint-7114 written to logs/run_evaluation/frozen-20261123-lite300-pylint-dev__pylint-7114/repoagent-glm-5.3-flash/pylint-dev__pylint-7114/eval.sh; copying to container...
+2026-11-24 02:46:36,661 - INFO - Test runtime: 5.15 seconds
+2026-11-24 02:46:36,661 - INFO - Test output for pylint-dev__pylint-7114 written to logs/run_evaluation/frozen-20261123-lite300-pylint-dev__pylint-7114/repoagent-glm-5.3-flash/pylint-dev__pylint-7114/test_output.txt
+2026-11-24 02:46:36,706 - INFO - Git diff after:
+diff --git a/pylint/lint/expand_modules.py b/pylint/lint/expand_modules.py
+index 289e1afc..f47cc6e5 100644
+--- a/pylint/lint/expand_modules.py
++++ b/pylint/lint/expand_modules.py
+@@ -121,6 +121,13 @@ def expand_modules(
+         else:
+             is_namespace = modutils.is_namespace(spec)
+             is_directory = modutils.is_directory(spec)
++        if os.path.isdir(something) and not os.path.exists(
++            os.path.join(something, "__init__.py")
++        ):
++            # Namespace package: don't append a direct entry with a
++            # nonexistent __init__.py, expand subfiles instead.
++            is_namespace = True
++            is_directory = True
+         if not is_namespace:
+             result.append(
+                 {
+2026-11-24 02:46:36,706 - INFO - Grading answer for pylint-dev__pylint-7114...
+2026-11-24 02:46:36,707 - INFO - report: {'pylint-dev__pylint-7114': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['tests/lint/unittest_lint.py::test_identically_named_nested_module'], 'failure': []}, 'PASS_TO_PASS': {'success': ['tests/checkers/unittest_imports.py::TestImportsChecker::test_relative_beyond_top_level', 'tests/checkers/unittest_imports.py::TestImportsChecker::test_relative_beyond_top_level_three', 'tests/checkers/unittest_imports.py::TestImportsChecker::test_relative_beyond_top_level_four', 'tests/lint/unittest_lint.py::test_no_args', 'tests/lint/unittest_lint.py::test_one_arg[case0]', 'tests/lint/unittest_lint.py::test_one_arg[case1]', 'tests/lint/unittest_lint.py::test_one_arg[case2]', 'tests/lint/unittest_lint.py::test_one_arg[case3]', 'tests/lint/unittest_lint.py::test_one_arg[case4]', 'tests/lint/unittest_lint.py::test_two_similar_args[case0]', 'tests/lint/unittest_lint.py::test_two_similar_args[case1]', 'tests/lint/unittest_lint.py::test_two_similar_args[case2]', 'tests/lint/unittest_lint.py::test_two_similar_args[case3]', 'tests/lint/unittest_lint.py::test_more_args[case0]', 'tests/lint/unittest_lint.py::test_more_args[case1]', 'tests/lint/unittest_lint.py::test_more_args[case2]', 'tests/lint/unittest_lint.py::test_pylint_visit_method_taken_in_account', 'tests/lint/unittest_lint.py::test_enable_message', 'tests/lint/unittest_lint.py::test_enable_message_category', 'tests/lint/unittest_lint.py::test_message_state_scope', 'tests/lint/unittest_lint.py::test_enable_message_block', 'tests/lint/unittest_lint.py::test_enable_by_symbol', 'tests/lint/unittest_lint.py::test_enable_report', 'tests/lint/unittest_lint.py::test_report_output_format_aliased', 'tests/lint/unittest_lint.py::test_set_unsupported_reporter', 'tests/lint/unittest_lint.py::test_set_option_1', 'tests/lint/unittest_lint.py::test_set_option_2', 'tests/lint/unittest_lint.py::test_enable_checkers', 'tests/lint/unittest_lint.py::test_errors_only', 'tests/lint/unittest_lint.py::test_disable_similar', 'tests/lint/unittest_lint.py::test_disable_alot', 'tests/lint/unittest_lint.py::test_addmessage', 'tests/lint/unittest_lint.py::test_addmessage_invalid', 'tests/lint/unittest_lint.py::test_load_plugin_command_line', 'tests/lint/unittest_lint.py::test_load_plugin_config_file', 'tests/lint/unittest_lint.py::test_load_plugin_configuration', 'tests/lint/unittest_lint.py::test_init_hooks_called_before_load_plugins', 'tests/lint/unittest_lint.py::test_analyze_explicit_script', 'tests/lint/unittest_lint.py::test_full_documentation', 'tests/lint/unittest_lint.py::test_list_msgs_enabled', 'tests/lint/unittest_lint.py::test_pylint_home', 'tests/lint/unittest_lint.py::test_pylint_home_from_environ', 'tests/lint/unittest_lint.py::test_warn_about_old_home', 'tests/lint/unittest_lint.py::test_pylintrc', 'tests/lint/unittest_lint.py::test_pylintrc_parentdir', 'tests/lint/unittest_lint.py::test_pylintrc_parentdir_no_package', 'tests/lint/unittest_lint.py::test_filename_with__init__', 'tests/lint/unittest_lint.py::test_by_module_statement_value', 'tests/lint/unittest_lint.py::test_recursive_ignore[--ignore-failing.py]', 'tests/lint/unittest_lint.py::test_recursive_ignore[--ignore-ignored_subdirectory]', 'tests/lint/unittest_lint.py::test_recursive_ignore[--ignore-patterns-failing.*]', 'tests/lint/unittest_lint.py::test_recursive_ignore[--ignore-patterns-ignored_*]', 'tests/lint/unittest_lint.py::test_recursive_ignore[--ignore-paths-.*directory/ignored.*]', 'tests/lint/unittest_lint.py::test_recursive_ignore[--ignore-paths-.*ignored.*/failing.*]', 'tests/lint/unittest_lint.py::test_import_sibling_module_from_namespace', 'tests/lint/unittest_lint.py::test_lint_namespace_package_under_dir'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for pylint-dev__pylint-7114: resolved: True
+2026-11-24 02:46:36,707 - INFO - Attempting to stop container sweb.eval.pylint-dev__pylint-7114.frozen-20261123-lite300-pylint-dev__pylint-7114...
+2026-11-24 02:46:55,395 - INFO - Attempting to remove container sweb.eval.pylint-dev__pylint-7114.frozen-20261123-lite300-pylint-dev__pylint-7114...
+2026-11-24 02:46:55,456 - INFO - Container sweb.eval.pylint-dev__pylint-7114.frozen-20261123-lite300-pylint-dev__pylint-7114 removed.

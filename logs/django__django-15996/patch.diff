@@ -1,0 +1,30 @@
+diff --git a/django/db/migrations/serializer.py b/django/db/migrations/serializer.py
+index 38da1e6ecc..f0d4c9bffd 100644
+--- a/django/db/migrations/serializer.py
++++ b/django/db/migrations/serializer.py
+@@ -125,10 +125,22 @@ class EnumSerializer(BaseSerializer):
+     def serialize(self):
+         enum_class = self.value.__class__
+         module = enum_class.__module__
+-        return (
+-            "%s.%s[%r]" % (module, enum_class.__qualname__, self.value.name),
+-            {"import %s" % module},
++        if self.value.name is not None:
++            return (
++                "%s.%s[%r]" % (module, enum_class.__qualname__, self.value.name),
++                {"import %s" % module},
++            )
++        # Composite flag values (e.g. `re.UNICODE | re.IGNORECASE`) have no
++        # single member name, so serialize them as an OR expression of the
++        # names of the members composing the value.
++        import_string = " | ".join(
++            [
++                "%s.%s[%r]" % (module, enum_class.__qualname__, member.name)
++                for member in enum_class
++                if member.value and (member.value & self.value.value) == member.value
++            ]
+         )
++        return import_string, {"import %s" % module}
+ 
+ 
+ class FloatSerializer(BaseSimpleSerializer):

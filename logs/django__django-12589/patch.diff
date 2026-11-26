@@ -1,0 +1,19 @@
+diff --git a/django/db/models/sql/compiler.py b/django/db/models/sql/compiler.py
+index 63ca817355..4b23461997 100644
+--- a/django/db/models/sql/compiler.py
++++ b/django/db/models/sql/compiler.py
+@@ -112,6 +112,14 @@ class SQLCompiler:
+         ref_sources = {
+             expr.source for expr in expressions if isinstance(expr, Ref)
+         }
++        # When grouping by a reference to a Subquery annotation, group by the
++        # full subquery instead of the alias, since the alias may be ambiguous
++        # if joined tables contain a column of the same name.
++        from django.db.models.expressions import Subquery
++        expressions = [
++            expr.source if isinstance(expr, Ref) and isinstance(expr.source, Subquery) else expr
++            for expr in expressions
++        ]
+         for expr, _, _ in select:
+             # Skip members of the select clause that are already included
+             # by reference.

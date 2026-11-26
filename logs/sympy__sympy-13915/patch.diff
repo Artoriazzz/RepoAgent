@@ -1,0 +1,18 @@
+diff --git a/sympy/core/mul.py b/sympy/core/mul.py
+index 4f01eeedbd..0adb57d206 100644
+--- a/sympy/core/mul.py
++++ b/sympy/core/mul.py
+@@ -587,6 +587,13 @@ def _handle_for_oo(c_part, coeff_sign):
+             nc_part = [c for c in nc_part if not (fuzzy_not(c.is_zero) and
+                                                   c.is_real is not None)]
+ 
++            # 2*(3*oo)*a/(a**2 + 1) -> oo/(a**2 + 1) -> oo
++            # (a**2 + 1).is_zero with a unknown -> None, so keep zoo.
++            # But zoo * (1/a) with a possibly zero is NaN:
++            for c in c_part:
++                if c.is_Pow and c.exp.is_negative and c.base.is_zero is not False:
++                    return [S.NaN], [], None
++
+         # 0
+         elif coeff is S.Zero:
+             # we know for sure the result will be 0 except the multiplicand

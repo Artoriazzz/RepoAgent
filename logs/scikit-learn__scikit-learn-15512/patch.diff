@@ -1,0 +1,21 @@
+diff --git a/sklearn/cluster/_affinity_propagation.py b/sklearn/cluster/_affinity_propagation.py
+index 4806afee90d..3027bfc9c46 100644
+--- a/sklearn/cluster/_affinity_propagation.py
++++ b/sklearn/cluster/_affinity_propagation.py
+@@ -201,6 +201,16 @@ def affinity_propagation(S, preference=None, convergence_iter=15, max_iter=200,
+         if verbose:
+             print("Did not converge")
+ 
++        warnings.warn("Affinity propagation did not converge, this model "
++                      "will not have any cluster centers.", ConvergenceWarning)
++        cluster_centers_indices = []
++        labels = np.array([-1] * n_samples)
++
++        if return_n_iter:
++            return cluster_centers_indices, labels, max_iter
++        else:
++            return cluster_centers_indices, labels
++
+     I = np.flatnonzero(E)
+     K = I.size  # Identify exemplars
+ 

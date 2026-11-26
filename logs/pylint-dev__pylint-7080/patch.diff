@@ -1,0 +1,47 @@
+diff --git a/pylint/lint/expand_modules.py b/pylint/lint/expand_modules.py
+index 5cacc0371..2507e9270 100644
+--- a/pylint/lint/expand_modules.py
++++ b/pylint/lint/expand_modules.py
+@@ -120,7 +120,9 @@ def expand_modules(
+         else:
+             is_namespace = modutils.is_namespace(spec)
+             is_directory = modutils.is_directory(spec)
+-        if not is_namespace:
++        if not is_namespace and not _is_in_ignore_list_re(
++            filepath, ignore_list_paths_re
++        ):
+             result.append(
+                 {
+                     "path": filepath,
+diff --git a/pylint/lint/pylinter.py b/pylint/lint/pylinter.py
+index e2bbf061e..cf37b8f65 100644
+--- a/pylint/lint/pylinter.py
++++ b/pylint/lint/pylinter.py
+@@ -607,6 +607,14 @@ class PyLinter(
+                         continue
+ 
+                     if "__init__.py" in files:
++                        if _is_ignored_file(
++                            os.path.join(root, "__init__.py"),
++                            self.config.ignore,
++                            self.config.ignore_patterns,
++                            self.config.ignore_paths,
++                        ):
++                            skip_subtrees.append(root)
++                            continue
+                         skip_subtrees.append(root)
+                         yield root
+                     else:
+@@ -614,6 +622,12 @@ class PyLinter(
+                             os.path.join(root, file)
+                             for file in files
+                             if file.endswith(".py")
++                            and not _is_ignored_file(
++                                os.path.join(root, file),
++                                self.config.ignore,
++                                self.config.ignore_patterns,
++                                self.config.ignore_paths,
++                            )
+                         )
+             else:
+                 yield something

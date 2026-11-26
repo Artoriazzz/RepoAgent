@@ -1,0 +1,25 @@
+diff --git a/sympy/simplify/cse_main.py b/sympy/simplify/cse_main.py
+index d649dd02a9..c5e3aa077a 100644
+--- a/sympy/simplify/cse_main.py
++++ b/sympy/simplify/cse_main.py
+@@ -566,7 +566,7 @@ def tree_cse(exprs, symbols, opt_subs=None, order='canonical', ignore=()):
+     ignore : iterable of Symbols
+         Substitutions containing any Symbol from ``ignore`` will be ignored.
+     """
+-    from sympy.matrices.expressions import MatrixExpr, MatrixSymbol, MatMul, MatAdd
++    from sympy.matrices.expressions import MatrixExpr, MatrixSymbol, MatMul, MatAdd, MatrixElement
+     from sympy.polys.rootoftools import RootOf
+ 
+     if opt_subs is None:
+@@ -610,6 +610,11 @@ def _find_repeated(expr):
+ 
+             args = expr.args
+ 
++        if isinstance(expr, MatrixElement):
++            args = expr.args[1:]
++        elif isinstance(expr, MatrixSymbol):
++            args = expr.shape
++
+         list(map(_find_repeated, args))
+ 
+     for e in exprs:

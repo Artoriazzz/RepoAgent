@@ -1,0 +1,74 @@
+diff --git a/sympy/simplify/simplify.py b/sympy/simplify/simplify.py
+index f1609aa908..6f1a9104ae 100644
+--- a/sympy/simplify/simplify.py
++++ b/sympy/simplify/simplify.py
+@@ -543,6 +543,69 @@ def shorter(*choices):
+ 
+     expr = bottom_up(expr, lambda w: w.normal())
+     expr = Mul(*powsimp(expr).as_content_primitive())
++
++    def combine_same_pows(add):
++        '''Return an Add with its terms combined when they have the same
++        base and numerically equal exponents, e.g. x**2.5 - x**(5/2) -> 0.
++        Float and Rational exponents are compared by exact value. Terms
++        that cannot be combined are left unchanged.'''
++        if not add.is_Add:
++            return add
++        # group the terms that are able to be combined by the base of
++        # the Pow; every other term is left as it is
++        groups = {}
++        for i, t in enumerate(add.args):
++            c, rest = t.as_coeff_Mul()
++            if rest.is_Pow and rest.exp.is_number:
++                groups.setdefault(rest.base, []).append((i, c, rest))
++        if not groups:
++            return add
++        combined = {}  # index of first occurrence -> (coeff sum, rest)
++        drop = set()  # indices of terms combined into an earlier term
++        changed = False
++        for entries in groups.values():
++            acc = []
++            for i, c, rest in entries:
++                for a in acc:
++                    e1 = a[2].exp
++                    e2 = rest.exp
++                    if e1.is_Float and e2.is_Rational or \
++                            e1.is_Rational and e2.is_Float:
++                        # compare the exact values; Float.__eq__ is not
++                        # relied upon for Float/Rational pairs
++                        eq = Rational(e1 if e1.is_Float else e2) == \
++                            (e2 if e1.is_Float else e1)
++                    else:
++                        eq = e1 == e2
++                    if eq:
++                        a[1] += c
++                        drop.add(i)
++                        changed = True
++                        break
++                else:
++                    acc.append([i, c, rest])
++            for i, cs, rest in acc:
++                combined[i] = (cs, rest)
++        if not changed:
++            return add
++        args = []
++        for i, t in enumerate(add.args):
++            if i in drop:
++                continue
++            if i in combined:
++                cs, rest = combined[i]
++                if cs:  # a zero sum (even Float(0.0)) removes the term
++                    args.append(rest if cs == 1 else cs*rest)
++            else:
++                args.append(t)
++        if len(args) == len(add.args) and all(
++                new is old for new, old in zip(args, add.args)):
++            return add
++        return Add(*args)
++
++    if expr.has(Pow):
++        expr = bottom_up(expr, combine_same_pows)
++
+     _e = cancel(expr)
+     expr1 = shorter(_e, _mexpand(_e).cancel())  # issue 6829
+     expr2 = shorter(together(expr, deep=True), together(expr1, deep=True))

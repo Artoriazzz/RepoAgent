@@ -1,0 +1,77 @@
+2026-11-24 13:21:54,688 - INFO - Environment image sweb.env.py.x86_64.5d1fda9d55d65d8a4e5bdb:latest found for pytest-dev__pytest-7168
+Building instance image sweb.eval.x86_64.pytest-dev__pytest-7168:latest for pytest-dev__pytest-7168
+2026-11-24 13:22:19,374 - INFO - Creating container for pytest-dev__pytest-7168...
+2026-11-24 13:22:19,401 - INFO - Container for pytest-dev__pytest-7168 created: ae2a5f5a72042aef4e89351753c4d2ec9c5d48af084312c93ba3f70fbb43d42c
+2026-11-24 13:22:19,478 - INFO - Container for pytest-dev__pytest-7168 started: ae2a5f5a72042aef4e89351753c4d2ec9c5d48af084312c93ba3f70fbb43d42c
+2026-11-24 13:22:19,478 - INFO - Intermediate patch for pytest-dev__pytest-7168 written to logs/run_evaluation/frozen-20261123-lite300-pytest-dev__pytest-7168/repoagent-glm-5.3-flash/pytest-dev__pytest-7168/patch.diff, now applying to container...
+2026-11-24 13:22:19,555 - INFO - >>>>> Applied Patch:
+Checking patch src/_pytest/_io/saferepr.py...
+Applied patch src/_pytest/_io/saferepr.py cleanly.
+
+2026-11-24 13:22:19,626 - INFO - Git diff before:
+diff --git a/src/_pytest/_io/saferepr.py b/src/_pytest/_io/saferepr.py
+index 23af4d0bb..9fb7a70b6 100644
+--- a/src/_pytest/_io/saferepr.py
++++ b/src/_pytest/_io/saferepr.py
+@@ -19,9 +19,19 @@ def _format_repr_exception(exc: BaseException, obj: Any) -> str:
+         raise
+     except BaseException as exc:
+         exc_info = "unpresentable exception ({})".format(_try_repr_or_str(exc))
+-    return "<[{} raised in repr()] {} object at 0x{:x}>".format(
+-        exc_info, obj.__class__.__name__, id(obj)
+-    )
++    try:
++        return "<[{} raised in repr()] {} object at 0x{:x}>".format(
++            exc_info, obj.__class__.__name__, id(obj)
++        )
++    except (KeyboardInterrupt, SystemExit):
++        raise
++    except BaseException:
++        # Exception may come from obj.__class__.__name__ (e.g. custom
++        # __getattribute__ raising); fall back to a form that does not
++        # require attribute access on the instance.
++        return "<[{} raised in repr()] {} object at 0x{:x}>".format(
++            exc_info, type(obj).__name__, id(obj)
++        )
+ 
+ 
+ def _ellipsize(s: str, maxsize: int) -> str:
+2026-11-24 13:22:19,627 - INFO - Eval script for pytest-dev__pytest-7168 written to logs/run_evaluation/frozen-20261123-lite300-pytest-dev__pytest-7168/repoagent-glm-5.3-flash/pytest-dev__pytest-7168/eval.sh; copying to container...
+2026-11-24 13:22:21,901 - INFO - Test runtime: 2.23 seconds
+2026-11-24 13:22:21,901 - INFO - Test output for pytest-dev__pytest-7168 written to logs/run_evaluation/frozen-20261123-lite300-pytest-dev__pytest-7168/repoagent-glm-5.3-flash/pytest-dev__pytest-7168/test_output.txt
+2026-11-24 13:22:21,955 - INFO - Git diff after:
+diff --git a/src/_pytest/_io/saferepr.py b/src/_pytest/_io/saferepr.py
+index 23af4d0bb..9fb7a70b6 100644
+--- a/src/_pytest/_io/saferepr.py
++++ b/src/_pytest/_io/saferepr.py
+@@ -19,9 +19,19 @@ def _format_repr_exception(exc: BaseException, obj: Any) -> str:
+         raise
+     except BaseException as exc:
+         exc_info = "unpresentable exception ({})".format(_try_repr_or_str(exc))
+-    return "<[{} raised in repr()] {} object at 0x{:x}>".format(
+-        exc_info, obj.__class__.__name__, id(obj)
+-    )
++    try:
++        return "<[{} raised in repr()] {} object at 0x{:x}>".format(
++            exc_info, obj.__class__.__name__, id(obj)
++        )
++    except (KeyboardInterrupt, SystemExit):
++        raise
++    except BaseException:
++        # Exception may come from obj.__class__.__name__ (e.g. custom
++        # __getattribute__ raising); fall back to a form that does not
++        # require attribute access on the instance.
++        return "<[{} raised in repr()] {} object at 0x{:x}>".format(
++            exc_info, type(obj).__name__, id(obj)
++        )
+ 
+ 
+ def _ellipsize(s: str, maxsize: int) -> str:
+2026-11-24 13:22:21,955 - INFO - Grading answer for pytest-dev__pytest-7168...
+2026-11-24 13:22:21,955 - INFO - report: {'pytest-dev__pytest-7168': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['testing/io/test_saferepr.py::test_simple_repr', 'testing/io/test_saferepr.py::test_maxsize', 'testing/io/test_saferepr.py::test_maxsize_error_on_instance', 'testing/io/test_saferepr.py::test_exceptions', 'testing/io/test_saferepr.py::test_baseexception', 'testing/io/test_saferepr.py::test_buggy_builtin_repr', 'testing/io/test_saferepr.py::test_big_repr', 'testing/io/test_saferepr.py::test_repr_on_newstyle', 'testing/io/test_saferepr.py::test_unicode', 'testing/io/test_saferepr.py::test_pformat_dispatch', 'testing/io/test_saferepr.py::test_broken_getattribute'], 'failure': []}, 'PASS_TO_PASS': {'success': [], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for pytest-dev__pytest-7168: resolved: True
+2026-11-24 13:22:21,955 - INFO - Attempting to stop container sweb.eval.pytest-dev__pytest-7168.frozen-20261123-lite300-pytest-dev__pytest-7168...
+2026-11-24 13:22:37,063 - INFO - Attempting to remove container sweb.eval.pytest-dev__pytest-7168.frozen-20261123-lite300-pytest-dev__pytest-7168...
+2026-11-24 13:22:37,092 - INFO - Container sweb.eval.pytest-dev__pytest-7168.frozen-20261123-lite300-pytest-dev__pytest-7168 removed.
+2026-11-24 13:22:37,092 - INFO - Attempting to remove image sweb.eval.x86_64.pytest-dev__pytest-7168:latest...
+2026-11-24 13:22:37,183 - INFO - Image sweb.eval.x86_64.pytest-dev__pytest-7168:latest removed.

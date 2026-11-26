@@ -1,0 +1,45 @@
+diff --git a/sphinx/builders/singlehtml.py b/sphinx/builders/singlehtml.py
+index d8ab978ed4..0eff071a4c 100644
+--- a/sphinx/builders/singlehtml.py
++++ b/sphinx/builders/singlehtml.py
+@@ -155,9 +155,9 @@ class SingleFileHTMLBuilder(StandaloneHTMLBuilder):
+             self.prepare_writing(docnames)  # type: ignore
+ 
+         with progress_message(__('assembling single document')):
+-            doctree = self.assemble_doctree()
+             self.env.toc_secnumbers = self.assemble_toc_secnumbers()
+             self.env.toc_fignumbers = self.assemble_toc_fignumbers()
++            doctree = self.assemble_doctree()
+ 
+         with progress_message(__('writing')):
+             self.write_doc_serialized(self.config.master_doc, doctree)
+diff --git a/sphinx/domains/std.py b/sphinx/domains/std.py
+index 4bde579305..3acc577087 100644
+--- a/sphinx/domains/std.py
++++ b/sphinx/domains/std.py
+@@ -1072,11 +1072,23 @@ class StandardDomain(Domain):
+         else:
+             try:
+                 figure_id = target_node['ids'][0]
++            except IndexError as exc:
++                # target_node is found, but it has no id, so no fignumber
++                # can be assigned to it.
++                raise ValueError from exc
++
++            try:
+                 return env.toc_fignumbers[docname][figtype][figure_id]
+-            except (KeyError, IndexError) as exc:
++            except KeyError as exc:
+                 # target_node is found, but fignumber is not assigned.
+                 # Maybe it is defined in orphaned document.
+-                raise ValueError from exc
++                try:
++                    # SingleFileHTMLBuilder re-keys toc_fignumbers to
++                    # {master_doc: {"docname/figtype": {figure_id: number}}}.
++                    aliased = env.toc_fignumbers.get(env.config.master_doc, {})
++                    return aliased['%s/%s' % (docname, figtype)][figure_id]
++                except KeyError:
++                    raise ValueError from exc
+ 
+     def get_full_qualified_name(self, node: Element) -> str:
+         if node.get('reftype') == 'option':

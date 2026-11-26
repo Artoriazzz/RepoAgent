@@ -1,0 +1,21 @@
+diff --git a/lib/mpl_toolkits/mplot3d/axes3d.py b/lib/mpl_toolkits/mplot3d/axes3d.py
+index e470295393..f1d1e8b98c 100644
+--- a/lib/mpl_toolkits/mplot3d/axes3d.py
++++ b/lib/mpl_toolkits/mplot3d/axes3d.py
+@@ -1280,8 +1280,14 @@ class Axes3D(Axes):
+         zs = np.broadcast_to(zs, np.shape(xs))
+ 
+         lines = super().plot(xs, ys, *args, **kwargs)
+-        for line in lines:
+-            art3d.line_2d_to_3d(line, zs=zs, zdir=zdir)
++        for j, line in enumerate(lines):
++            if zs.ndim < 2:
++                zline = zs
++            elif zs.shape[1] > 1:
++                zline = zs[:, j]
++            else:
++                zline = zs[:, 0]
++            art3d.line_2d_to_3d(line, zs=zline, zdir=zdir)
+ 
+         xs, ys, zs = art3d.juggle_axes(xs, ys, zs, zdir)
+         self.auto_scale_xyz(xs, ys, zs, had_data)

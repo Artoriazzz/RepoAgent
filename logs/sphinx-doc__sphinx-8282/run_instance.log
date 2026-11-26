@@ -1,0 +1,90 @@
+2026-11-25 10:54:00,769 - INFO - Environment image sweb.env.py.x86_64.764c21123474adcba1e003:latest found for sphinx-doc__sphinx-8282
+Building instance image sweb.eval.x86_64.sphinx-doc__sphinx-8282:latest for sphinx-doc__sphinx-8282
+2026-11-25 10:54:00,789 - INFO - Image sweb.eval.x86_64.sphinx-doc__sphinx-8282:latest already exists, skipping build.
+2026-11-25 10:54:00,789 - INFO - Creating container for sphinx-doc__sphinx-8282...
+2026-11-25 10:54:00,872 - INFO - Container for sphinx-doc__sphinx-8282 created: e6e17c28f7e5e73938b9df1f8f50c73d65d8fd1ce147ab1a7d6a0e5e63430276
+2026-11-25 10:54:00,984 - INFO - Container for sphinx-doc__sphinx-8282 started: e6e17c28f7e5e73938b9df1f8f50c73d65d8fd1ce147ab1a7d6a0e5e63430276
+2026-11-25 10:54:00,984 - INFO - Intermediate patch for sphinx-doc__sphinx-8282 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-8282/repoagent-glm-5.3-flash/sphinx-doc__sphinx-8282/patch.diff, now applying to container...
+2026-11-25 10:54:01,094 - INFO - >>>>> Applied Patch:
+Checking patch sphinx/ext/autodoc/__init__.py...
+Applied patch sphinx/ext/autodoc/__init__.py cleanly.
+
+2026-11-25 10:54:01,377 - INFO - Git diff before:
+diff --git a/sphinx/ext/autodoc/__init__.py b/sphinx/ext/autodoc/__init__.py
+index 978fd5df8..335f705c7 100644
+--- a/sphinx/ext/autodoc/__init__.py
++++ b/sphinx/ext/autodoc/__init__.py
+@@ -1239,6 +1239,9 @@ class FunctionDocumenter(DocstringSignatureMixin, ModuleLevelDocumenter):  # typ
+             self.add_line('   :async:', sourcename)
+ 
+     def format_signature(self, **kwargs: Any) -> str:
++        if self.env.config.autodoc_typehints in ('none', 'description'):
++            kwargs.setdefault('show_annotation', False)
++
+         sigs = []
+         if self.analyzer and '.'.join(self.objpath) in self.analyzer.overloads:
+             # Use signatures for overloaded functions instead of the implementation function.
+@@ -1467,6 +1470,9 @@ class ClassDocumenter(DocstringSignatureMixin, ModuleLevelDocumenter):  # type:
+         return stringify_signature(sig, show_return_annotation=False, **kwargs)
+ 
+     def format_signature(self, **kwargs: Any) -> str:
++        if self.env.config.autodoc_typehints in ('none', 'description'):
++            kwargs.setdefault('show_annotation', False)
++
+         if self.doc_as_attr:
+             return ''
+ 
+@@ -1881,6 +1887,9 @@ class MethodDocumenter(DocstringSignatureMixin, ClassLevelDocumenter):  # type:
+         pass
+ 
+     def format_signature(self, **kwargs: Any) -> str:
++        if self.env.config.autodoc_typehints in ('none', 'description'):
++            kwargs.setdefault('show_annotation', False)
++
+         sigs = []
+         if self.analyzer and '.'.join(self.objpath) in self.analyzer.overloads:
+             # Use signatures for overloaded methods instead of the implementation method.
+2026-11-25 10:54:01,377 - INFO - Eval script for sphinx-doc__sphinx-8282 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-8282/repoagent-glm-5.3-flash/sphinx-doc__sphinx-8282/eval.sh; copying to container...
+2026-11-25 10:54:07,861 - INFO - Test runtime: 6.43 seconds
+2026-11-25 10:54:07,861 - INFO - Test output for sphinx-doc__sphinx-8282 written to logs/run_evaluation/frozen-20261123-lite300-sphinx-doc__sphinx-8282/repoagent-glm-5.3-flash/sphinx-doc__sphinx-8282/test_output.txt
+2026-11-25 10:54:07,918 - INFO - Git diff after:
+diff --git a/sphinx/ext/autodoc/__init__.py b/sphinx/ext/autodoc/__init__.py
+index 978fd5df8..335f705c7 100644
+--- a/sphinx/ext/autodoc/__init__.py
++++ b/sphinx/ext/autodoc/__init__.py
+@@ -1239,6 +1239,9 @@ class FunctionDocumenter(DocstringSignatureMixin, ModuleLevelDocumenter):  # typ
+             self.add_line('   :async:', sourcename)
+ 
+     def format_signature(self, **kwargs: Any) -> str:
++        if self.env.config.autodoc_typehints in ('none', 'description'):
++            kwargs.setdefault('show_annotation', False)
++
+         sigs = []
+         if self.analyzer and '.'.join(self.objpath) in self.analyzer.overloads:
+             # Use signatures for overloaded functions instead of the implementation function.
+@@ -1467,6 +1470,9 @@ class ClassDocumenter(DocstringSignatureMixin, ModuleLevelDocumenter):  # type:
+         return stringify_signature(sig, show_return_annotation=False, **kwargs)
+ 
+     def format_signature(self, **kwargs: Any) -> str:
++        if self.env.config.autodoc_typehints in ('none', 'description'):
++            kwargs.setdefault('show_annotation', False)
++
+         if self.doc_as_attr:
+             return ''
+ 
+@@ -1881,6 +1887,9 @@ class MethodDocumenter(DocstringSignatureMixin, ClassLevelDocumenter):  # type:
+         pass
+ 
+     def format_signature(self, **kwargs: Any) -> str:
++        if self.env.config.autodoc_typehints in ('none', 'description'):
++            kwargs.setdefault('show_annotation', False)
++
+         sigs = []
+         if self.analyzer and '.'.join(self.objpath) in self.analyzer.overloads:
+             # Use signatures for overloaded methods instead of the implementation method.
+2026-11-25 10:54:07,918 - INFO - Grading answer for sphinx-doc__sphinx-8282...
+2026-11-25 10:54:07,921 - INFO - report: {'sphinx-doc__sphinx-8282': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': False, 'tests_status': {'FAIL_TO_PASS': {'success': [], 'failure': ['tests/test_ext_autodoc_configs.py::test_autodoc_typehints_none_for_overload']}, 'PASS_TO_PASS': {'success': ['tests/test_ext_autodoc_configs.py::test_autoclass_content_class', 'tests/test_ext_autodoc_configs.py::test_autoclass_content_init', 'tests/test_ext_autodoc_configs.py::test_autoclass_content_both', 'tests/test_ext_autodoc_configs.py::test_autodoc_inherit_docstrings', 'tests/test_ext_autodoc_configs.py::test_autodoc_docstring_signature', 'tests/test_ext_autodoc_configs.py::test_autoclass_content_and_docstring_signature_class', 'tests/test_ext_autodoc_configs.py::test_autoclass_content_and_docstring_signature_init', 'tests/test_ext_autodoc_configs.py::test_autoclass_content_and_docstring_signature_both', 'tests/test_ext_autodoc_configs.py::test_mocked_module_imports', 'tests/test_ext_autodoc_configs.py::test_autodoc_typehints_signature', 'tests/test_ext_autodoc_configs.py::test_autodoc_typehints_none', 'tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description', 'tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description_for_invalid_node', 'tests/test_ext_autodoc_configs.py::test_autodoc_type_aliases', 'tests/test_ext_autodoc_configs.py::test_autodoc_default_options', 'tests/test_ext_autodoc_configs.py::test_autodoc_default_options_with_values'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for sphinx-doc__sphinx-8282: resolved: False
+2026-11-25 10:54:07,921 - INFO - Attempting to stop container sweb.eval.sphinx-doc__sphinx-8282.frozen-20261123-lite300-sphinx-doc__sphinx-8282...
+2026-11-25 10:54:23,010 - INFO - Attempting to remove container sweb.eval.sphinx-doc__sphinx-8282.frozen-20261123-lite300-sphinx-doc__sphinx-8282...
+2026-11-25 10:54:23,070 - INFO - Container sweb.eval.sphinx-doc__sphinx-8282.frozen-20261123-lite300-sphinx-doc__sphinx-8282 removed.
