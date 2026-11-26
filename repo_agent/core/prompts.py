@@ -17,6 +17,16 @@ SENSITIVE_NAMES = {".env", ".env.local", ".npmrc", ".pypirc", "id_rsa", "id_ed25
 INCLUDE_RE = re.compile(r"^@(\./[^\s]+|~/[^\s]+|/[^\s]+)\s*$", re.MULTILINE)
 
 
+PUBLIC_EVIDENCE_CONSTRAINT = "只依据当前明确提供的 Issue、源码和公开验证证据推导结论，不猜测、回忆或讨论隐藏评测的测试内容、判定标签及参考修复；缺少依据时明确说明未知。"
+
+
+def with_public_evidence_constraint(prompt: str) -> str:
+    """为所有角色追加固定约束；复用提示词时不重复插入。"""
+    if PUBLIC_EVIDENCE_CONSTRAINT in prompt:
+        return prompt
+    return prompt.rstrip() + "\n\n# 公开证据约束\n" + PUBLIC_EVIDENCE_CONSTRAINT
+
+
 SYSTEM_PROMPT_TEMPLATE = """你是在命令行中维护 GitHub 仓库的代码助手。
 你的职责是理解用户目标，读取真实仓库状态，做最小必要修改，并用工具验证结果。你没有调用方内部架构或其他角色的隐含上下文，只能使用本提示、当前消息和工具结果。
 
@@ -88,7 +98,7 @@ def build_system_prompt(*, tool_rules: str = "") -> str:
     """
 
     prompt = SYSTEM_PROMPT_TEMPLATE.replace("{{tool_rules}}", _format_tool_rules(tool_rules))
-    return _compact_blank_lines(prompt).strip()
+    return with_public_evidence_constraint(_compact_blank_lines(prompt).strip())
 
 
 def build_runtime_context(

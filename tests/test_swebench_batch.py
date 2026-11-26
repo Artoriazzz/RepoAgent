@@ -15,6 +15,61 @@ def load_batch_module():
     return module
 
 
+def test_statement_move_is_not_a_whitespace_only_patch():
+    batch = load_batch_module()
+    patch = (
+        "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n"
+        "@@ -1,2 +1,2 @@\n+append_options()\n append_database()\n-append_options()\n"
+    )
+    assert not batch.patch_change_stats(patch)["whitespace_only"]
+
+
+def test_regenerated_public_suite_returns_to_review_without_spending_code_budget(tmp_path, monkeypatch):
+    batch = load_batch_module()
+    old = {"plan": {"files": [{"path": "tests/test_generated.py", "content": "old"}]},
+           "validation": {"feedback_eligible": True}}
+    (tmp_path / "public_validation.json").write_text(json.dumps(old))
+    calls = []
+
+    def review(row, repo, out, task, patch, validation, report, args, env):
+        calls.append((out.name, patch, validation["generated_test_revision_available"]))
+        return {"route": "test_regeneration", "attempted": False, "feedback": {"test_revision_request": "Use unique usernames"}}
+
+    def regenerate(row, repo, out, task, artifact, feedback, args, env, image):
+        assert artifact["plan"]["files"][0]["content"] == "old"
+        assert feedback["test_revision_request"] == "Use unique usernames"
+        return {"plan": {"cases": [{"id": "target"}]}}
+
+    monkeypatch.setattr(batch, "run_experience_correction", review)
+    monkeypatch.setattr(batch, "regenerate_public_suite", regenerate)
+    monkeypatch.setattr(batch, "evaluate_public_plan", lambda *a: {"status": "failed", "feedback_eligible": True})
+    summary = {}
+    assert batch.run_public_test_corrections({}, tmp_path, tmp_path, "issue", "patch", summary, SimpleNamespace(), {}) == "patch"
+    assert calls == [("public-correction-1", "patch", True), ("public-correction-1-revised-suite", "patch", False)]
+    assert summary["public_test_regeneration"]["status"] == "evaluated"
+
+
+def test_generated_fixture_error_routes_to_test_agent_only():
+    from repo_agent.core.experience import parse_failure_feedback
+
+    batch = load_batch_module()
+    payload = {
+        "failure": {"kind": "invalid_test", "quality": "exception_detail",
+                    "observations": ["setUpTestData raised IntegrityError before any assertions"],
+                    "cause": "Both fixtures created the same unique username."},
+        "repair": {"edits": [], "preserve": []},
+        "evidence": {"items": [{"id": "E1", "source": "failure_log", "support": "direct",
+                                "fact": "UNIQUE constraint failed: auth_user.username; Ran 0 tests"}],
+                     "used_ids": ["E1"]},
+        "decision": {"action": "regenerate_tests", "request": "Give each User a different username."},
+    }
+    feedback = parse_failure_feedback(json.dumps(payload))
+    assert feedback is not None
+    assert batch.validated_failure_feedback_route(feedback.to_dict()) == "test_regeneration"
+    payload["evidence"]["items"][0]["support"] = "inference"
+    assert parse_failure_feedback(json.dumps(payload)) is None
+
+
 def test_api_failure_is_not_an_invalid_patch(tmp_path):
     batch = load_batch_module()
     stdout = "Traceback (most recent call last):\nopenai.APITimeoutError: Request timed out.\n"
@@ -335,6 +390,35 @@ def test_batch_validates_cli_normalized_failure_routes():
         "fact": "producer.py:20 lacks the required conversion", "support": "direct"})
     actionable["correction_evidence_ids"].append("E4")
     assert batch.validated_failure_feedback_route(actionable) == "corrective_implement"
+
+
+@pytest.mark.parametrize("context_source", ["public_task", "failed_patch", "semantic_evidence", "repository_code"])
+@pytest.mark.parametrize("quality", ["exception_detail", "expected_actual", "failure_only"])
+def test_batch_correction_accepts_direct_source_evidence_without_redundant_task_reference(context_source, quality):
+    from repo_agent.core.experience import parse_failure_feedback
+
+    batch = load_batch_module()
+    feedback = {
+        "failure_stage": "implementation_semantics",
+        "correction_route": "corrective_implement", "correction_readiness": "actionable",
+        "failure_observation_quality": quality, "scope_expansion": [],
+        "required_edits": [{"path": "value.py", "start_line": 10, "end_line": 12, "change": "Restore hashing consistent with equality."}],
+        "evidence_ledger": [
+            {"id": "E1", "source": "failure_log", "support": "direct", "fact": "hash(value) raises TypeError"},
+            {"id": "E2", "source": context_source, "support": "direct", "fact": "The class defines __eq__ without __hash__"},
+            {"id": "E3", "source": "semantic_evidence", "support": "inference", "fact": "Equal objects need equal hashes"},
+        ],
+        "correction_evidence_ids": ["E1", "E2", "E3"],
+    }
+    expected = "corrective_implement" if quality != "failure_only" or context_source == "repository_code" else None
+    assert batch.validated_failure_feedback_route(feedback) == expected
+    parsed = parse_failure_feedback(json.dumps(feedback))
+    assert parsed is not None
+    assert parsed.correction_route == (expected or "none")
+    feedback["evidence_ledger"][1]["support"] = "inference"
+    assert batch.validated_failure_feedback_route(feedback) is None
+    feedback["evidence_ledger"][1]["support"] = "unknown"
+    assert batch.validated_failure_feedback_route(feedback) is None
 
 
 def test_output_limit_is_not_reported_as_invalid_patch():
@@ -742,6 +826,48 @@ def test_experience_validation_preserves_failed_patch_for_lightweight_correction
     assert result["invalid"] is False
     assert result["discard_patch"] is False
     assert "verification_failed_feedback_eligible:behavior_failed" in result["warnings"]
+
+
+@pytest.mark.parametrize("public_status", ["passed", "failed", "inconclusive"])
+def test_public_preview_only_scores_a_publicly_passing_patch(tmp_path, monkeypatch, public_status):
+    batch = load_batch_module()
+    output = tmp_path / "out"
+    output.mkdir()
+    patch = "nonempty patch"
+    calls = []
+    monkeypatch.setattr(batch, "checkout_repo", lambda *a, **k: None)
+    monkeypatch.setattr(batch, "git_diff", lambda *a: patch)
+    monkeypatch.setattr(batch, "run_agent_pass", lambda *a, **k: {
+        "model_patch": patch, "status": "agent_ok", "output_dir": str(output / "pass-1"),
+    })
+    monkeypatch.setattr(batch, "validate_model_patch", lambda *a, **k: {})
+
+    def public_tests(*args, **kwargs):
+        args[5]["public_validation"] = {"status": public_status}
+        return patch
+
+    def harness(*args, **kwargs):
+        calls.append(args[1])
+        return {"resolved": True}
+
+    monkeypatch.setattr(batch, "run_public_test_corrections", public_tests)
+    monkeypatch.setattr(batch, "run_harness_for_instance", harness)
+    monkeypatch.setattr(batch, "run_experience_curator_for_success", lambda *a, **k: pytest.fail("memory write"))
+    args = SimpleNamespace(
+        work_dir=tmp_path / "work", diagnostic_mode="none", full_agent_profile=False,
+        repair_mode="benchmark", require_public_pass=True, feedback_source="public-tests",
+        evaluate=True, evolve_memory=False, timeout=60, offline_cache=False, prebuild_instance_image=False,
+    )
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    result = batch.run_instance_once({"instance_id": "owner__repo-1", "repo": "owner/repo",
+                                      "base_commit": "abc", "problem_statement": "fix public behavior"},
+                                     repo, output, args, {})
+    assert calls == ([patch] if public_status == "passed" else [])
+    assert result["model_patch"] == patch
+    assert not result["official_pass1"]
+    if public_status != "passed":
+        assert result["passes"][0]["harness"]["reason"] == "public_tests_not_passed"
 
 
 @pytest.mark.parametrize("second_result", ["resolved", "failed", "error"])

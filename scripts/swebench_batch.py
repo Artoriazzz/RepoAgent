@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from repo_agent.core.failure_feedback_format import render_failure_handoff
 from repo_agent.core.llm import DEFAULT_MODEL
+from repo_agent.core.memory import MemoryStore, MemoryType
+from repo_agent.core.public_validation import evaluate_public_plan
 from repo_agent.core.static_analysis import newly_undefined_names
 from repo_agent.core.differential_validation import assess_differential_validation
 from repo_agent.core.experience import (
@@ -26,12 +30,26 @@ from repo_agent.core.verification import (
     assess_verification_result,
     prepare_verification_command,
     verification_command_safety_reason,
+    test_overlay_digest,
 )
 
 
 def main(argv: list[str] | None = None) -> int:
     """批量实验入口，并在启动前执行模式完整性检查。"""
     args = build_parser().parse_args(argv)
+    if args.require_public_pass and (
+        args.repair_mode != "benchmark" or args.feedback_source != "public-tests"
+        or args.diagnostic_mode != "none" or not args.evaluate
+    ):
+        raise SystemExit("--require-public-pass requires benchmark mode, public-tests feedback, --evaluate, and no diagnostics")
+    if args.require_public_pass:
+        if not args.memory_root:
+            raise SystemExit("--require-public-pass requires an explicit --memory-root")
+        if args.no_repair_memory:
+            if not args.memory_root.is_dir() or any(args.memory_root.rglob("*.md")):
+                raise SystemExit("A no-memory public-test run requires an isolated empty memory directory")
+        else:
+            validate_global_memory_snapshot(args.memory_root)
     # 学习模式必须用独立评测证明成功后才能写记忆；正式评测则冻结记忆。
     if args.repair_mode == "experience-build":
         if not args.evaluate:
@@ -98,22 +116,26 @@ def main(argv: list[str] | None = None) -> int:
         "reasoning_effort": args.reasoning_effort,
         "coordinator_reasoning_effort": args.coordinator_reasoning_effort,
         "implement_reasoning_effort": args.implement_reasoning_effort,
-        "diagnostic_only": args.diagnostic_mode != "none",
+        "diagnostic_only": args.diagnostic_mode != "none" or args.require_public_pass,
         "diagnostic_mode": args.diagnostic_mode,
-        "leaderboard_eligible": args.diagnostic_mode == "none" and args.repair_mode == "benchmark",
+        "leaderboard_eligible": args.diagnostic_mode == "none" and args.repair_mode == "benchmark" and not args.require_public_pass,
         "repair_mode": args.repair_mode,
         "evaluation_policy": {
             "agent_feedback": (
-                "harness_failure_up_to_twice"
-                if args.repair_mode == "experience-build"
+                f"{args.feedback_source}_failure_up_to_twice"
+                if args.repair_mode == "experience-build" or args.require_public_pass
                 else "disabled"
             ),
-            "max_corrections": 2 if args.repair_mode == "experience-build" else 0,
+            "max_corrections": 2 if args.repair_mode == "experience-build" or args.require_public_pass else 0,
             "max_full_harness_runs_per_instance": (
-                3 if args.repair_mode == "experience-build" else 1
+                3 if args.repair_mode == "experience-build" and args.feedback_source == "harness" else 1
             ),
             "max_full_harness_runs_per_candidate": 1,
-            "harness_feedback_to_agent": args.repair_mode == "experience-build",
+            "harness_feedback_to_agent": args.repair_mode == "experience-build" and args.feedback_source == "harness",
+            "feedback_source": args.feedback_source,
+            "require_public_pass": args.require_public_pass,
+            "repair_memory_recall": not args.no_repair_memory and args.repair_mode == "benchmark",
+            "experience_generation_disabled": args.no_experience_generation,
             "prebuild_instance_image": should_prebuild_instance_image(args),
         },
         "count": len(instances),
@@ -175,6 +197,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="benchmark uses frozen dual memory and one patch; experience-build permits up to two feedback corrections and memory write.",
     )
     parser.add_argument("--timeout", type=int, default=1800, help="Seconds per RepoAgent run.")
+    parser.add_argument("--feedback-source", choices=("public-tests", "harness"), default="public-tests",
+                        help="Learning-mode feedback source. public-tests uses baseline-generated tests; harness is a historical diagnostic path.")
     parser.add_argument("--skip-existing", action="store_true")
     parser.add_argument(
         "--evaluate",
@@ -213,6 +237,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional shared memory scope. Supports {repo} and {instance_id}, for example swebench-lite:{repo}.",
     )
     parser.add_argument("--no-repair-memory", action="store_true", help="Disable repair_recipe recall in RepoAgent runs.")
+    parser.add_argument("--no-experience-generation", action="store_true",
+                        help="Skip experience and case curators without changing repair or evaluation.")
     parser.add_argument(
         "--candidate-mode",
         choices=("auto", "required", "off"),
@@ -250,6 +276,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Baseline diagnostic output containing candidate.patch and harness failure logs.",
     )
+    parser.add_argument("--require-public-pass", action="store_true",
+                        help="Read-only public-test correction preview; run final Harness only after public tests pass.")
     return parser
 
 
@@ -283,6 +311,7 @@ def run_instance_once(
     experience-build 才允许把首次失败送入 FailureReview，并最多执行一次纠正。
     """
     started = time.time()
+    public_feedback = uses_public_test_feedback(args)
     instance_id = row["instance_id"]
     passes: list[dict[str, Any]] = []
     verification_image = ""
@@ -339,7 +368,7 @@ def run_instance_once(
             repo_dir=repo_dir,
             agent_output_dir=pass_output,
             require_patch_review=args.full_agent_profile,
-            reject_failed_verification=args.repair_mode != "experience-build",
+            reject_failed_verification=args.repair_mode != "experience-build" and not public_feedback,
             stage_attribution=(
                 pass_summary.get("stage_attribution")
                 if args.diagnostic_mode != "corrective"
@@ -359,8 +388,14 @@ def run_instance_once(
         feedback_file_for_memory: Path | None = None
         initial_harness: dict[str, Any] = {}
         correction_applied = False
+        if public_feedback and args.diagnostic_mode != "corrective":
+            patch = run_public_test_corrections(
+                row, repo_dir, pass_output, task, patch, pass_summary, args, env,
+                verification_image=verification_image,
+            )
         if (
             args.repair_mode == "experience-build"
+            and not public_feedback
             and args.evaluate
             and patch.strip()
             and not patch_validation.get("discard_patch")
@@ -451,12 +486,14 @@ def run_instance_once(
                         env,
                         90,
                     )
+            elif getattr(args, "require_public_pass", False) and (pass_summary.get("public_validation") or {}).get("status") != "passed":
+                pass_summary["harness"] = {"skipped": True, "reason": "public_tests_not_passed", "resolved": False}
             else:
                 pass_summary["harness"] = run_harness_for_instance(row, patch, pass_output, args, env, 0)
                 if args.diagnostic_mode != "none":
                     pass_summary["diagnostic_candidate_harness"] = pass_summary["harness"]
 
-        if args.repair_mode == "experience-build" and correction_applied:
+        if args.repair_mode == "experience-build" and correction_applied and not public_feedback:
             second_feedback = build_experience_harness_feedback(pass_summary["harness"], patch)
             second_feedback["previous_failure_constraints"] = build_previous_failure_constraints(
                 harness_feedback, (pass_summary.get("experience_correction") or {}).get("feedback", {}),
@@ -500,7 +537,9 @@ def run_instance_once(
 
         if (
             args.repair_mode == "experience-build"
+            and not public_feedback
             and (pass_summary.get("harness") or {}).get("resolved")
+            and not getattr(args, "no_experience_generation", False)
         ):
             pass_summary["experience_curator"] = run_experience_curator_for_success(
                 row,
@@ -514,7 +553,8 @@ def run_instance_once(
                 args=args,
                 env=env,
             )
-        if args.evolve_memory and (pass_summary.get("harness") or {}).get("resolved"):
+        if (args.evolve_memory and not public_feedback and (pass_summary.get("harness") or {}).get("resolved")
+                and not getattr(args, "no_experience_generation", False)):
             pass_summary["case_curator"] = run_case_curator_for_success(row, repo_dir, pass_output, pass_summary, args, env)
         pass_summary["stage_attribution"] = finalize_stage_attribution(pass_summary)
         (pass_output / "stage_attribution.json").write_text(
@@ -569,9 +609,9 @@ def run_instance_once(
         "model_patch": patch,
         "output_dir": str(output_dir),
         "passes": passes,
-        "official_pass1": args.diagnostic_mode == "none" and args.repair_mode == "benchmark",
+        "official_pass1": args.diagnostic_mode == "none" and args.repair_mode == "benchmark" and not getattr(args, "require_public_pass", False),
         "official_no_hints": args.diagnostic_mode in {"none", "baseline"},
-        "diagnostic_only": args.diagnostic_mode != "none" or args.repair_mode != "benchmark",
+        "diagnostic_only": args.diagnostic_mode != "none" or args.repair_mode != "benchmark" or getattr(args, "require_public_pass", False),
         "diagnostic_mode": args.diagnostic_mode,
         "repair_mode": args.repair_mode,
         "verification_image_lifecycle": image_lifecycle,
@@ -658,6 +698,8 @@ def run_agent_pass(
         "--task",
         agent_task,
     ]
+    if uses_public_test_feedback(args):
+        command.append("--public-validation")
     if args.implement_model:
         command.extend(["--implement-model", args.implement_model])
     forced_scope = diagnostic_scope_for_row(row, repo_dir, args.diagnostic_mode)
@@ -707,13 +749,30 @@ def swebench_eval_image(instance_id: str) -> str:
     return f"sweb.eval.x86_64.{instance_id}:latest"
 
 
+def validate_global_memory_snapshot(root: Path) -> None:
+    root = root.resolve()
+    global_dir = root / "global" / "memory"
+    entries = list(root.rglob("*.md"))
+    headers = MemoryStore(global_dir).list_memories()
+    if (not headers or len(headers) != len(entries)
+            or any(p.is_symlink() or p.parent != global_dir for p in entries)
+            or any(header.type != MemoryType.GLOBAL_EXPERIENCE for header in headers)):
+        raise SystemExit("Expected an isolated nonempty snapshot containing only global/memory global experiences")
+
+
+def uses_public_test_feedback(args: argparse.Namespace) -> bool:
+    return getattr(args, "feedback_source", "harness") == "public-tests" and (
+        args.repair_mode == "experience-build" or getattr(args, "require_public_pass", False)
+    )
+
+
 def should_prebuild_instance_image(args: argparse.Namespace) -> bool:
     """模式一默认预构建；模式二保持原有只在最终 harness 构建的行为。"""
 
     configured = getattr(args, "prebuild_instance_image", None)
     if configured is not None:
         return bool(configured)
-    return getattr(args, "repair_mode", "benchmark") == "experience-build"
+    return getattr(args, "repair_mode", "benchmark") == "experience-build" or getattr(args, "require_public_pass", False)
 
 
 def prebuild_swebench_instance_image(
@@ -1159,6 +1218,7 @@ def run_lightweight_feedback_command(
     *,
     verification_image: str = "",
     apply_host_patch: bool = True,
+    public_test_overlay: Path | None = None,
 ) -> dict[str, Any]:
     """在现有 SWE-bench eval 镜像中重跑同一条轻量公开命令，不启动完整 harness。"""
 
@@ -1177,6 +1237,7 @@ def run_lightweight_feedback_command(
         repo_dir,
         docker_image=verification_image or swebench_eval_image(row["instance_id"]),
         apply_host_patch=apply_host_patch,
+        test_overlay=public_test_overlay,
     )
     try:
         result = subprocess.run(
@@ -1208,7 +1269,169 @@ def run_lightweight_feedback_command(
         "runtime": runtime,
         "exit_code": result.returncode,
         "evidence": result.stdout[-4_000:],
+        "test_files_sha256": test_overlay_digest(public_test_overlay),
     }
+
+
+def regenerate_public_suite(row, repo_dir, output_dir, task, artifact, feedback, args, env, verification_image):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    used_ids = set(feedback.get("correction_evidence_ids") or [])
+    excerpts = [
+        str(item["fact"])[:1500]
+        for item in feedback.get("evidence_ledger", [])
+        if item.get("id") in used_ids and item.get("support") == "direct"
+        and item.get("source") == "failure_log" and item.get("fact")
+    ][:4]
+    revision = output_dir / "revision.json"
+    revision.write_text(json.dumps({
+        "previous": {"plan": artifact["plan"]},
+        "feedback": {"problem": feedback.get("root_cause"), "failure_log_excerpts": excerpts,
+                     "suggestion": feedback["test_revision_request"]},
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    task_file = output_dir / "task.md"
+    task_file.write_text(task, encoding="utf-8")
+    with tempfile.TemporaryDirectory(prefix="public-test-baseline-") as tmp:
+        baseline_repo = Path(tmp) / "repo"
+        subprocess.run(["git", "-C", str(repo_dir), "worktree", "add", "--detach", str(baseline_repo), "HEAD"],
+                       check=True, capture_output=True)
+        try:
+            command = [str(args.repo_agent_bin), "design-public-tests", "--repo", str(baseline_repo),
+                       "--model", args.model, "--output-dir", str(output_dir), "--task-file", str(task_file),
+                       "--revision-file", str(revision), "--swebench-profile"]
+            add_memory_cli_args(command, row, args)
+            add_reasoning_cli_args(command, args)
+            revision_env = dict(env)
+            if verification_image:
+                revision_env["REPO_AGENT_VERIFY_DOCKER_IMAGE"] = verification_image
+            with (output_dir / "designer_stdout.txt").open("w", encoding="utf-8") as log:
+                result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, text=True,
+                                        timeout=min(args.timeout, 900), env=revision_env, check=False)
+            return read_json_file(output_dir / "public_validation.json") if result.returncode == 0 else {}
+        finally:
+            subprocess.run(["git", "-C", str(repo_dir), "worktree", "remove", str(baseline_repo)],
+                           check=True, capture_output=True)
+
+
+def run_public_test_corrections(
+    row, repo_dir, pass_output, task, patch, pass_summary, args, env, *, verification_image="",
+):
+    """固定公开用例驱动纠正；官方评测在调用方最后执行，不参与选择或学习。"""
+    artifact = read_json_file(pass_output / "public_validation.json")
+    plan = artifact.get("plan") or {"status": "unavailable", "cases": [], "unknowns": ["No public validation plan"]}
+    baseline = artifact.get("baseline") or {}
+    test_overlay = Path(artifact["test_files_dir"]) if artifact.get("test_files_dir") else None
+
+    def evaluate():
+        return evaluate_public_plan(plan, baseline, lambda command: run_lightweight_feedback_command(
+            row, repo_dir, command, args, env, verification_image=verification_image,
+            public_test_overlay=test_overlay,
+        ))
+
+    validation = artifact.get("validation") or evaluate()
+    pass_summary["initial_public_validation"] = validation
+    retained_patch, retained_validation = patch, validation
+    retained_check = pass_summary.get("patch_validation", {})
+
+    def passing_cases(result):
+        return {case["id"] for case in result.get("cases", [])
+                if case.get("usable") and case.get("patched_classification") == "behavior_passed"}
+
+    failed_patch = ""
+    feedback_file = None
+    report = (((pass_summary.get("stage_attribution") or {}).get("stages") or {})
+              .get("implementation", {}).get("report", {}))
+    index = 0
+    suite_revised = False
+    while index < 2:
+        if not patch.strip() or not validation.get("feedback_eligible"):
+            break
+        can_revise = not suite_revised and bool((artifact.get("plan") or {}).get("files"))
+        review_dir = pass_output / f"public-correction-{index + 1}{'-revised-suite' if suite_revised else ''}"
+        correction = run_experience_correction(
+            row, repo_dir, review_dir, task, patch,
+            {**validation, "generated_test_revision_available": can_revise}, report, args, env,
+        )
+        pass_summary.setdefault("public_corrections", []).append(strip_large_fields(correction))
+        if can_revise and correction.get("route") == "test_regeneration":
+            suite_revised = True
+            revision_dir = pass_output / "public-test-regeneration"
+            regeneration = pass_summary["public_test_regeneration"] = {"output_dir": str(revision_dir)}
+            try:
+                revised = regenerate_public_suite(row, repo_dir, revision_dir, task, artifact,
+                                                  correction["feedback"], args, env, verification_image)
+            except (subprocess.SubprocessError, OSError) as exc:
+                regeneration.update(status="error", reason=str(exc))
+                break
+            if not (revised.get("plan") or {}).get("cases"):
+                regeneration["status"] = "no_usable_plan"
+                break
+            artifact = revised
+            plan, baseline = revised["plan"], revised.get("baseline", {})
+            test_overlay = Path(revised["test_files_dir"]) if revised.get("test_files_dir") else None
+            validation = evaluate()
+            regeneration.update(status="evaluated", validation=validation)
+            if retained_patch == patch:
+                retained_validation = validation
+            else:
+                restore_worktree_patch(repo_dir, retained_patch)
+                try:
+                    retained_validation = evaluate()
+                finally:
+                    restore_worktree_patch(repo_dir, patch)
+                if validation.get("status") == "passed" and passing_cases(retained_validation) <= passing_cases(validation):
+                    retained_patch, retained_validation = patch, validation
+                    retained_check = pass_summary.get("patch_validation", {})
+            continue
+        index += 1
+        candidate = correction.get("model_patch", "")
+        if not correction.get("attempted") or not candidate.strip() or candidate == patch:
+            break
+        check = validate_model_patch(candidate, repo_dir=repo_dir,
+                                     agent_output_dir=Path(correction["output_dir"]),
+                                     require_patch_review=False, reject_failed_verification=False,
+                                     stage_attribution=correction.get("stage_attribution"))
+        if check.get("discard_patch"):
+            restore_worktree_patch(repo_dir, patch)
+            break
+        failed_patch, patch = patch, candidate
+        report = (((correction.get("stage_attribution") or {}).get("stages") or {})
+                  .get("implementation", {}).get("report", {}))
+        feedback_file = Path(correction["feedback_file"])
+        pass_summary.update(model_patch=patch, patch_chars=len(patch), patch_validation=check)
+        validation = evaluate()
+        # 仍允许下一轮修正新回归；预算结束时保留没有丢失已通过公开用例的版本。
+        previous_passing = passing_cases(retained_validation)
+        candidate_passing = passing_cases(validation)
+        previous_usable = {case["id"] for case in retained_validation.get("cases", []) if case.get("usable")}
+        candidate_usable = {case["id"] for case in validation.get("cases", []) if case.get("usable")}
+        # 固定用例中已有的基线缺口不应抹掉全部可信用例均通过的改进。
+        improved_inconclusive = (
+            validation.get("status") == "inconclusive"
+            and previous_usable | candidate_usable <= candidate_passing
+            and bool(previous_usable - previous_passing)
+        )
+        if (validation.get("status") in {"passed", "failed"} or improved_inconclusive) and previous_passing <= candidate_passing:
+            retained_patch, retained_validation, retained_check = patch, validation, check
+    if patch != retained_patch:
+        pass_summary["public_regression_rollback"] = {
+            "lost_passing_cases": sorted(passing_cases(retained_validation) - passing_cases(validation)),
+            "discarded_validation": validation,
+        }
+        restore_worktree_patch(repo_dir, retained_patch)
+        patch, validation = retained_patch, retained_validation
+        pass_summary.update(model_patch=patch, patch_chars=len(patch), patch_validation=retained_check)
+    pass_summary["public_validation"] = validation
+    (pass_output / "public_validation_final.json").write_text(
+        json.dumps(validation, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+    if (patch.strip() and validation.get("status") == "passed" and not getattr(args, "require_public_pass", False)
+            and not getattr(args, "no_experience_generation", False)):
+        pass_summary["experience_curator"] = run_experience_curator_for_success(
+            row, repo_dir, pass_output, task=task, failed_patch=failed_patch,
+            successful_patch=patch, feedback_file=feedback_file, validation=validation,
+            args=args, env=env,
+        )
+    return patch
 
 
 def run_experience_correction(
@@ -1322,7 +1545,13 @@ def run_experience_correction(
     route = "none"
     attempted = False
     correction_summary: dict[str, Any]
-    if correction_route in {"corrective_implement", "coordinator_replan"}:
+    if (correction_route == "test_regeneration"
+            and lightweight_validation.get("validation_kind") == "public_test_suite"
+            and lightweight_validation.get("generated_test_revision_available") is True):
+        route = correction_route
+        correction_summary = {"status": "test_regeneration_requested", "model_patch": failed_patch,
+                              "patch_chars": len(failed_patch), "output_dir": str(output_dir)}
+    elif correction_route in {"corrective_implement", "coordinator_replan"}:
         route = correction_route
         attempted = True
         correction_summary = run_inline_experience_corrective(
@@ -1558,17 +1787,12 @@ def enforce_differential_relation_gate(
     if invalid_targets:
         return {
             "failure_stage": "invalid_test",
-            "issue_contract": [
-                str(value) for value in feedback.get("issue_contract") or [] if str(value).strip()
-            ],
             "observed_failure": [
                 f"{case_id}: clean baseline already matches expected_after; target probe did not reproduce the bug"
                 for case_id in invalid_targets
             ],
             "failure_observation_quality": "behavior_delta",
             "root_cause": "The public differential target is non-discriminating because its clean baseline already satisfies the exact target oracle.",
-            "invalidated_assumption": "A baseline-passing target was incorrectly treated as evidence that the candidate still needed to change.",
-            "required_correction": "Replace the target probe with a faithful public reproducer; do not rewrite the patch from this evidence.",
             "evidence_ledger": [
                 {
                     "id": "O1",
@@ -1581,9 +1805,7 @@ def enforce_differential_relation_gate(
             "scope_expansion": [],
             "regression_guards": [],
             "correction_readiness": "not_needed",
-            "next_evidence_source": "public_test",
             "correction_route": "none",
-            "confidence": 1.0,
             "controller_oracle_gate": True,
         }
 
@@ -1592,14 +1814,9 @@ def enforce_differential_relation_gate(
     if not violations and gaps:
         return {
             "failure_stage": "insufficient_evidence",
-            "issue_contract": [
-                str(value) for value in feedback.get("issue_contract") or [] if str(value).strip()
-            ],
             "observed_failure": [f"oracle gap: {value}" for value in gaps],
             "failure_observation_quality": "behavior_delta",
             "root_cause": "The differential trace shows change/no-change but lacks an exact or invariant oracle for every required target behavior.",
-            "invalidated_assumption": "A must_change relation was treated as proof that the changed result was correct.",
-            "required_correction": "No evidence-backed code correction is available from this trace.",
             "evidence_ledger": [
                 {
                     "id": "O1",
@@ -1614,9 +1831,7 @@ def enforce_differential_relation_gate(
                 str(value) for value in feedback.get("regression_guards") or [] if str(value).strip()
             ],
             "correction_readiness": "insufficient_evidence",
-            "next_evidence_source": "public_test",
             "correction_route": "none",
-            "confidence": 1.0,
             "controller_oracle_gate": True,
         }
     if not violations:
@@ -1627,26 +1842,12 @@ def enforce_differential_relation_gate(
         and feedback.get("correction_route") == "corrective_implement"
     ):
         return feedback
-    issue_contract = [
-        str(value)
-        for value in feedback.get("issue_contract") or []
-        if str(value).strip()
-    ] or ["The public task requires the changed compound guard to preserve its full behavior contract."]
     return {
         "failure_stage": "implementation_semantics",
-        "issue_contract": issue_contract,
         "observed_failure": violations,
         "failure_observation_quality": "behavior_delta",
         "root_cause": (
             "The candidate contradicts an exact target oracle or changes a baseline-backed invariant."
-        ),
-        "invalidated_assumption": (
-            "Passing a weak change/no-change check was treated as proof that the exact result and old behavior were correct."
-        ),
-        "required_correction": (
-            "Repair only the first predicate, conversion, output rule, or state mutation contradicted by the exact/invariant oracle. "
-            "Do not broaden edits outside the current patch scope. Violations: "
-            + "; ".join(violations)
         ),
         "evidence_ledger": [
             {
@@ -1669,10 +1870,10 @@ def enforce_differential_relation_gate(
             for value in feedback.get("regression_guards") or []
             if str(value).strip()
         ],
-        "correction_readiness": "actionable",
-        "next_evidence_source": "none",
-        "correction_route": "corrective_implement",
-        "confidence": 1.0,
+        "required_edits": [],
+        "replan_reason": "Trace the violated target or invariant to the changed production operation in the current patch and identify the exact source ranges before authorizing edits.",
+        "correction_readiness": "needs_replan",
+        "correction_route": "coordinator_replan",
         "controller_complete_gate": True,
     }
 
@@ -1694,6 +1895,19 @@ def validated_failure_feedback_route(feedback: dict[str, Any]) -> str | None:
         return None
     route = str(feedback.get("correction_route") or "")
     readiness = str(feedback.get("correction_readiness") or "")
+    if route == "test_regeneration":
+        if (feedback.get("failure_stage") != "invalid_test" or readiness != "not_needed"
+                or not str(feedback.get("test_revision_request") or "").strip()
+                or feedback.get("required_edits") or feedback.get("scope_expansion")
+                or feedback.get("failure_observation_quality") not in {"expected_actual", "exception_detail", "behavior_delta"}):
+            return None
+        ledger = {item.get("id"): item for item in feedback.get("evidence_ledger", []) if isinstance(item, dict)}
+        selected = [ledger.get(identifier) for identifier in feedback.get("correction_evidence_ids", [])]
+        if (all(item and item.get("support") != "unknown" for item in selected)
+                and any(item.get("support") == "direct" and item.get("source") in {"failure_log", "validation_summary"}
+                        for item in selected)):
+            return route
+        return None
     if route == "none":
         return route if readiness in {"not_needed", "insufficient_evidence"} else None
     if route not in {"corrective_implement", "coordinator_replan"}:
@@ -1706,7 +1920,7 @@ def validated_failure_feedback_route(feedback: dict[str, Any]) -> str | None:
         not in allowed_observations
     ):
         return None
-    if route == "coordinator_replan" and (not feedback.get("replan_reason") or feedback.get("next_evidence_source") != "repository_code"):
+    if route == "coordinator_replan" and (not feedback.get("replan_reason") or feedback.get("next_evidence_source", "repository_code") != "repository_code"):
         return None
     ledger = {
         str(item.get("id") or ""): item
@@ -1733,7 +1947,7 @@ def validated_failure_feedback_route(feedback: dict[str, Any]) -> str | None:
     return (
         route
         if direct_sources & {"failure_log", "validation_summary"}
-        and (route == "coordinator_replan" or direct_sources & {"public_task", "failed_patch", "semantic_evidence"})
+        and (route == "coordinator_replan" or direct_sources & {"public_task", "failed_patch", "semantic_evidence", "repository_code"})
         else None
     )
 
@@ -1757,19 +1971,14 @@ def run_inline_experience_corrective(
     )
     replan = None
     # 反馈可能指出原 patch 之外的根因；只有协调阶段能确认并授权新范围。
-    requested_paths = set(re.findall(
-        r"(?<![\w/])([\w.-]+(?:/[\w.-]+)+\.(?:py|js|ts|java|cpp|c|h|rs))\b",
-        str(feedback.get("required_correction") or ""),
-    ))
-    outside_paths = requested_paths - set(constraints["allowed_files"])
     missing_scope = required_edit_scope_issues(feedback.get("required_edits") or [], constraints)
-    if outside_paths or missing_scope or feedback.get("correction_readiness") == "needs_replan":
+    if missing_scope or feedback.get("correction_readiness") == "needs_replan":
         replan_dir = output_dir.parent / "coordinator-replan"
         replan_dir.mkdir(parents=True, exist_ok=True)
         replan_task = replan_dir / "task.md"
         replan_task.write_text(
             f"## Public Task\n{task}\n\n## Current Patch\n```diff\n{failed_patch}\n```\n"
-            f"## Validated FailureFeedback\n{json.dumps(feedback, ensure_ascii=False, indent=2)}\n"
+            f"## Validated FailureFeedback\n{render_failure_handoff(feedback)}\n"
             f"## Current Scope\n{json.dumps(constraints, ensure_ascii=False)}\n"
             f"## Uncovered Required Edits\n{json.dumps(missing_scope, ensure_ascii=False)}\n"
             "\n## 本轮范围重规划说明\n"
@@ -1809,13 +2018,22 @@ def run_inline_experience_corrective(
                     "implement_attempted": False}
     task_path = output_dir / "task.md"
     constraints_path = output_dir / "constraints.json"
+    handoff = feedback
+    if replan is not None:
+        handoff = {
+            **feedback,
+            "required_edits": replan.get("required_edits", feedback.get("required_edits", [])),
+            "correction_route": "corrective_implement",
+            "replan_reason": "",
+            "stop_reason": "",
+        }
     corrective_task = (
         f"## Public Task\n{task}\n\n"
-        f"## FailureFeedback\n{json.dumps(feedback, ensure_ascii=False, indent=2)}\n\n"
+        f"## FailureFeedback\n{render_failure_handoff(handoff)}\n\n"
         f"## Current Failed Patch\n```diff\n{failed_patch}\n```\n\n"
-        "Correct this patch in place exactly once. Every edit must map to the authorizing direct subset of "
-        "correction_evidence_ids; inference may explain causality but cannot add an edit obligation.\n"
-        "The feedback comes from one real experience-build harness run. Treat only logged exceptions, expected/actual "
+        "Correct this patch in place exactly once. Apply repair.edits, unless a source-confirmed replan supersedes them. Every edit must map to the authorizing direct subset of "
+        "evidence.used_ids; inference may explain causality but cannot add an edit obligation.\n"
+        "The feedback comes from a recorded validation run. Treat only logged exceptions, expected/actual "
         "mismatches, failing target behavior, and observed regressions as acceptance criteria; do not infer hidden test "
         "source or a gold implementation. For each actionable violation, state which existing predicate, output rule, "
         "or state mutation caused the observed mismatch.\n"
@@ -1828,7 +2046,7 @@ def run_inline_experience_corrective(
         "For mutable geometry/state, do not infer that an index observed after the failed patch was also in-bounds for "
         "the original trigger. If direct evidence shows input-dependent cardinality, rebuild the canonical state or use "
         "its owner setter instead of restoring an out-of-bounds indexed mutation. "
-        "Preserve regression_guards, do not search, do not edit tests, and stay inside the enforced hunk scope."
+        "Preserve repair.preserve, do not search, do not edit tests, and stay inside the enforced hunk scope."
     )
     if replan is not None:
         corrective_task += (
@@ -2135,7 +2353,7 @@ def run_experience_curator_for_success(
     failed_patch_path.write_text(failed_patch, encoding="utf-8")
     validation_path.write_text(
         json.dumps(
-            {
+            validation if validation.get("validation_kind") == "public_test_suite" else {
                 "repo": row["repo"],
                 "resolved": validation.get("resolved"),
                 "error": validation.get("error"),
@@ -2711,16 +2929,28 @@ def patch_change_stats(patch: str) -> dict[str, Any]:
     removed: list[str] = []
     added_by_file: dict[str, list[str]] = {}
     removed_by_file: dict[str, list[str]] = {}
+    old_order: list[tuple[str, str]] = []
+    new_order: list[tuple[str, str]] = []
     current_path = ""
+    in_hunk = False
     for line in patch.splitlines():
         if line.startswith("diff --git "):
             current_path = _path_from_diff_header(line)
+            in_hunk = False
+            continue
+        if line.startswith("@@ "):
+            in_hunk = True
             continue
         if line.startswith("+++ "):
             current_path = _clean_patch_path(line[4:].split("\t", 1)[0].strip()) or current_path
             continue
         if line.startswith("+++") or line.startswith("---"):
             continue
+        if in_hunk and line[:1] in {" ", "+", "-"} and (statement := _semantic_line(line[1:])):
+            if line[0] != "+":
+                old_order.append((current_path, statement))
+            if line[0] != "-":
+                new_order.append((current_path, statement))
         if line.startswith("+"):
             value = line[1:]
             added.append(value)
@@ -2736,7 +2966,7 @@ def patch_change_stats(patch: str) -> dict[str, Any]:
     semantic_changes = len(added_semantic) + len(removed_semantic)
     indentation_sensitive = _has_indentation_sensitive_change(added_by_file, removed_by_file)
     whitespace_only = changed_lines > 0 and (
-        semantic_changes == 0 or sorted(added_semantic) == sorted(removed_semantic)
+        semantic_changes == 0 or (sorted(added_semantic) == sorted(removed_semantic) and old_order == new_order)
     ) and not indentation_sensitive
     return {
         "changed_lines": changed_lines,

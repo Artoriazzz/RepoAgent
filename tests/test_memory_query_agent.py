@@ -9,6 +9,7 @@ from openai import APITimeoutError
 from repo_agent import cli
 from repo_agent.core.coordinator import CoordinatorEngine
 from repo_agent.core.llm import LLMOutputLimitError, LLMToolResponse, ToolCall
+from repo_agent.core.prompts import with_public_evidence_constraint
 from repo_agent.core.memory import MemoryStore, MemoryType, RecalledMemory
 from repo_agent.core.memory_query import (
     MEMORY_QUERY_SYSTEM_PROMPT,
@@ -57,7 +58,7 @@ def test_extract_uses_only_public_issue_and_saves_usage_separately(tmp_path):
     messages, tools = llm.requests[0]
     assert tools == []
     assert [m["role"] for m in messages] == ["system", "user"]
-    assert messages[0]["content"] == MEMORY_QUERY_SYSTEM_PROMPT
+    assert messages[0]["content"] == with_public_evidence_constraint(MEMORY_QUERY_SYSTEM_PROMPT)
     assert json.loads(messages[1]["content"]) == {
         "issue_title": "Plot fails", "issue_body": "Array input fails before a missing attribute error.",
     }

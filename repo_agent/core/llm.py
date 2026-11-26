@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 import uuid
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
@@ -181,11 +182,17 @@ class ChatLLM:
         )
         self.max_retries = int(os.getenv("REPO_AGENT_LLM_MAX_RETRIES", DEFAULT_LLM_MAX_RETRIES))
         self._request_state = threading.local()
+        endpoint = urlsplit(self.base_url or "")
+        go_headers = {}
+        if (endpoint.scheme == "https" and endpoint.hostname == "opencode.ai"
+                and endpoint.path.rstrip("/") == "/inference/go/openai/v1"):
+            go_headers = {"User-Agent": "RepoAgent/1.0", "x-opencode-session": uuid.uuid4().hex}
         self.client = OpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
             timeout=self.timeout,
             max_retries=self.max_retries,
+            default_headers=go_headers,
             http_client=httpx.Client(event_hooks={
                 "request": [self._log_http_attempt],
                 "response": [self._log_http_response],
@@ -272,6 +279,7 @@ class ChatLLM:
                      tool_count=len(request.get("tools", [])),
                      tool_schema_chars=len(json.dumps(request.get("tools", []), ensure_ascii=False)),
                      reasoning_effort=request.get("reasoning_effort"),
+                     temperature=request.get("temperature"),
                      stream=True,
                      max_output_tokens=limit,
                      timeout_seconds=getattr(self, "timeout", DEFAULT_LLM_TIMEOUT_SECONDS),
@@ -438,7 +446,12 @@ class ChatLLM:
             return {"reasoning_effort": _GLM_EFFORT_MAP.get(effort, _GLM_DEFAULT_EFFORT)}
         return {}
 
-    def invoke_with_tools(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> LLMToolResponse:
+    def invoke_finalization(self, messages: list[dict[str, Any]]) -> LLMToolResponse:
+        return self.invoke_with_tools(messages, [], lightweight_finalization=True)
+
+    def invoke_with_tools(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], *, lightweight_finalization: bool = False,
+    ) -> LLMToolResponse:
         """执行一次支持 function calling 的同步模型请求。"""
 
         request: dict[str, Any] = {
@@ -451,8 +464,11 @@ class ChatLLM:
             request["tools"] = tools
             request["tool_choice"] = "auto"
         completion_options = self._completion_options()
+        if lightweight_finalization and _model_family(self.model) == "glm":
+            completion_options["reasoning_effort"] = "low"
         request.update(completion_options)
-        if not completion_options:
+        # GLM 同时支持思考档位与温度，不能因开启思考而丢弃采样配置。
+        if not completion_options or _model_family(self.model) == "glm":
             request["temperature"] = self.temperature
         response = self._create_completion(request)
         message = response.choices[0].message
@@ -485,6 +501,10 @@ class ChatLLM:
     def invoke_text(self, system: str, user: str) -> str:
         """执行不带工具的旁路文本请求，供记忆检索等辅助任务使用。"""
 
+        from repo_agent.core.prompts import with_public_evidence_constraint
+
+        system = with_public_evidence_constraint(system)
+
         request: dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -494,7 +514,7 @@ class ChatLLM:
         }
         completion_options = self._completion_options()
         request.update(completion_options)
-        if not completion_options:
+        if not completion_options or _model_family(self.model) == "glm":
             request["temperature"] = 0
         response = self._create_completion(request)
         return response.choices[0].message.content or ""

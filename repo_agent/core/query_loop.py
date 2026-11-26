@@ -10,6 +10,7 @@ from typing import Any, AsyncIterator, Protocol
 
 from repo_agent.core.context import ConversationContextManager
 from repo_agent.core.llm import LLMToolResponse
+from repo_agent.core.stage_history import ArchivedMessages
 from repo_agent.core.tool import ToolRegistry, ToolResponse
 
 
@@ -155,6 +156,10 @@ async def query_loop(
                 tool_call.arguments,
                 context_manager is None,
             )
+            original = (
+                _tool_result_message(tool_call.id, tool_call.name, tool_response)
+                if isinstance(messages, ArchivedMessages) else None
+            )
             if context_manager:
                 tool_response = context_manager.process_tool_response(tool_call.name, tool_response)
             yield LoopEvent(
@@ -167,7 +172,11 @@ async def query_loop(
                 },
             )
 
-            messages.append(_tool_result_message(tool_call.id, tool_call.name, tool_response))
+            observation = _tool_result_message(tool_call.id, tool_call.name, tool_response)
+            if isinstance(messages, ArchivedMessages):
+                messages.append(observation, original=original)
+            else:
+                messages.append(observation)
             final_output_requested |= bool(tool_response.data.get("force_final_output"))
 
             # 除模型自然结束外，工具也可以请求终止。例如验证工具发现已经没有可信的
@@ -350,7 +359,11 @@ async def _max_steps_finalization_turn(
     if context_manager:
         context_manager.before_model_call(messages)
 
-    response = await asyncio.to_thread(llm.invoke_with_tools, messages, [])
+    invoke_finalization = getattr(llm, "invoke_finalization", None)
+    if invoke_finalization is None:
+        response = await asyncio.to_thread(llm.invoke_with_tools, messages, [])
+    else:
+        response = await asyncio.to_thread(invoke_finalization, messages)
     yield LoopEvent(
         LoopEventType.LLM_RESPONSE,
         step,

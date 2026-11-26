@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 from uuid import UUID
 
+from repo_agent.core.stage_history import StageConversation, prompt_history
+from repo_agent.core.prompts import with_public_evidence_constraint
 from repo_agent.worker.models import PatchArtifacts, RecalledMemory, RepairTaskContext
 from repo_agent.worker.evaluator import BenchmarkEvaluation
 from repo_agent.worker.memory_query import build_memory_query
@@ -80,7 +82,20 @@ class SemanticMemoryCurator:
             },
             "similar_memories": [self._candidate_payload(memory) for memory in candidates],
         }
-        raw = self._llm.invoke_text(_CURATOR_SYSTEM_PROMPT, json.dumps(prompt, ensure_ascii=False))
+        conversation = StageConversation(scope="experience-curator")
+        previous = prompt_history(conversation.previous)
+        if previous:
+            prompt["prior_conversation"] = previous
+        if conversation.material:
+            prompt["previous_stage_evidence"] = conversation.material
+        user = json.dumps(prompt, ensure_ascii=False)
+        system = with_public_evidence_constraint(_CURATOR_SYSTEM_PROMPT)
+        raw = self._llm.invoke_text(system, user)
+        conversation.save([
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": raw},
+        ])
         decision = self._validate_decision(_parse_json_object(raw), candidates)
         self._reject_task_leakage(decision, context, artifacts.changed_files)
         return decision

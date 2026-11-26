@@ -1,0 +1,134 @@
+diff --git a/repo_agent/core/llm.py b/repo_agent/core/llm.py
+index 9ef39dd..43ebfe2 100644
+--- a/repo_agent/core/llm.py
++++ b/repo_agent/core/llm.py
+@@ -501,6 +501,10 @@ class ChatLLM:
+     def invoke_text(self, system: str, user: str) -> str:
+         """执行不带工具的旁路文本请求，供记忆检索等辅助任务使用。"""
+ 
++        from repo_agent.core.prompts import with_public_evidence_constraint
++
++        system = with_public_evidence_constraint(system)
++
+         request: dict[str, Any] = {
+             "model": self.model,
+             "messages": [
+diff --git a/repo_agent/core/memory_query.py b/repo_agent/core/memory_query.py
+index 2fd09f9..8928f42 100644
+--- a/repo_agent/core/memory_query.py
++++ b/repo_agent/core/memory_query.py
+@@ -11,6 +11,7 @@ import httpx
+ from openai import OpenAIError
+ 
+ from repo_agent.core.llm import LLMOutputLimitError, LLMStreamInterruptedError, LLMToolResponse
++from repo_agent.core.prompts import with_public_evidence_constraint
+ 
+ 
+ MEMORY_QUERY_SYSTEM_PROMPT = """你负责将软件仓库 Issue 整理成用于历史修复经验检索的查询。
+@@ -104,7 +105,7 @@ class MemoryQueryAgent:
+         if not original:
+             raise ValueError("A nonempty public issue is required")
+         messages = [
+-            {"role": "system", "content": MEMORY_QUERY_SYSTEM_PROMPT},
++            {"role": "system", "content": with_public_evidence_constraint(MEMORY_QUERY_SYSTEM_PROMPT)},
+             {"role": "user", "content": json.dumps(
+                 {"issue_title": issue_title, "issue_body": issue_body}, ensure_ascii=False
+             )},
+diff --git a/repo_agent/core/prompts.py b/repo_agent/core/prompts.py
+index a1140fc..8ea3842 100644
+--- a/repo_agent/core/prompts.py
++++ b/repo_agent/core/prompts.py
+@@ -17,6 +17,16 @@ SENSITIVE_NAMES = {".env", ".env.local", ".npmrc", ".pypirc", "id_rsa", "id_ed25
+ INCLUDE_RE = re.compile(r"^@(\./[^\s]+|~/[^\s]+|/[^\s]+)\s*$", re.MULTILINE)
+ 
+ 
++PUBLIC_EVIDENCE_CONSTRAINT = "只依据当前明确提供的 Issue、源码和公开验证证据推导结论，不猜测、回忆或讨论隐藏评测的测试内容、判定标签及参考修复；缺少依据时明确说明未知。"
++
++
++def with_public_evidence_constraint(prompt: str) -> str:
++    """为所有角色追加固定约束；复用提示词时不重复插入。"""
++    if PUBLIC_EVIDENCE_CONSTRAINT in prompt:
++        return prompt
++    return prompt.rstrip() + "\n\n# 公开证据约束\n" + PUBLIC_EVIDENCE_CONSTRAINT
++
++
+ SYSTEM_PROMPT_TEMPLATE = """你是在命令行中维护 GitHub 仓库的代码助手。
+ 你的职责是理解用户目标，读取真实仓库状态，做最小必要修改，并用工具验证结果。你没有调用方内部架构或其他角色的隐含上下文，只能使用本提示、当前消息和工具结果。
+ 
+@@ -88,7 +98,7 @@ def build_system_prompt(*, tool_rules: str = "") -> str:
+     """
+ 
+     prompt = SYSTEM_PROMPT_TEMPLATE.replace("{{tool_rules}}", _format_tool_rules(tool_rules))
+-    return _compact_blank_lines(prompt).strip()
++    return with_public_evidence_constraint(_compact_blank_lines(prompt).strip())
+ 
+ 
+ def build_runtime_context(
+diff --git a/repo_agent/core/query_engine.py b/repo_agent/core/query_engine.py
+index 7dd7e07..bbfdb2e 100644
+--- a/repo_agent/core/query_engine.py
++++ b/repo_agent/core/query_engine.py
+@@ -10,7 +10,7 @@ from typing import Any
+ from repo_agent.core.context import ConversationContextManager
+ from repo_agent.core.llm import ChatLLM, LLMOutputLimitError
+ from repo_agent.core.memory import MAX_SESSION_MEMORY_BYTES, MemoryStore, MemoryType, format_memories_for_injection
+-from repo_agent.core.prompts import build_dynamic_context, build_system_prompt
++from repo_agent.core.prompts import build_dynamic_context, build_system_prompt, with_public_evidence_constraint
+ from repo_agent.core.query_loop import AbortSignal, LoopEvent, LoopEventType, query_loop
+ from repo_agent.core.session_memory import ShortTermMemory
+ from repo_agent.core.stage_history import ArchivedMessages, StageConversation
+@@ -275,7 +275,7 @@ class QueryEngine:
+     def _append_stable_prompt_sections(system_prompt: str, tool_prompt: str) -> str:
+         """只追加同一角色稳定的工具规则。记忆和运行时上下文不在这里出现。"""
+ 
+-        sections = [system_prompt.rstrip()]
++        sections = [with_public_evidence_constraint(system_prompt.rstrip())]
+         if tool_prompt.strip():
+             sections.append(f"# Tool-specific Rules\n{tool_prompt.strip()}")
+         return "\n\n".join(sections)
+diff --git a/repo_agent/worker/memory_curator.py b/repo_agent/worker/memory_curator.py
+index 25461db..be957a7 100644
+--- a/repo_agent/worker/memory_curator.py
++++ b/repo_agent/worker/memory_curator.py
+@@ -7,6 +7,7 @@ from typing import Any, Protocol
+ from uuid import UUID
+ 
+ from repo_agent.core.stage_history import StageConversation, prompt_history
++from repo_agent.core.prompts import with_public_evidence_constraint
+ from repo_agent.worker.models import PatchArtifacts, RecalledMemory, RepairTaskContext
+ from repo_agent.worker.evaluator import BenchmarkEvaluation
+ from repo_agent.worker.memory_query import build_memory_query
+@@ -88,9 +89,10 @@ class SemanticMemoryCurator:
+         if conversation.material:
+             prompt["previous_stage_evidence"] = conversation.material
+         user = json.dumps(prompt, ensure_ascii=False)
+-        raw = self._llm.invoke_text(_CURATOR_SYSTEM_PROMPT, user)
++        system = with_public_evidence_constraint(_CURATOR_SYSTEM_PROMPT)
++        raw = self._llm.invoke_text(system, user)
+         conversation.save([
+-            {"role": "system", "content": _CURATOR_SYSTEM_PROMPT},
++            {"role": "system", "content": system},
+             {"role": "user", "content": user},
+             {"role": "assistant", "content": raw},
+         ])
+diff --git a/tests/test_memory_query_agent.py b/tests/test_memory_query_agent.py
+index 1f503fa..5735a7c 100644
+--- a/tests/test_memory_query_agent.py
++++ b/tests/test_memory_query_agent.py
+@@ -9,6 +9,7 @@ from openai import APITimeoutError
+ from repo_agent import cli
+ from repo_agent.core.coordinator import CoordinatorEngine
+ from repo_agent.core.llm import LLMOutputLimitError, LLMToolResponse, ToolCall
++from repo_agent.core.prompts import with_public_evidence_constraint
+ from repo_agent.core.memory import MemoryStore, MemoryType, RecalledMemory
+ from repo_agent.core.memory_query import (
+     MEMORY_QUERY_SYSTEM_PROMPT,
+@@ -57,7 +58,7 @@ def test_extract_uses_only_public_issue_and_saves_usage_separately(tmp_path):
+     messages, tools = llm.requests[0]
+     assert tools == []
+     assert [m["role"] for m in messages] == ["system", "user"]
+-    assert messages[0]["content"] == MEMORY_QUERY_SYSTEM_PROMPT
++    assert messages[0]["content"] == with_public_evidence_constraint(MEMORY_QUERY_SYSTEM_PROMPT)
+     assert json.loads(messages[1]["content"]) == {
+         "issue_title": "Plot fails", "issue_body": "Array input fails before a missing attribute error.",
+     }

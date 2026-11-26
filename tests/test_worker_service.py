@@ -14,6 +14,8 @@ from repo_agent.worker.models import (
 )
 from repo_agent.worker.service import RepairWorkerService
 from repo_agent.worker.evaluator import BenchmarkEvaluation
+from repo_agent.worker.backend_client import WorkerLease
+from repo_agent.core.stage_history import StageConversation
 
 
 class FakeBackend:
@@ -29,6 +31,7 @@ class FakeBackend:
         self.memory_feedback: list[tuple] = []
         self.memory_observations: list[dict] = []
         self.handoffs: list[tuple] = []
+        self.handoff_contexts: list[dict] = []
         self.pipeline_completions: list[tuple] = []
         self.memory_searches: list[tuple] = []
 
@@ -70,11 +73,12 @@ class FakeBackend:
         return {"id": str(uuid4())}
 
     def handoff_stage(
-        self, task_id, current_stage, next_stage, worker_id, lease_token, message
+        self, task_id, current_stage, next_stage, worker_id, lease_token, message, *, agent_context=None
     ):
         self.handoffs.append(
             (task_id, current_stage, next_stage, worker_id, lease_token, message)
         )
+        self.handoff_contexts.append(agent_context)
         return {}
 
     def complete_pipeline(self, task_id, **kwargs):
@@ -358,7 +362,39 @@ def test_pipeline_workers_handoff_a_resolved_task_between_durable_stage_queues(t
     assert [status for status, _ in backend.evaluation_updates] == ["RUNNING"]
     assert len(backend.pipeline_completions) == 1
     assert backend.pipeline_completions[0][1]["evaluation_status"] == "RESOLVED"
+    assert [context["material"]["stage"] for context in backend.handoff_contexts] == [
+        "COORDINATOR", "IMPLEMENT", "VALIDATION",
+    ]
+    assert backend.pipeline_completions[0][1]["agent_context"]["material"]["stage"] == "EXPERIENCE_MEMORY"
     assert "RETRYING" not in [stage for stage, _ in backend.events]
+
+
+def test_pipeline_restores_claimed_history_and_submits_new_snapshot(tmp_path):
+    context = _context()
+    backend = FakeBackend(context)
+
+    class CapturingExecutor(FakeExecutor):
+        def run(self, context, worktree, output_dir, should_cancel=None):
+            conversation = StageConversation()
+            assert conversation.previous == [{"role": "assistant", "content": "old round"}]
+            assert conversation.material == {"detail": "current handoff"}
+            conversation.save([{"role": "assistant", "content": "new round"}])
+            return super().run(context, worktree, output_dir, should_cancel)
+
+    service = RepairWorkerService(
+        backend, FakeWorkspace("patch"), CapturingExecutor(), tmp_path
+    )
+    assert service.process_stage(_message(context, RepairPipelineStage.COORDINATOR))
+    previous = {"scope": ".", "messages": [{"role": "assistant", "content": "old round"}]}
+    backend.lease_token = WorkerLease(
+        uuid4(), 1, 2,
+        own_context={"body": {"sessions": [previous]}},
+        incoming_context={"body": {"material": {"detail": "current handoff"}}},
+    )
+    assert service.process_stage(_message(context, RepairPipelineStage.IMPLEMENT))
+    assert backend.handoff_contexts[-1]["sessions"] == [
+        previous, {"scope": ".", "messages": [{"role": "assistant", "content": "new round"}]},
+    ]
 
 
 def test_pipeline_unresolved_task_runs_failure_review_before_final_memory_stage(tmp_path):

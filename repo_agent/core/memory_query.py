@@ -11,6 +11,7 @@ import httpx
 from openai import OpenAIError
 
 from repo_agent.core.llm import LLMOutputLimitError, LLMStreamInterruptedError, LLMToolResponse
+from repo_agent.core.prompts import with_public_evidence_constraint
 
 
 MEMORY_QUERY_SYSTEM_PROMPT = """你负责将软件仓库 Issue 整理成用于历史修复经验检索的查询。
@@ -104,7 +105,7 @@ class MemoryQueryAgent:
         if not original:
             raise ValueError("A nonempty public issue is required")
         messages = [
-            {"role": "system", "content": MEMORY_QUERY_SYSTEM_PROMPT},
+            {"role": "system", "content": with_public_evidence_constraint(MEMORY_QUERY_SYSTEM_PROMPT)},
             {"role": "user", "content": json.dumps(
                 {"issue_title": issue_title, "issue_body": issue_body}, ensure_ascii=False
             )},

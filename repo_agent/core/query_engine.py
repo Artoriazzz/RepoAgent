@@ -10,9 +10,10 @@ from typing import Any
 from repo_agent.core.context import ConversationContextManager
 from repo_agent.core.llm import ChatLLM, LLMOutputLimitError
 from repo_agent.core.memory import MAX_SESSION_MEMORY_BYTES, MemoryStore, MemoryType, format_memories_for_injection
-from repo_agent.core.prompts import build_dynamic_context, build_system_prompt
+from repo_agent.core.prompts import build_dynamic_context, build_system_prompt, with_public_evidence_constraint
 from repo_agent.core.query_loop import AbortSignal, LoopEvent, LoopEventType, query_loop
 from repo_agent.core.session_memory import ShortTermMemory
+from repo_agent.core.stage_history import ArchivedMessages, StageConversation
 from repo_agent.core.tool import ToolRegistry
 
 
@@ -85,6 +86,11 @@ class QueryEngine:
         # 动态上下文只在会话初始化时快照一次，后续轮次保持不变，使多轮请求也能共享前缀。
         if self.dynamic_context.strip():
             self.messages.append({"role": "user", "content": self.dynamic_context})
+        self.stage_conversation = StageConversation(self.output_dir)
+        if self.stage_conversation.path is not None:
+            self.messages = ArchivedMessages(self.messages)
+            self.messages.restore(self.stage_conversation.previous)
+            self.stage_conversation.append_material(self.messages)
         # token 和完成状态属于会话级指标，所以由 Engine 持有，而不是塞进纯循环。
         self.prompt_version = prompt_version
         self.total_prompt_tokens = 0
@@ -185,6 +191,8 @@ class QueryEngine:
         """无论成功、异常还是中断都保存可复盘的会话快照。"""
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        if isinstance(self.messages, ArchivedMessages):
+            self.stage_conversation.save(self.messages.originals)
         (self.output_dir / "messages.json").write_text(
             json.dumps(self.messages, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -267,7 +275,7 @@ class QueryEngine:
     def _append_stable_prompt_sections(system_prompt: str, tool_prompt: str) -> str:
         """只追加同一角色稳定的工具规则。记忆和运行时上下文不在这里出现。"""
 
-        sections = [system_prompt.rstrip()]
+        sections = [with_public_evidence_constraint(system_prompt.rstrip())]
         if tool_prompt.strip():
             sections.append(f"# Tool-specific Rules\n{tool_prompt.strip()}")
         return "\n\n".join(sections)

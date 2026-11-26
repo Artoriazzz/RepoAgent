@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +21,8 @@ _STATIC_COMMAND_PATTERNS = (
 )
 
 _BEHAVIOR_COMMAND_PATTERNS = (
+    r"\bpython(?:3)?\s+(?:\./)?tests/runtests\.py(?:\s|$)",
+    r"\bpython(?:3)?\s+(?:\./)?manage\.py\s+test(?:\s|$)",
     r"\bpytest\b",
     r"\bpython(?:3)?\s+-m\s+unittest\b",
     r"\b(?:tox|nox)\b",
@@ -45,6 +50,49 @@ _ENVIRONMENT_FAILURE_PATTERNS = (
 _DOCKER_IMAGE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*(?::[A-Za-z0-9._-]+)?")
 
 
+def test_overlay_digest(overlay: Path | None) -> str | None:
+    if overlay is None:
+        return None
+    digest = hashlib.sha256()
+    for path in sorted(overlay.rglob("*")):
+        if path.is_file():
+            digest.update(path.relative_to(overlay).as_posix().encode() + b"\0")
+            digest.update(path.read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+@contextmanager
+def temporary_test_overlay(repo: Path, overlay: Path | None):
+    """本地验证临时加入独立测试文件，执行结束后移除，保留原有文件。"""
+    files, directories = [], []
+    try:
+        if overlay is not None:
+            for source in sorted(overlay.rglob("*")):
+                if not source.is_file():
+                    continue
+                target = repo / source.relative_to(overlay)
+                if not target.resolve().is_relative_to(repo.resolve()) or target.exists():
+                    raise ValueError(f"Public tests cannot overwrite repository files: {target}")
+                missing = []
+                parent = target.parent
+                while not parent.exists():
+                    missing.append(parent)
+                    parent = parent.parent
+                for directory in reversed(missing):
+                    directory.mkdir()
+                    directories.append(directory)
+                shutil.copyfile(source, target)
+                files.append(target)
+        yield
+    finally:
+        for path in reversed(files):
+            path.unlink()
+        for directory in reversed(directories):
+            # 测试运行器可能生成缓存；只移除空目录，不删除其他产物。
+            if not any(directory.iterdir()):
+                directory.rmdir()
+
+
 def prepare_verification_command(
     command: str,
     repo_path: str | Path,
@@ -52,6 +100,7 @@ def prepare_verification_command(
     docker_image: str | None = None,
     interpreter: str | None = None,
     apply_host_patch: bool = True,
+    test_overlay: Path | None = None,
 ) -> tuple[str, str]:
     """为验证命令选择确定运行时，返回执行命令和运行时类型。"""
 
@@ -83,10 +132,15 @@ def prepare_verification_command(
         else:
             # 干净基线没有 patch；对空输入运行 git apply 会返回 128，误报环境失败。
             container_command = inner_command
+        overlay_mount = ""
+        if test_overlay is not None:
+            overlay_mount = f"-v {shlex.quote(str(test_overlay.resolve()))}:/repo-agent-public-tests:ro"
+            container_command = "cp -R /repo-agent-public-tests/. /testbed/ && " + container_command
         prepared = " ".join(
             (
                 "docker run --rm --network none",
                 f"-v {shlex.quote(repo)}:/repo-agent-host:ro",
+                overlay_mount,
                 "-w /testbed",
                 "-e PYTHONDONTWRITEBYTECODE=1",
                 shlex.quote(image),
@@ -102,6 +156,8 @@ def prepare_verification_command(
         lambda match: f"{match.group(1)}{executable}",
         command,
     )
+    if test_overlay is not None:
+        prepared = "PYTHONDONTWRITEBYTECODE=1 " + prepared
     return prepared, "local_interpreter"
 
 

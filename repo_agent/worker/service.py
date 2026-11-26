@@ -17,6 +17,7 @@ from repo_agent.worker.backend_client import (
     BackendTaskUnavailableError,
     BackendTransportError,
 )
+from repo_agent.core.stage_history import snapshot, stage_history
 from repo_agent.worker.models import AgentRunResult, PatchArtifacts, RepairTaskContext, RepairTaskMessage
 from repo_agent.worker.evaluator import BenchmarkEvaluation
 from repo_agent.worker.models import RepairPipelineStage
@@ -60,7 +61,7 @@ class WorkerBackend(Protocol):
 
     def record_memory_feedback(self, memory_id, task_id, revision: int, **kwargs): ...
 
-    def handoff_stage(self, task_id, current_stage, next_stage, worker_id, lease_token, message: str): ...
+    def handoff_stage(self, task_id, current_stage, next_stage, worker_id, lease_token, message: str, **kwargs): ...
 
     def complete_pipeline(self, task_id, **kwargs): ...
 
@@ -179,20 +180,24 @@ class RepairWorkerService:
                 )
             self._set_activity("BUSY", message.task_id)
             self.send_heartbeat()
-            if message.stage == RepairPipelineStage.COORDINATOR:
-                self._run_pipeline_coordinator(message, lease_token)
-            elif message.stage == RepairPipelineStage.IMPLEMENT:
-                run_result = self._run_pipeline_implement(message, lease_token, corrective=False)
-            elif message.stage == RepairPipelineStage.VALIDATION:
-                self._run_pipeline_validation(message, lease_token)
-            elif message.stage == RepairPipelineStage.FAILURE_REVIEW:
-                self._run_pipeline_failure_review(message, lease_token)
-            elif message.stage == RepairPipelineStage.CORRECTIVE_IMPLEMENT:
-                run_result = self._run_pipeline_implement(message, lease_token, corrective=True)
-            elif message.stage == RepairPipelineStage.EXPERIENCE_MEMORY:
-                self._run_pipeline_memory(message, lease_token)
-            else:
-                raise RuntimeError(f"Unsupported repair pipeline stage: {message.stage}")
+            with stage_history(
+                getattr(lease_token, "own_context", None),
+                getattr(lease_token, "incoming_context", None),
+            ):
+                if message.stage == RepairPipelineStage.COORDINATOR:
+                    self._run_pipeline_coordinator(message, lease_token)
+                elif message.stage == RepairPipelineStage.IMPLEMENT:
+                    run_result = self._run_pipeline_implement(message, lease_token, corrective=False)
+                elif message.stage == RepairPipelineStage.VALIDATION:
+                    self._run_pipeline_validation(message, lease_token)
+                elif message.stage == RepairPipelineStage.FAILURE_REVIEW:
+                    self._run_pipeline_failure_review(message, lease_token)
+                elif message.stage == RepairPipelineStage.CORRECTIVE_IMPLEMENT:
+                    run_result = self._run_pipeline_implement(message, lease_token, corrective=True)
+                elif message.stage == RepairPipelineStage.EXPERIENCE_MEMORY:
+                    self._run_pipeline_memory(message, lease_token)
+                else:
+                    raise RuntimeError(f"Unsupported repair pipeline stage: {message.stage}")
             return True
         except BackendTransportError:
             raise
@@ -300,6 +305,7 @@ class RepairWorkerService:
             lease_token,
             RepairPipelineStage.VALIDATION,
             "Patch is ready for independent validation",
+            material={"changedFiles": list(artifacts.changed_files)},
         )
         return run_result
 
@@ -345,7 +351,10 @@ class RepairWorkerService:
         else:
             next_stage = RepairPipelineStage.EXPERIENCE_MEMORY
             next_message = "Validation completed; routing the final outcome to experience memory"
-        self._handoff(message, lease_token, next_stage, next_message)
+        self._handoff(message, lease_token, next_stage, next_message, material={
+            "evaluationStatus": evaluation.status, "evaluationSummary": evaluation.summary,
+            "harnessLogPath": evaluation.harness_log_path,
+        })
 
     def _run_pipeline_failure_review(self, message: RepairTaskMessage, lease_token: UUID) -> None:
         state = self._pipeline_state.load(message.task_id)
@@ -380,7 +389,7 @@ class RepairWorkerService:
             feedback_payload = {
                 "correction_route": "none",
                 "correction_readiness": "insufficient_evidence",
-                "required_correction": "No independently actionable correction evidence was produced.",
+                "root_cause": "No independently actionable correction evidence was produced.",
             }
         state = state.with_failure_feedback(feedback_payload)
         self._pipeline_state.save(state)
@@ -390,7 +399,7 @@ class RepairWorkerService:
         else:
             next_stage = RepairPipelineStage.EXPERIENCE_MEMORY
             next_message = "FailureReview did not authorize a safe correction; preserving the final failed outcome"
-        self._handoff(message, lease_token, next_stage, next_message)
+        self._handoff(message, lease_token, next_stage, next_message, material={"feedback": feedback_payload})
 
     def _run_pipeline_memory(self, message: RepairTaskMessage, lease_token: UUID) -> None:
         state = self._pipeline_state.load(message.task_id)
@@ -427,6 +436,9 @@ class RepairWorkerService:
             prompt_tokens=run_result.prompt_tokens,
             completion_tokens=run_result.completion_tokens,
             total_tokens=run_result.total_tokens,
+            agent_context=snapshot({
+                "stage": message.stage.value, "evaluationStatus": evaluation.status,
+            }),
         )
 
     def _handoff(
@@ -435,6 +447,8 @@ class RepairWorkerService:
         lease_token: UUID,
         next_stage: RepairPipelineStage,
         detail: str,
+        *,
+        material: dict | None = None,
     ) -> None:
         self._backend.handoff_stage(
             message.task_id,
@@ -443,6 +457,9 @@ class RepairWorkerService:
             self._worker_id,
             lease_token,
             detail,
+            agent_context=snapshot({
+                "stage": message.stage.value, "detail": detail, **(material or {}),
+            }),
         )
 
     @staticmethod

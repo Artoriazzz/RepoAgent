@@ -3,6 +3,8 @@ import subprocess
 import sys
 from dataclasses import replace
 
+import pytest
+
 from repo_agent.core.coordinator import (
     COORDINATOR_SYSTEM_PROMPT,
     SWEBENCH_COORDINATOR_BASE_PROMPT,
@@ -93,13 +95,13 @@ def test_swebench_coordinator_prompt_is_routed_by_repair_mode():
     assert "全局经验/仓库经验" in benchmark
     assert "修改方向仍须由当前题意和源码确认" in benchmark
     assert "外层状态机仅" not in benchmark
-    assert "结构、语法和范围检查" in experience
+    assert "实现后只检查工具返回的结构、语法和范围检查结果" in experience
     assert "不构造复现或验证命令" in experience
     assert "本轮不召回任何历史经验" in experience
     assert "后续工作由调用程序负责" in experience
     assert "三次 harness" not in experience
     assert "ExperienceCurator" not in experience
-    assert "不要反复推演同一组假设" in experience
+    assert "observe_baseline" not in experience
 
 
 def test_model_facing_role_prompts_are_self_contained_and_unbranded():
@@ -383,6 +385,7 @@ def test_failure_review_guard_rejects_inference_without_direct_failure_evidence(
             "root_cause": "An adjacent equality branch might also need a guard.",
             "invalidated_assumption": "The power branch was the only affected branch.",
             "required_correction": "Guard the adjacent equality branch.",
+            "required_edits": [{"path": "a.py", "start_line": 1, "end_line": 1, "change": "Guard the equality branch."}],
             "evidence_ledger": [
                 {
                     "id": "E1",
@@ -423,6 +426,7 @@ def test_failure_review_guard_allows_supporting_inference_with_direct_core():
                 "root_cause": "The patch propagated the lookup alias.",
                 "invalidated_assumption": "Lookup and output identity are interchangeable.",
                 "required_correction": "Propagate the matched identity.",
+                "required_edits": [{"path": "a.py", "start_line": 1, "end_line": 1, "change": "Return the matched identity."}],
                 "evidence_ledger": [
                     {"id": "E1", "source": "public_task", "fact": "Canonical identity is required.", "support": "direct"},
                     {"id": "E2", "source": "failure_log", "fact": "Expected canonical, got alias.", "support": "direct"},
@@ -733,17 +737,9 @@ def test_worker_specs_have_tight_budgets_and_stop_rules():
     assert "unproven_assumptions" in COORDINATOR_SYSTEM_PROMPT
     assert "不得用模型记忆" in COORDINATOR_SYSTEM_PROMPT
     assert "unproven_assumptions" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "不得丢弃已发现的具体风险" in SWEBENCH_COORDINATOR_BASE_PROMPT
     assert "observed_facts" in SWEBENCH_COORDINATOR_BASE_PROMPT
     assert "evidence_ref" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "问题报告中的修法只是候选建议" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "实现者只负责落实方案" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "发现直接反证时应报告，不得擅自换方案" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "blocked_insufficient_edit_scope" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "异常回退、提前结束和递归路径" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "保持合法输入的输出" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "以工具返回的剩余预算为准" in FAILURE_REVIEW_PROMPT
-    assert "repository_code" in FAILURE_REVIEW_PROMPT
+    assert "可以用只读工具查生产源码" in FAILURE_REVIEW_PROMPT
     assert "不要安装依赖" in COORDINATOR_SYSTEM_PROMPT
     assert "semantic_cases" in COORDINATOR_SYSTEM_PROMPT
     assert "old_behavior_invariants" in COORDINATOR_SYSTEM_PROMPT
@@ -943,9 +939,10 @@ def test_implement_phase_can_be_overridden_for_corrective_pass(tmp_path):
     )
 
     assert "# 初始实现" in initial.system_prompt
-    assert "# 纠正实现" in corrective.system_prompt
+    assert "# 纠正任务" in corrective.system_prompt
     assert "# 初始实现" not in corrective.system_prompt
-    assert "因果推断可以辅助决定改法" in corrective.system_prompt
+    assert "evidence.used_ids" in corrective.system_prompt
+    assert "若缺少权限，报告 blocked" in corrective.system_prompt
 
 
 def test_implement_schema_is_injected_once_in_user_task():
@@ -954,6 +951,16 @@ def test_implement_schema_is_injected_once_in_user_task():
     assert '"target_behavior":' not in SWEBENCH_IMPLEMENT_PROMPT
     assert "Coordinator 分配" not in task
     assert "主 Agent" not in task
+    schema = json.loads(SWEBENCH_IMPLEMENT_OUTPUT_SCHEMA)
+    assert set(schema) == {
+        "status", "completed_changes", "remaining_changes", "block_reason",
+        "target_behavior", "changed_decision", "preserve_cases", "verification",
+        "changed_files", "known_risks",
+    }
+    assert schema["status"].split("|") == ["completed", "blocked", "partial"]
+    assert "这不表示测试通过" in SWEBENCH_IMPLEMENT_PROMPT
+    assert 'verification="not_available"' in SWEBENCH_IMPLEMENT_PROMPT
+    assert "授权源码中能确认" in SWEBENCH_IMPLEMENT_PROMPT
 
 
 def test_candidate_command_uses_current_python_and_preserves_explicit_exit_code():
@@ -1052,25 +1059,18 @@ def test_coordinator_default_read_budget_allows_twelve_queries():
 
 
 def test_swebench_coordinator_converges_before_dispatch():
-    assert "不得要求它执行 Python" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "不把假设当作事实" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "优先读取该操作及其直接实现" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "错误结果只能用于提出候选原因" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "不能直接证明某个内部操作出错" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "关键未知仍会改变修法" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "查询预算耗尽仍不能确定修法" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "不为保住旧结果而另建平行 API" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "内部计算正确不代表返回结果正确" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "核对直接的转换和包装" in SWEBENCH_COORDINATOR_BASE_PROMPT
+    text = SWEBENCH_COORDINATOR_BASE_PROMPT
+    assert "证据足以决定修改时立即派发" in text
+    assert "blocked_insufficient_edit_scope" in text
+    assert "supported_by 引用对应事实" in text
+    assert "按工具 schema 传入 allowed_files 和 allowed_ranges" in text
 
 
-def test_repair_prompts_distinguish_original_object_and_generator_resume():
-    assert "副本未变不能证明原对象未变" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "不要默认下一轮循环体一定会执行" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "不把已发现的覆盖缺口写成禁止修改的旧行为约束" in SWEBENCH_COORDINATOR_BASE_PROMPT
-    assert "一个示例正确只能排除该示例走过的路径" in FAILURE_REVIEW_PROMPT
-    assert "不能声称它就是日志未给出的测试输入" in FAILURE_REVIEW_PROMPT
-    assert "环境归因必须有模块加载、依赖或执行故障的直接证据" in FAILURE_REVIEW_PROMPT
+def test_failure_review_prompt_distinguishes_code_test_and_environment():
+    assert "补丁违反了公开要求" in FAILURE_REVIEW_PROMPT
+    assert "测试要求了某种实现方式" in FAILURE_REVIEW_PROMPT
+    assert "运行环境没有执行到目标行为" in FAILURE_REVIEW_PROMPT
+    assert "failure.observations 用数组" in FAILURE_REVIEW_PROMPT
 
 
 def test_recovery_query_budget_matches_coordinator_phase():
@@ -1439,18 +1439,35 @@ def test_coordinator_can_freeze_repair_memory_recall(tmp_path):
     assert engine.last_recalled_repair_recipes == ()
 
 
-def test_implement_worker_requires_structured_scope(tmp_path):
+@pytest.mark.parametrize("swebench", [False, True])
+def test_implement_worker_requires_structured_scope(tmp_path, swebench):
     runner = SubAgentRunner(llm=FakeLLM([]), base_tools=_base_tools(), cwd=tmp_path, output_dir=tmp_path / "out")
     registry = ToolRegistry()
     registry.register_many(build_agent_tools(runner))
 
     response = registry.execute(
         "agent",
-        {"type": "implement", "description": "改代码", "prompt": "修改 src/app.py"},
+        {"type": "implement", "description": "改代码",
+         "prompt": _swebench_edit_brief_prompt("修改 src/app.py:1-5") if swebench else "修改 src/app.py"},
     )
 
     assert response.status == "error"
     assert response.error["code"] == "IMPLEMENT_SCOPE_REQUIRED"
+    assert "top-level" in response.error["message"]
+
+
+def test_swebench_test_only_scope_still_denied(tmp_path):
+    runner = SubAgentRunner(llm=FakeLLM([]), base_tools=_base_tools(), cwd=tmp_path, output_dir=tmp_path / "out")
+    registry = ToolRegistry()
+    registry.register_many(build_agent_tools(runner))
+    response = registry.execute("agent", {
+        "type": "implement", "description": "Edit only tests",
+        "prompt": _swebench_edit_brief_prompt("修改 tests/test_app.py"),
+        "allowed_files": ["tests/test_app.py"],
+        "allowed_ranges": {"tests/test_app.py": [[1, 5]]},
+    })
+    assert response.status == "error"
+    assert response.error["code"] == "SWEBENCH_TEST_EDIT_DENIED"
 
 
 def test_swebench_implement_scope_strips_test_files(tmp_path):

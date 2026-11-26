@@ -428,8 +428,23 @@ def test_glm_flash_tool_call_sends_mapped_reasoning_effort():
     # GLM 思考无法关闭但支持 effort 分档；thinking 参数是冗余的，不上行。
     assert request["reasoning_effort"] == "high"
     assert "extra_body" not in request
-    assert "temperature" not in request
+    assert request["temperature"] == 0.1
     assert llm.thinking_forced is False
+
+
+def test_glm_finalization_keeps_history_without_tools_or_shared_effort_changes():
+    llm, completions = _fake_llm("glm-5.3-flash")
+    llm.reasoning_effort = "high"
+    history = [{"role": "system", "content": "rules"}, {"role": "user", "content": "evidence"}]
+
+    llm.invoke_finalization(history)
+    llm.invoke_with_tools(history, [])
+
+    finalizer, regular = completions.requests
+    assert finalizer["messages"] == regular["messages"] == history
+    assert "tools" not in finalizer and "tool_choice" not in finalizer
+    assert finalizer["reasoning_effort"] == "low"
+    assert regular["reasoning_effort"] == llm.reasoning_effort == "high"
 
 
 def test_glm_flash_unspecified_effort_defaults_to_high():
@@ -462,7 +477,7 @@ def test_glm_flash_lightweight_workers_degrade_to_low_effort():
     # GLM 无法关闭思考：轻量角色降档为 low 控制成本，而非吃满默认思考。
     assert request["reasoning_effort"] == "low"
     assert "extra_body" not in request
-    assert "temperature" not in request
+    assert request["temperature"] == 0.1
     assert llm.thinking_forced is True
 
 
@@ -474,7 +489,17 @@ def test_glm_flash_text_call_sends_reasoning_effort():
     request = completions.requests[0]
     assert request["reasoning_effort"] == "high"
     assert "extra_body" not in request
-    assert "temperature" not in request
+    assert request["temperature"] == 0
+
+
+@pytest.mark.parametrize("temperature", [0, 0.2, 1])
+def test_glm_reasoning_requests_preserve_configured_temperature(temperature):
+    llm, completions = _fake_llm("glm-5.3-flash")
+    llm.reasoning_effort = "high"
+    llm.temperature = temperature
+    llm.invoke_with_tools([{"role": "user", "content": "Return JSON"}], [])
+    assert completions.requests[0]["temperature"] == temperature
+    assert completions.requests[0]["reasoning_effort"] == "high"
 
 
 def test_deepseek_v4_lightweight_workers_are_not_thinking_forced():
