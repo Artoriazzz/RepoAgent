@@ -75,7 +75,7 @@ Every stage can check its ideas against actual results. When a problem is found,
 
 After Coordinator delivers an EditBrief, Implement produces the initial patch, and validation runs the frozen TestDesigner-generated cases. Failure or insufficient validation triggers a budget check: the task ends when the budget is exhausted; otherwise, FailureReview examines the result. It routes code defects within the authorized scope to Implement for targeted correction, broader scope or localization changes to Coordinator, and generated-test defects to TestDesigner with evidence and revision suggestions. Revised tests are run against the original baseline before checking the current patch again. Corrected code returns to the same independent validation stage.
 
-![RepoAgent workflow: TestDesigner baseline tests, failure analysis, and three correction routes; Chinese captions](docs/assets/repair-workflow-testdesigner-v12.png)
+![RepoAgent workflow: TestDesigner baseline tests, failure analysis, and three correction routes](docs/assets/repair-workflow-testdesigner-v12-en.png)
 
 Three handoffs keep responsibilities explicit:
 
